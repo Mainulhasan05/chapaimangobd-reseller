@@ -5,7 +5,7 @@ const Product = require('../../models/Product');
 const DeliveryZone = require('../../models/DeliveryZone');
 const Order = require('../../models/Order');
 
-const cloud = require('../../config/cloudinary');
+const storage = require('../../config/storage');
 const audit = require('../../services/audit');
 const { ok } = require('../../middleware/error');
 const { notFound, badRequest } = require('../../utils/errors');
@@ -150,15 +150,23 @@ async function updateProduct(req, res) {
   return ok(res, { product: present.product(product) });
 }
 
+/**
+ * Only the storage key is kept. The delivery URL is derived when the product is
+ * presented, so moving the bucket to a different domain does not orphan every
+ * image already saved against the old one.
+ */
 async function uploadImages(files) {
   if (!files || files.length === 0) return [];
 
   const uploads = await Promise.all(
     files.map((file) =>
-      cloud.uploadBuffer(file.buffer, { folder: cloud.FOLDERS.PRODUCT, isPrivate: false })
+      storage.uploadBuffer(file.buffer, {
+        folder: storage.FOLDERS.PRODUCT,
+        contentType: file.mimetype,
+      })
     )
   );
-  return uploads.map((u) => ({ url: u.secure_url, publicId: u.public_id }));
+  return uploads.map((u) => ({ key: u.key }));
 }
 
 async function archiveProduct(req, res) {

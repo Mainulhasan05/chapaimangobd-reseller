@@ -13,7 +13,7 @@
 
 /** A user typed string reaching `new RegExp` is an injection unless escaped. */
 function escapeRegex(value) {
-  return value.replace(/[.*+?^${}()|[\]\]/g, '\$&');
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function orderSearchFilter(term) {

@@ -14,7 +14,7 @@ const productSchema = new mongoose.Schema(
   {
     nameBn: { type: String, required: true, trim: true, maxlength: 160 },
     description: { type: String, maxlength: 2000 },
-    images: [{ _id: false, url: String, publicId: String }],
+    images: [{ _id: false, key: String }],
 
     unit: { type: String, enum: UNITS, required: true },
     // Smallest orderable increment, in milli-units. Whole units are 1000.

@@ -10,7 +10,7 @@ const Withdrawal = require('../../models/Withdrawal');
 const ledger = require('../../services/ledger');
 const { withTransaction } = require('../../services/tx');
 const { getSettings } = require('../../services/settings');
-const cloud = require('../../config/cloudinary');
+const storage = require('../../config/storage');
 const { ok } = require('../../middleware/error');
 const { badRequest, forbidden } = require('../../utils/errors');
 const { toPoisha, toTaka } = require('../../utils/money');
@@ -45,11 +45,11 @@ async function createDeposit(req, res) {
   if (req.file) {
     // A bKash screenshot carries a phone number and a transaction trail, so it
     // gets the same private treatment as a national ID scan.
-    const uploaded = await cloud.uploadBuffer(req.file.buffer, {
-      folder: cloud.FOLDERS.DEPOSIT,
-      isPrivate: true,
+    const uploaded = await storage.uploadBuffer(req.file.buffer, {
+      folder: storage.FOLDERS.DEPOSIT,
+      contentType: req.file.mimetype,
     });
-    screenshot = { publicId: uploaded.public_id, format: uploaded.format };
+    screenshot = { key: uploaded.key, contentType: uploaded.contentType };
   }
 
   const deposit = await Deposit.create({

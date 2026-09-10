@@ -20,7 +20,7 @@ export function CardHeader({
   return (
     <div className={cn('mb-4 flex items-start justify-between gap-3', className)}>
       <div className="min-w-0">
-        <h2 className="truncate text-base font-semibold">{title}</h2>
+        <h2 className="truncate text-base font-bold">{title}</h2>
         {subtitle && <p className="mt-0.5 text-sm text-muted-foreground">{subtitle}</p>}
       </div>
       {action && <div className="shrink-0">{action}</div>}
@@ -29,11 +29,11 @@ export function CardHeader({
 }
 
 const TONES = {
-  neutral: 'bg-muted text-muted-foreground',
-  primary: 'bg-primary/15 text-[oklch(0.45_0.14_70)]',
-  success: 'bg-success/15 text-[oklch(0.42_0.12_150)]',
-  warning: 'bg-warning/20 text-[oklch(0.42_0.11_75)]',
-  danger: 'bg-danger/12 text-[oklch(0.48_0.17_27)]',
+  neutral: 'bg-muted text-foreground ring-1 ring-border',
+  primary: 'bg-primary/25 text-[oklch(0.38_0.13_70)] ring-1 ring-primary/50',
+  success: 'bg-success/15 text-[oklch(0.38_0.12_150)] ring-1 ring-success/35',
+  warning: 'bg-warning/30 text-[oklch(0.36_0.1_75)] ring-1 ring-warning/60',
+  danger: 'bg-danger/12 text-[oklch(0.42_0.17_27)] ring-1 ring-danger/35',
 } as const;
 
 export type Tone = keyof typeof TONES;
@@ -46,7 +46,7 @@ export function Badge({
   return (
     <span
       className={cn(
-        'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium',
+        'inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold',
         TONES[tone],
         className
       )}
@@ -87,9 +87,9 @@ export function Stat({
 
   return (
     <div className="card p-4">
-      <div className={cn('text-2xl font-semibold tabular', accent)}>{value}</div>
-      <div className="mt-1 text-sm text-muted-foreground">{label}</div>
-      {hint && <div className="mt-0.5 text-xs text-muted-foreground">{hint}</div>}
+      <div className="text-xs font-semibold text-muted-foreground">{label}</div>
+      <div className={cn('tabular mt-1 text-3xl font-bold leading-tight', accent)}>{value}</div>
+      {hint && <div className="mt-1 text-xs text-muted-foreground">{hint}</div>}
     </div>
   );
 }
@@ -123,7 +123,7 @@ export function Alert({
 }) {
   return (
     <div className={cn('mb-4 rounded-lg px-4 py-3 text-sm', TONES[tone])}>
-      {title && <p className="font-medium">{title}</p>}
+      {title && <p className="font-bold">{title}</p>}
       {children}
     </div>
   );
@@ -218,7 +218,7 @@ export function Th({ className, ...props }: React.ComponentProps<'th'>) {
   return (
     <th
       className={cn(
-        'border-b border-border px-4 py-3 text-left text-xs font-medium text-muted-foreground',
+        'border-b-2 border-border bg-muted/60 px-4 py-3 text-left text-xs font-semibold text-muted-foreground',
         className
       )}
       {...props}
@@ -242,7 +242,7 @@ export function PageHeader({
   return (
     <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
       <div>
-        <h1 className="text-xl font-semibold sm:text-2xl">{title}</h1>
+        <h1 className="text-xl font-bold sm:text-2xl">{title}</h1>
         {subtitle && <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>}
       </div>
       {action}

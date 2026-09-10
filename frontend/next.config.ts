@@ -2,6 +2,11 @@ import type { NextConfig } from 'next';
 
 const apiOrigin = process.env.API_ORIGIN ?? 'http://localhost:4000';
 
+/** The host serving product images, taken from the R2 public base URL if set. */
+const publicImageHost = process.env.R2_PUBLIC_BASE_URL
+  ? new URL(process.env.R2_PUBLIC_BASE_URL).hostname
+  : null;
+
 const nextConfig: NextConfig = {
   // Stable in Next 16 but off unless asked for. With around thirty routes and
   // Bengali link labels, typed hrefs catch the dead-link class of bug for free.
@@ -25,7 +30,12 @@ const nextConfig: NextConfig = {
 
   images: {
     // images.domains is deprecated in Next 16; remotePatterns is the replacement.
-    remotePatterns: [{ protocol: 'https', hostname: 'res.cloudinary.com' }],
+    // Product photos come from the R2 bucket's public base URL, which is either an
+    // r2.dev subdomain or a custom domain, so both are allowed.
+    remotePatterns: [
+      { protocol: 'https' as const, hostname: '**.r2.dev' },
+      ...(publicImageHost ? [{ protocol: 'https' as const, hostname: publicImageHost }] : []),
+    ],
   },
 };
 

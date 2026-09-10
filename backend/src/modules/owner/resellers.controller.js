@@ -5,7 +5,7 @@ const User = require('../../models/User');
 const KycSubmission = require('../../models/KycSubmission');
 const Order = require('../../models/Order');
 
-const cloud = require('../../config/cloudinary');
+const storage = require('../../config/storage');
 const audit = require('../../services/audit');
 const { notify } = require('../../services/notify');
 const { ok } = require('../../middleware/error');
@@ -133,17 +133,20 @@ async function listKyc(req, res) {
 
 /**
  * National ID scans are served through short-lived signed URLs generated per
- * request for the owner alone. The stored public id is never a usable link.
+ * request for the owner alone. The stored key is never a usable link on its own,
+ * because the bucket is private.
  */
 async function getKycDocuments(req, res) {
   const submission = await KycSubmission.findById(req.params.id);
   if (!submission) throw notFound('Submission not found');
   if (submission.purgedAt) return ok(res, { documents: [], purgedAt: submission.purgedAt });
 
-  const documents = submission.documents.map((d) => ({
-    type: d.type,
-    url: cloud.signedUrl(d.cloudinaryPublicId, { expiresInSeconds: 600 }),
-  }));
+  const documents = await Promise.all(
+    submission.documents.map(async (d) => ({
+      type: d.type,
+      url: await storage.signedUrl(d.storageKey, { expiresInSeconds: 600 }),
+    }))
+  );
 
   await audit.record({
     actor: req.user._id,

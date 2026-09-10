@@ -26,6 +26,7 @@ export function PasswordField({
   hint,
   required,
   autoComplete = 'current-password',
+  minLength,
   className,
 }: {
   label: string;
@@ -36,6 +37,8 @@ export function PasswordField({
   hint?: string;
   required?: boolean;
   autoComplete?: string;
+  /** Native floor for a new password, so the browser stops a short one first. */
+  minLength?: number;
   className?: string;
 }) {
   const generatedId = useId();
@@ -53,6 +56,7 @@ export function PasswordField({
           value={value}
           onChange={(event) => onChange(event.target.value)}
           required={required}
+          minLength={minLength}
           // Room for the toggle, which sits inside the field rather than beside
           // it so the input keeps the full width of the form.
           className="pr-12"

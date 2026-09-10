@@ -71,7 +71,7 @@ Not open for reinterpretation during implementation.
 | Language | Bengali, typed dictionary, no locale routing |
 | Backend | Express and Mongoose, JavaScript CommonJS, zod validation |
 | Auth | JWT access and refresh in httpOnly cookies, roles owner and reseller |
-| Uploads | Cloudinary, KYC and deposit images as authenticated type |
+| Uploads | Cloudflare R2, private bucket, KYC and deposit images via signed URLs |
 | Form branding | Reseller's branding with a small powered-by line |
 | Notifications | In-app record always, plus web push, Telegram and SMS |
 | SMS | Automas gateway, owner-toggleable, resellers buy credits, built but hidden at launch |
@@ -144,7 +144,7 @@ chapaimango-reseller/
 
 **ResellerProfile** — `user`, `shopName`, `slug`, `logoUrl`, `address`, `kycStatus`, `balancePoisha`, `creditLimitPoisha`, `ledgerSeq`, `smsCredits`, `formActive`, channel preferences.
 
-**KycSubmission** — `reseller`, `documents[]` (`type`, `cloudinaryPublicId`), `status`, `reviewedBy`, `reviewedAt`, `note`. One document per attempt, preserving rejection history. Images are uploaded as Cloudinary **authenticated** type and served only through short-lived signed URLs generated for the owner role. The raw national ID number is never stored.
+**KycSubmission** — `reseller`, `documents[]` (`type`, `storageKey`), `status`, `reviewedBy`, `reviewedAt`, `note`. One document per attempt, preserving rejection history. Images live in a **private** R2 bucket and are served only through short-lived signed URLs generated for the owner role, so a stored key is not a usable link. The raw national ID number is never stored.
 
 **Source** — `name`, `address`, `phone`, `note`, `isActive`.
 
@@ -326,9 +326,9 @@ Next.js 16 App Router. Route groups separate the audiences, with `r/[slug]` and 
 
 Token refresh is a single global query-client error handler that calls refresh once on a 401 and retries, serialised behind one in-flight promise so parallel queries do not each burn a refresh token and trip reuse detection.
 
-**Next 16 specifics that will bite.** `params`, `searchParams`, `cookies()` and `headers()` are Promises and synchronous access is removed, not merely warned about. `revalidateTag` requires a second cache-life argument. `next lint` is gone. Turbopack is the default for build, and a dependency injecting a webpack config fails the build rather than warning. `images.qualities` defaults to `[75]` and `images.domains` is deprecated, so Cloudinary needs `remotePatterns`. Every parallel-route slot requires an explicit `default.js`.
+**Next 16 specifics that will bite.** `params`, `searchParams`, `cookies()` and `headers()` are Promises and synchronous access is removed, not merely warned about. `revalidateTag` requires a second cache-life argument. `next lint` is gone. Turbopack is the default for build, and a dependency injecting a webpack config fails the build rather than warning. `images.qualities` defaults to `[75]` and `images.domains` is deprecated, so the R2 public host needs `remotePatterns`. Every parallel-route slot requires an explicit `default.js`.
 
-**Phase 0 setup order matters.** Run `shadcn init` before writing any component, since it rewrites `globals.css` wholesale. Then delete the scaffold's `prefers-color-scheme` block so it does not fight shadcn's `.dark` class strategy, remove the `body { font-family: Arial }` rule that currently overrides the font variable, and load a Bengali font with the `bengali` subset, since Bengali conjuncts render broken under system fallbacks on Windows and older Android. Set `typedRoutes: true`, add the Cloudinary host to `images.remotePatterns`, and add the `/api/*` rewrite.
+**Phase 0 setup order matters.** Run `shadcn init` before writing any component, since it rewrites `globals.css` wholesale. Then delete the scaffold's `prefers-color-scheme` block so it does not fight shadcn's `.dark` class strategy, remove the `body { font-family: Arial }` rule that currently overrides the font variable, and load a Bengali font with the `bengali` subset, since Bengali conjuncts render broken under system fallbacks on Windows and older Android. Set `typedRoutes: true`, add the R2 public host to `images.remotePatterns`, and add the `/api/*` rewrite.
 
 ---
 
@@ -336,7 +336,7 @@ Token refresh is a single global query-client error handler that calls refresh o
 
 **Phase 0 — Foundation.** This plan into `docs/PLAN.md`, `CONTEXT.md` for vocabulary, `docs/adr/` for decisions. Single git repo at the root. Backend package, Express app, replica-set Mongo connection, env config, error middleware, response envelope, zod validation, money and quantity utilities, JWT cookie auth with refresh rotation, User model, owner seed. Frontend: shadcn init, Bengali font, dark-mode decision, `proxy.ts`, API rewrite, query client, login and register, empty shells. *Done when both roles log in and land on their own shell.*
 
-**Phase 1 — Catalog.** Source, Product and DeliveryZone models and owner CRUD, Cloudinary upload, archive rather than delete. *Done when the owner can create a source, a priced product with unit, minimum and stock, and a zone.*
+**Phase 1 — Catalog.** Source, Product and DeliveryZone models and owner CRUD, R2 upload, archive rather than delete. *Done when the owner can create a source, a priced product with unit, minimum and stock, and a zone.*
 
 **Phase 2 — Onboarding.** Reseller profile and slug with the reserved-word denylist, KYC submission with authenticated uploads, owner review queue, the `requireKyc` gate. *Done when a reseller can register, submit and be approved.*
 
@@ -388,7 +388,7 @@ Token refresh is a single global query-client error handler that calls refresh o
 ## Risks
 
 - **Replica set requirement** breaks local setup on day one if undocumented.
-- **National ID images** are the largest compliance exposure. Authenticated Cloudinary type, signed short-lived URLs, owner-only access, and a retention job that actually deletes after a defined period. Never an unsigned upload preset.
+- **National ID images** are the largest compliance exposure. A private R2 bucket, signed short-lived URLs, owner-only access, and a retention job that actually deletes after a defined period. The bucket must never be made public.
 - **Cash on delivery introduces a payout obligation.** Withdrawals must ship alongside it, not later, or reseller money is trapped.
 - **The owner sees every reseller's customer list.** Unavoidable when the owner ships. Better stated in the reseller terms than discovered.
 - **The public order endpoint is unauthenticated.** Rate limit per IP and per slug, cap items and quantities, and compute every price server-side.

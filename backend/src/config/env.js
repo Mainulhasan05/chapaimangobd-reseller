@@ -28,9 +28,16 @@ const schema = z.object({
   // client into one rate-limit bucket or let X-Forwarded-For be attacker controlled.
   TRUST_PROXY: z.coerce.number().int().min(0).default(0),
 
-  CLOUDINARY_CLOUD_NAME: z.string().optional(),
-  CLOUDINARY_API_KEY: z.string().optional(),
-  CLOUDINARY_API_SECRET: z.string().optional(),
+  // Cloudflare R2, which speaks the S3 API. The bucket is private; KYC scans and
+  // deposit screenshots are only ever reachable through short-lived signed URLs.
+  R2_ACCOUNT_ID: z.string().optional(),
+  R2_ACCESS_KEY_ID: z.string().optional(),
+  R2_SECRET_ACCESS_KEY: z.string().optional(),
+  R2_BUCKET: z.string().optional(),
+  // Where the bucket is exposed for customer-facing images (product photos and
+  // shop logos). An r2.dev subdomain or a custom domain. Private files never
+  // use this.
+  R2_PUBLIC_BASE_URL: z.string().url().optional(),
 
   VAPID_PUBLIC_KEY: z.string().optional(),
   VAPID_PRIVATE_KEY: z.string().optional(),
@@ -45,7 +52,18 @@ const schema = z.object({
   TELEGRAM_BOT_USERNAME: z.string().optional(),
 });
 
-const parsed = schema.safeParse(process.env);
+/**
+ * A blank line in .env means "not set", which is how every optional integration
+ * ships. Zod treats an empty string as a present value, so `R2_PUBLIC_BASE_URL=`
+ * failed url validation and took the whole process down at boot. Dropping empty
+ * values first makes an unset variable behave the same whether the line is absent
+ * or present and blank.
+ */
+const provided = Object.fromEntries(
+  Object.entries(process.env).filter(([, value]) => value !== '')
+);
+
+const parsed = schema.safeParse(provided);
 
 if (!parsed.success) {
   const lines = parsed.error.issues.map((i) => `  - ${i.path.join('.')}: ${i.message}`);
@@ -57,9 +75,11 @@ const env = parsed.data;
 env.isProd = env.NODE_ENV === 'production';
 env.isTest = env.NODE_ENV === 'test';
 
-env.cloudinaryConfigured = Boolean(
-  env.CLOUDINARY_CLOUD_NAME && env.CLOUDINARY_API_KEY && env.CLOUDINARY_API_SECRET
+env.r2Configured = Boolean(
+  env.R2_ACCOUNT_ID && env.R2_ACCESS_KEY_ID && env.R2_SECRET_ACCESS_KEY && env.R2_BUCKET
 );
+// Uploading a product image is pointless without somewhere to serve it from.
+env.r2PublicDelivery = Boolean(env.r2Configured && env.R2_PUBLIC_BASE_URL);
 env.webPushConfigured = Boolean(env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_KEY);
 env.smsConfigured = Boolean(env.SMS_API_KEY && env.SMS_SENDER_ID);
 env.telegramConfigured = Boolean(env.TELEGRAM_BOT_TOKEN);

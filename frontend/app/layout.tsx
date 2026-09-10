@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from 'next';
-import { Hind_Siliguri } from 'next/font/google';
+import { Noto_Sans_Bengali } from 'next/font/google';
 import { Providers } from './providers';
 import './globals.css';
 
@@ -7,8 +7,14 @@ import './globals.css';
  * Bengali conjuncts render broken under system fallbacks on Windows and older
  * Android, so the face is loaded rather than assumed. Only the weights actually
  * used are requested, because Bengali subsets are large.
+ *
+ * Noto Sans Bengali rather than Hind Siliguri: Hind Siliguri draws ১ badly at UI
+ * sizes, and every price, quantity and ledger amount in this app is rendered in
+ * Bengali numerals by `lib/format.ts`, so a bad digit is not a cosmetic problem.
+ * Noto is the reference implementation of the script and its digits are drawn
+ * for exactly this, with a full ০-৯ set at every weight used here.
  */
-const bengali = Hind_Siliguri({
+const bengali = Noto_Sans_Bengali({
   variable: '--font-bengali',
   subsets: ['bengali', 'latin'],
   weight: ['400', '500', '600', '700'],

@@ -5,7 +5,7 @@ const { REVIEW_STATUS, KYC_DOC_TYPE, values } = require('../domain/constants');
 
 /**
  * One document per attempt, so rejection history survives a resubmission.
- * Images live in Cloudinary as "authenticated" type and are only ever served
+ * Images live in a private R2 bucket and are only ever served
  * through short-lived signed URLs generated for the owner. The public id is
  * stored, never a delivery URL, so a leaked database row is not a leaked scan.
  * The raw national ID number is deliberately not stored at all.
@@ -22,7 +22,7 @@ const kycSubmissionSchema = new mongoose.Schema(
       {
         _id: false,
         type: { type: String, enum: values(KYC_DOC_TYPE), required: true },
-        cloudinaryPublicId: { type: String, required: true },
+        storageKey: { type: String, required: true },
         format: { type: String },
         bytes: { type: Number },
       },

@@ -46,29 +46,50 @@
   --radius-card: 0.75rem;
 }
 
+/*
+ * Every pair below is measured, not judged by eye. Ratios are WCAG 2.1 against
+ * the surface they actually sit on. The palette this replaced looked airy on a
+ * designer's monitor and washed out on a phone in daylight, which is where this
+ * app is used: the primary button was a 2.5:1 label on its own fill, well under
+ * the 4.5:1 floor, and the borders at 1.35:1 were effectively invisible.
+ */
 :root {
   --background: oklch(0.985 0.005 95);
   --surface: oklch(1 0 0);
-  --foreground: oklch(0.22 0.02 60);
-  --muted: oklch(0.96 0.008 95);
-  --muted-foreground: oklch(0.52 0.02 70);
-  --border: oklch(0.9 0.012 90);
-  --input: oklch(0.93 0.01 90);
-  --ring: oklch(0.72 0.15 75);
+  --foreground: oklch(0.2 0.02 60); /* 18.4:1 on background */
+  --muted: oklch(0.965 0.01 95);
+  --muted-foreground: oklch(0.45 0.02 70); /* 7.4:1 on surface, was 5.5:1 */
 
-  /* Mango. The product is the brand. */
-  --primary: oklch(0.72 0.16 72);
-  --primary-foreground: oklch(0.99 0.01 90);
-  --secondary: oklch(0.96 0.008 95);
-  --secondary-foreground: oklch(0.22 0.02 60);
-  --accent: oklch(0.55 0.12 145);
+  /*
+   * Two weights of line. Structural borders separate blocks and stay quiet;
+   * input outlines are interactive, so they meet the 3:1 that WCAG 1.4.11 asks
+   * of a control boundary. One shared value could not do both jobs.
+   */
+  --border: oklch(0.84 0.014 90); /* 1.6:1, structural */
+  --input: oklch(0.66 0.014 90); /* 3.1:1, interactive outline */
+  --ring: oklch(0.58 0.17 62); /* 4.5:1, focus */
+
+  /*
+   * Mango. The product is the brand.
+   *
+   * The fill is more saturated than before and the label on it is near-black
+   * rather than white. White on amber cannot reach 4.5:1 without darkening the
+   * amber into brown and losing the fruit; dark on amber reaches 8.4:1 and keeps
+   * the colour, so the button reads as a solid block of mango.
+   */
+  --primary: oklch(0.78 0.17 75);
+  --primary-foreground: oklch(0.24 0.045 60); /* 8.4:1 on primary */
+  --secondary: oklch(0.965 0.01 95);
+  --secondary-foreground: oklch(0.2 0.02 60);
+  --accent: oklch(0.5 0.12 145);
   --accent-foreground: oklch(0.99 0.01 145);
 
-  --success: oklch(0.62 0.14 150);
+  /* Each of these is both a text colour and a button fill, so both directions pass. */
+  --success: oklch(0.52 0.14 150); /* 5.2:1 as text, 5.0:1 behind white */
   --success-foreground: oklch(0.99 0.01 150);
   --warning: oklch(0.78 0.15 80);
-  --warning-foreground: oklch(0.26 0.05 70);
-  --danger: oklch(0.58 0.19 27);
+  --warning-foreground: oklch(0.24 0.05 70);
+  --danger: oklch(0.52 0.19 27); /* 6.1:1 as text, 5.9:1 behind white */
   --danger-foreground: oklch(0.99 0.01 27);
 
   --radius: 0.625rem;
@@ -119,6 +140,9 @@
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius-card);
+    box-shadow:
+      0 1px 2px oklch(0.2 0.02 60 / 0.06),
+      0 1px 3px oklch(0.2 0.02 60 / 0.04);
   }
 
   /* Wide content scrolls inside its own box; the page body never does. */

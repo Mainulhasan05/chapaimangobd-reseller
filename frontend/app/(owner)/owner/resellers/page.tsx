@@ -143,25 +143,29 @@ function ResellerModal({
 
   return (
     <Modal open wide onClose={onClose} title={reseller.shopName}>
-      <div className="mb-4 grid grid-cols-2 gap-3 text-sm">
-        <div className="rounded-lg bg-muted p-3">
-          <div className="text-muted-foreground">{t('wallet.balance')}</div>
+      <div className="mb-6 grid grid-cols-2 gap-3">
+        <div className="rounded-lg border-2 border-border bg-muted p-3">
+          <div className="text-xs font-semibold text-muted-foreground">{t('wallet.balance')}</div>
           <div
-            className={`tabular text-lg font-semibold ${
+            className={`tabular mt-1 text-2xl font-bold leading-tight ${
               reseller.balance < 0 ? 'text-danger' : 'text-success'
             }`}
           >
             {formatSignedMoney(reseller.balance)}
           </div>
         </div>
-        <div className="rounded-lg bg-muted p-3">
-          <div className="text-muted-foreground">{t('wallet.creditLimit')}</div>
-          <div className="tabular text-lg font-semibold">{formatMoney(reseller.creditLimit)}</div>
+        <div className="rounded-lg border-2 border-border bg-muted p-3">
+          <div className="text-xs font-semibold text-muted-foreground">
+            {t('wallet.creditLimit')}
+          </div>
+          <div className="tabular mt-1 text-2xl font-bold leading-tight">
+            {formatMoney(reseller.creditLimit)}
+          </div>
         </div>
       </div>
 
-      <section className="mb-5">
-        <h3 className="mb-2 text-sm font-medium">{t('owner.creditLimit')}</h3>
+      <section className="mb-6 border-t border-border pt-5">
+        <h3 className="mb-2 text-sm font-bold">{t('owner.creditLimit')}</h3>
         <div className="flex gap-2">
           <MoneyInput
             value={creditLimit}
@@ -179,8 +183,8 @@ function ResellerModal({
         {saveLimit.error && <p className="mt-1 text-xs text-danger">{errorMessage(saveLimit.error)}</p>}
       </section>
 
-      <section className="mb-5">
-        <h3 className="mb-2 text-sm font-medium">{t('owner.manualEntry')}</h3>
+      <section className="mb-6 border-t border-border pt-5">
+        <h3 className="mb-3 text-sm font-bold">{t('owner.manualEntry')}</h3>
 
         <div className="grid gap-2 sm:grid-cols-2">
           <Field label={t('wallet.amount')} htmlFor="amount" className="mb-2">
@@ -214,7 +218,7 @@ function ResellerModal({
         {postEntry.error && <p className="mb-2 text-xs text-danger">{errorMessage(postEntry.error)}</p>}
 
         <Button
-          size="sm"
+          full
           loading={postEntry.isPending}
           disabled={!entry.amount || entry.note.trim().length < 3}
           onClick={() => postEntry.mutate()}
@@ -223,10 +227,16 @@ function ResellerModal({
         </Button>
       </section>
 
-      <section className="mb-5">
-        <div className="mb-2 flex items-center justify-between">
-          <h3 className="text-sm font-medium">{t('wallet.ledger')}</h3>
-          <Button size="sm" variant="ghost" loading={reconcile.isPending} onClick={() => reconcile.mutate()}>
+      <section className="mb-5 border-t border-border pt-5">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h3 className="text-sm font-bold">{t('wallet.ledger')}</h3>
+          {/* Was a ghost button, which is indistinguishable from a caption. */}
+          <Button
+            size="sm"
+            variant="outline"
+            loading={reconcile.isPending}
+            onClick={() => reconcile.mutate()}
+          >
             {t('owner.reconcile')}
           </Button>
         </div>

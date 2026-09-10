@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
  * see the form they are filling in.
  */
 const control =
-  'w-full rounded-lg border border-input bg-surface px-3 py-2 text-base text-foreground placeholder:text-muted-foreground focus:border-ring disabled:opacity-60 sm:text-sm';
+  'w-full rounded-lg border-2 border-input bg-surface px-3 py-2 text-base text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none disabled:opacity-60 sm:text-sm';
 
 export function Input({ className, ...props }: React.ComponentProps<'input'>) {
   return <input className={cn(control, 'h-11 sm:h-10', className)} {...props} />;
@@ -26,7 +26,7 @@ export function Select({ className, children, ...props }: React.ComponentProps<'
 
 export function Label({ className, ...props }: React.ComponentProps<'label'>) {
   return (
-    <label className={cn('mb-1.5 block text-sm font-medium text-foreground', className)} {...props} />
+    <label className={cn('mb-1.5 block text-sm font-semibold text-foreground', className)} {...props} />
   );
 }
 

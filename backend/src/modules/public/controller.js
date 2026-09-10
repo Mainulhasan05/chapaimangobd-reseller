@@ -47,7 +47,7 @@ async function getShop(req, res) {
         id: product._id,
         name: product.nameBn,
         description: product.description,
-        images: product.images,
+        images: present.images(product.images),
         unit: product.unit,
         step: fromMilli(product.qtyStepMilli),
         minOrderQty: fromMilli(product.minOrderQtyMilli),

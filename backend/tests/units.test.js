@@ -94,3 +94,72 @@ test('order codes avoid characters that are ambiguous over the phone', () => {
 test('order code lookup forgives what a customer actually types', () => {
   assert.equal(orderCode.normalizeOrderCode('ab-c0 iO'), 'ABC010');
 });
+
+/* ------------------------------------------------------------------ storage */
+
+const storage = require('../src/config/storage');
+const orderSearch = require('../src/utils/orderSearch');
+
+test('storage refuses to work when R2 is not configured', () => {
+  // The test environment has no R2 credentials, which is the point: an
+  // unconfigured integration must fail as a clear 503, not a generic crash.
+  assert.equal(storage.isConfigured(), false);
+  try {
+    storage.assertConfigured();
+    assert.fail('expected assertConfigured to throw');
+  } catch (err) {
+    assert.equal(err.status, 503);
+    assert.equal(err.code, 'NOT_CONFIGURED');
+  }
+});
+
+test('storage knows which folders must stay private', () => {
+  // KYC scans and bKash screenshots are the sensitive ones; a mistake here
+  // would put a national ID behind a guessable public URL.
+  assert.equal(storage.isPrivateFolder(storage.FOLDERS.KYC), true);
+  assert.equal(storage.isPrivateFolder(storage.FOLDERS.DEPOSIT), true);
+  assert.equal(storage.isPrivateFolder(storage.FOLDERS.PRODUCT), false);
+  assert.equal(storage.isPrivateFolder(storage.FOLDERS.LOGO), false);
+});
+
+test('storage returns no public url when delivery is not configured', () => {
+  // Callers render a placeholder rather than a broken image.
+  assert.equal(storage.publicUrl('products/abc.jpg'), null);
+  assert.equal(storage.publicUrl(null), null);
+});
+
+/* -------------------------------------------------------------- order search */
+
+test('order search escapes regex metacharacters in a typed term', () => {
+  // A customer name reaching new RegExp unescaped is an injection, and a stray
+  // bracket would throw and take the whole order list down.
+  const escaped = orderSearch.escapeRegex('a.b*c[d]');
+  assert.doesNotThrow(() => new RegExp(escaped));
+  assert.match('a.b*c[d]', new RegExp(escaped));
+  // The escaped term must match literally, never as a wildcard.
+  assert.doesNotMatch('axbxcxdx', new RegExp(`^${escaped}$`));
+});
+
+test('order search escapes a backslash, which is the case that broke the build', () => {
+  const escaped = orderSearch.escapeRegex('back\slash');
+  assert.doesNotThrow(() => new RegExp(escaped));
+  assert.match('back\slash', new RegExp(escaped));
+});
+
+test('order search matches a phone by its tail, and ignores short digit runs', () => {
+  const filter = orderSearch.orderSearchFilter('01712345678');
+  const phoneClause = filter.$or.find((c) => c['customer.phoneE164']);
+  assert.ok(phoneClause, 'expected a phone clause for an 11 digit term');
+  assert.match('+8801712345678', phoneClause['customer.phoneE164']);
+
+  // Three digits would match most of the collection, so no phone clause.
+  assert.equal(
+    orderSearch.orderSearchFilter('123').$or.some((c) => c['customer.phoneE164']),
+    false
+  );
+});
+
+test('order search returns null for an empty term', () => {
+  assert.equal(orderSearch.orderSearchFilter(''), null);
+  assert.equal(orderSearch.orderSearchFilter('   '), null);
+});

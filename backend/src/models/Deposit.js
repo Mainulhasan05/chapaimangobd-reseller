@@ -22,7 +22,7 @@ const depositSchema = new mongoose.Schema(
     method: { type: String, enum: values(DEPOSIT_METHOD), required: true },
     senderNumber: { type: String },
     transactionId: { type: String, trim: true },
-    screenshot: { publicId: String, format: String },
+    screenshot: { key: String, contentType: String },
     note: { type: String, maxlength: 500 },
 
     status: { type: String, enum: values(REVIEW_STATUS), default: REVIEW_STATUS.PENDING, index: true },

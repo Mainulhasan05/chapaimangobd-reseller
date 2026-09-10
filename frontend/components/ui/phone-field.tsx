@@ -89,7 +89,6 @@ export function PhoneField({
           // Digits only, so the browser's own validation agrees with ours rather
           // than fighting it on submit.
           pattern="01[3-9][0-9]{8}"
-          maxLength={PHONE_LENGTH}
           value={digits}
           required={required}
           onChange={(event) => onChange(normalizeBdPhoneInput(event.target.value))}

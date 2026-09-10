@@ -2,11 +2,24 @@
 
 const { toTaka } = require('./money');
 const { fromMilli } = require('./quantity');
+const storage = require('../config/storage');
 
 /**
  * Converts internal integer representations to the decimal values the API speaks.
  * Conversion happens only at this boundary; nothing inside the system uses taka.
  */
+
+/**
+ * Only the storage key is persisted, so the delivery URL is built here. Moving
+ * the bucket to a different domain then changes every image at once instead of
+ * orphaning the ones already saved. An unconfigured bucket yields an empty list,
+ * and the UI falls back to its placeholder rather than a broken image.
+ */
+const images = (list) =>
+  (list || [])
+    .map((img) => storage.publicUrl(img.key))
+    .filter(Boolean)
+    .map((url) => ({ url }));
 
 const line = (l) => ({
   id: l._id,
@@ -92,7 +105,7 @@ const product = (p) => ({
   id: p._id,
   name: p.nameBn,
   description: p.description,
-  images: p.images,
+  images: images(p.images),
   unit: p.unit,
   step: fromMilli(p.qtyStepMilli),
   minOrderQty: fromMilli(p.minOrderQtyMilli),
@@ -112,4 +125,4 @@ const wallet = (profile) => ({
   smsCredits: profile.smsCredits,
 });
 
-module.exports = { line, totals, order, publicOrder, ledgerEntry, product, wallet };
+module.exports = { line, totals, order, publicOrder, ledgerEntry, product, wallet, images };

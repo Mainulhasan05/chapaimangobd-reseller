@@ -51,8 +51,12 @@ seed. Everything else has a working default.
 
 Integrations are optional and the app reports which are live at `/api/health`:
 
-- **Cloudinary** is required for KYC documents, deposit screenshots and product
-  images. Without it those uploads fail; the rest of the system works.
+- **Cloudflare R2** is required for KYC documents, deposit screenshots and
+  product images. Without it those uploads fail; the rest of the system works.
+  The bucket must be **private**: national ID scans and bKash screenshots are
+  served only through signed URLs that expire in ten minutes. Product photos are
+  the exception, so set `R2_PUBLIC_BASE_URL` to the bucket's public hostname
+  (an `r2.dev` subdomain or your own domain) or image uploads are refused.
 - **Web push** needs a VAPID keypair. Generate once with
   `node -e "console.log(require('web-push').generateVAPIDKeys())"` and keep it.
   Regenerating silently invalidates every existing subscription.

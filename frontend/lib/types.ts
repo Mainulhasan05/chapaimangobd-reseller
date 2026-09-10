@@ -105,7 +105,7 @@ export type CatalogItem = {
   id: string;
   name: string;
   description?: string;
-  images: { url: string; publicId: string }[];
+  images: { url: string }[];
   unit: string;
   step: number;
   minOrderQty: number;
@@ -124,7 +124,7 @@ export type OwnerProduct = {
   id: string;
   name: string;
   description?: string;
-  images: { url: string; publicId: string }[];
+  images: { url: string }[];
   unit: string;
   step: number;
   minOrderQty: number;

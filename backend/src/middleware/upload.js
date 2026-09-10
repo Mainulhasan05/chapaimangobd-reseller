@@ -7,7 +7,7 @@ const MAX_BYTES = 5 * 1024 * 1024;
 const ALLOWED = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic']);
 
 /**
- * Files stay in memory and are streamed straight to Cloudinary, so nothing
+ * Files stay in memory and are streamed straight to R2, so nothing
  * sensitive ever lands on the application disk.
  */
 const storage = multer.memoryStorage();

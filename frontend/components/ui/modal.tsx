@@ -149,7 +149,7 @@ export function Modal({
         )}
       >
         <header
-          className="shrink-0 border-b border-border"
+          className="shrink-0 border-b-2 border-border bg-muted/40"
           onTouchStart={(event) => {
             dragStart.current = event.touches[0].clientY;
           }}
@@ -172,7 +172,7 @@ export function Modal({
           </div>
 
           <div className="flex items-center justify-between gap-3 px-4 py-3">
-            <h2 className="min-w-0 truncate text-base font-semibold">{title}</h2>
+            <h2 className="min-w-0 truncate text-base font-bold">{title}</h2>
             <button
               type="button"
               onClick={onClose}
@@ -187,7 +187,7 @@ export function Modal({
         <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-4">{children}</div>
 
         {(footer || footerLead) && (
-          <div className="shrink-0 border-t border-border px-4 py-3 pb-safe">
+          <div className="shrink-0 border-t-2 border-border bg-muted/40 px-4 py-3 pb-safe">
             {footerLead && <div className="mb-3">{footerLead}</div>}
             {/* Full width and side by side on a phone, where a corner button is a stretch. */}
             {footer && (

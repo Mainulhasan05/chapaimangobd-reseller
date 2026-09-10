@@ -34,7 +34,8 @@ app.get('/api/health', (_req, res) => {
       status: 'up',
       env: env.NODE_ENV,
       integrations: {
-        cloudinary: env.cloudinaryConfigured,
+        storage: env.r2Configured,
+        publicImages: env.r2PublicDelivery,
         webPush: env.webPushConfigured,
         sms: env.smsConfigured,
         telegram: env.telegramConfigured,

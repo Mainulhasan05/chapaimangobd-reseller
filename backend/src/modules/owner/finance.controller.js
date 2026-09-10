@@ -12,7 +12,7 @@ const ledger = require('../../services/ledger');
 const { withTransaction } = require('../../services/tx');
 const { notify } = require('../../services/notify');
 const audit = require('../../services/audit');
-const cloud = require('../../config/cloudinary');
+const storage = require('../../config/storage');
 const { ok } = require('../../middleware/error');
 const { notFound, badRequest } = require('../../utils/errors');
 const { toPoisha, toTaka } = require('../../utils/money');
@@ -58,11 +58,11 @@ async function listDeposits(req, res) {
 /** The bKash screenshot carries a phone number, so it is private and signed. */
 async function getDepositScreenshot(req, res) {
   const deposit = await Deposit.findById(req.params.id);
-  if (!deposit || !deposit.screenshot || !deposit.screenshot.publicId) {
+  if (!deposit || !deposit.screenshot || !deposit.screenshot.key) {
     throw notFound('No screenshot on this deposit');
   }
   return ok(res, {
-    url: cloud.signedUrl(deposit.screenshot.publicId, { expiresInSeconds: 600 }),
+    url: await storage.signedUrl(deposit.screenshot.key, { expiresInSeconds: 600 }),
   });
 }
 

@@ -7,10 +7,11 @@ const KycSubmission = require('../../models/KycSubmission');
 const Notification = require('../../models/Notification');
 const PushSubscription = require('../../models/PushSubscription');
 
-const cloud = require('../../config/cloudinary');
+const storage = require('../../config/storage');
 const telegram = require('../../channels/telegram');
 const webpush = require('../../channels/webpush');
 const pricing = require('../../services/pricing');
+const present = require('../../utils/present');
 const { ok } = require('../../middleware/error');
 const { badRequest, notFound, forbidden } = require('../../utils/errors');
 const { assertValidSlug } = require('../../utils/slug');
@@ -74,17 +75,17 @@ async function submitKyc(req, res) {
       throw badRequest('BAD_DOC_TYPE', `Unexpected document: ${docType}`);
     }
     // Private upload. A leaked database row is not a leaked scan, because the
-    // delivery URL alone will not fetch an authenticated asset.
+    // bucket is private and the key alone will not fetch anything.
     // eslint-disable-next-line no-await-in-loop
-    const uploaded = await cloud.uploadBuffer(file.buffer, {
-      folder: cloud.FOLDERS.KYC,
-      isPrivate: true,
+    const uploaded = await storage.uploadBuffer(file.buffer, {
+      folder: storage.FOLDERS.KYC,
+      contentType: file.mimetype,
     });
     documents.push({
       type: docType,
-      cloudinaryPublicId: uploaded.public_id,
-      format: uploaded.format,
-      bytes: uploaded.bytes,
+      storageKey: uploaded.key,
+      format: uploaded.contentType,
+      bytes: uploaded.size,
     });
   }
 
@@ -134,7 +135,7 @@ async function listCatalog(req, res) {
       id: p._id,
       name: p.nameBn,
       description: p.description,
-      images: p.images,
+      images: present.images(p.images),
       unit: p.unit,
       step: fromMilli(p.qtyStepMilli),
       minOrderQty: fromMilli(p.minOrderQtyMilli),
