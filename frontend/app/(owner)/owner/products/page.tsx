@@ -75,7 +75,7 @@ export default function OwnerProductsPage() {
       {products.data?.products.length === 0 && <EmptyState title={t('app.none')} />}
 
       {products.data && products.data.products.length > 0 && (
-        <TableWrap>
+        <TableWrap alwaysVisible>
           <thead>
             <tr>
               <Th>{t('nav.products')}</Th>

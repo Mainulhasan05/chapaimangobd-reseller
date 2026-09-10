@@ -180,7 +180,7 @@ export default function OwnerReportsPage() {
         {sold.data?.products.length === 0 && <EmptyState title={t('app.none')} />}
 
         {sold.data && sold.data.products.length > 0 && (
-          <TableWrap>
+          <TableWrap alwaysVisible>
             <thead>
               <tr>
                 <Th>{t('nav.products')}</Th>

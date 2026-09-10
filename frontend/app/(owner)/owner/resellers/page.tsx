@@ -42,7 +42,7 @@ export default function OwnerResellersPage() {
       {resellers.data?.resellers.length === 0 && <EmptyState title={t('app.none')} />}
 
       {resellers.data && resellers.data.resellers.length > 0 && (
-        <TableWrap>
+        <TableWrap alwaysVisible>
           <thead>
             <tr>
               <Th>{t('auth.shopName')}</Th>

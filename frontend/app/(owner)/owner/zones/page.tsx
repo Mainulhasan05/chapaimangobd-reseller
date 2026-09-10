@@ -46,7 +46,7 @@ export default function OwnerZonesPage() {
       {zones.data?.zones.length === 0 && <EmptyState title={t('app.none')} />}
 
       {zones.data && zones.data.zones.length > 0 && (
-        <TableWrap>
+        <TableWrap alwaysVisible>
           <thead>
             <tr>
               <Th>{t('nav.zones')}</Th>

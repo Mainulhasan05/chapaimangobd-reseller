@@ -45,7 +45,7 @@ export default function OwnerSourcesPage() {
       {sources.data?.sources.length === 0 && <EmptyState title={t('app.none')} />}
 
       {sources.data && sources.data.sources.length > 0 && (
-        <TableWrap>
+        <TableWrap alwaysVisible>
           <thead>
             <tr>
               <Th>{t('nav.sources')}</Th>

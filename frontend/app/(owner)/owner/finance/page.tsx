@@ -132,6 +132,64 @@ function Deposits({ status }: { status: string }) {
     <>
       {decide.error && <Alert tone="danger">{errorMessage(decide.error)}</Alert>}
 
+      <ul className="space-y-3 sm:hidden">
+        {deposits.data.deposits.map((row) => (
+          <li key={row.id}>
+            <Card className="p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate font-medium">{row.reseller?.shopName}</p>
+                  <p className="tabular text-xs text-muted-foreground">
+                    {row.reseller?.user?.phoneE164}
+                  </p>
+                </div>
+                <div className="shrink-0 text-right">
+                  <Badge tone={statusTone(row.status)}>{row.status}</Badge>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {formatDateTime(row.createdAt)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-3 flex items-end justify-between gap-3 border-t border-border pt-3">
+                <p className="tabular text-xl font-semibold">{formatMoney(row.amount)}</p>
+                <div className="text-right text-xs text-muted-foreground">
+                  <p className="uppercase">{row.method}</p>
+                  {row.senderNumber && <p className="tabular">{row.senderNumber}</p>}
+                  {row.transactionId && <p className="tabular">{row.transactionId}</p>}
+                </div>
+              </div>
+
+              <div className="mt-3 flex flex-wrap gap-2 [&>button]:flex-1">
+                {row.hasScreenshot && (
+                  <Button
+                    variant="outline"
+                    loading={viewScreenshot.isPending && viewScreenshot.variables === row.id}
+                    onClick={() => viewScreenshot.mutate(row.id)}
+                  >
+                    {t('wallet.screenshot')}
+                  </Button>
+                )}
+                {row.status === 'pending' && (
+                  <>
+                    <Button
+                      variant="success"
+                      loading={decide.isPending && decide.variables?.id === row.id}
+                      onClick={() => decide.mutate({ id: row.id, decision: 'approve' })}
+                    >
+                      {t('owner.approve')}
+                    </Button>
+                    <Button variant="outline" onClick={() => setRejecting(row)}>
+                      {t('owner.reject')}
+                    </Button>
+                  </>
+                )}
+              </div>
+            </Card>
+          </li>
+        ))}
+      </ul>
+
       <TableWrap>
         <thead>
           <tr>
@@ -243,6 +301,48 @@ function Withdrawals({ status }: { status: string }) {
   return (
     <>
       {decide.error && <Alert tone="danger">{errorMessage(decide.error)}</Alert>}
+
+      <ul className="space-y-3 sm:hidden">
+        {withdrawals.data.withdrawals.map((row) => (
+          <li key={row.id}>
+            <Card className="p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate font-medium">{row.reseller?.shopName}</p>
+                  <p className="tabular text-xs text-muted-foreground">
+                    {row.reseller?.user?.phoneE164}
+                  </p>
+                </div>
+                <div className="shrink-0 text-right">
+                  <Badge tone={statusTone(row.status)}>{row.status}</Badge>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {formatDateTime(row.createdAt)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-3 flex items-end justify-between gap-3 border-t border-border pt-3">
+                <p className="tabular text-xl font-semibold">{formatMoney(row.amount)}</p>
+                <div className="text-right text-xs text-muted-foreground">
+                  <p className="uppercase">{row.method}</p>
+                  <p className="tabular">{row.destinationNumber}</p>
+                </div>
+              </div>
+
+              {row.status === 'pending' && (
+                <div className="mt-3 flex gap-2 [&>button]:flex-1">
+                  <Button variant="success" onClick={() => setApproving(row)}>
+                    {t('owner.approve')}
+                  </Button>
+                  <Button variant="outline" onClick={() => setRejecting(row)}>
+                    {t('owner.reject')}
+                  </Button>
+                </div>
+              )}
+            </Card>
+          </li>
+        ))}
+      </ul>
 
       <TableWrap>
         <thead>

@@ -7,10 +7,12 @@ import { t } from '@/lib/i18n/bn';
 import { formatMoney, formatSignedMoney, formatDateTime } from '@/lib/format';
 import type { Deposit, LedgerEntry, Wallet, Withdrawal } from '@/lib/types';
 import {
+  Alert,
   Badge,
   Card,
   CardHeader,
   EmptyState,
+  ErrorState,
   PageHeader,
   Stat,
   statusTone,
@@ -19,9 +21,10 @@ import {
   Th,
 } from '@/components/ui/layout';
 import { Button } from '@/components/ui/button';
+import { ListSkeleton, StatSkeleton } from '@/components/ui/skeleton';
+import { useToast } from '@/components/ui/toast';
 import { Field, Input, MoneyInput, Select, Textarea } from '@/components/ui/form';
 import { Modal } from '@/components/ui/modal';
-import { Alert } from '@/components/ui/layout';
 
 const METHODS = ['bkash', 'nagad', 'rocket', 'bank', 'cash'] as const;
 
@@ -54,69 +57,119 @@ export default function WalletPage() {
 
   return (
     <>
-      <PageHeader
-        title={t('nav.wallet')}
-        subtitle={t('wallet.negativeHelp')}
-        action={
-          <div className="flex gap-2">
-            <Button size="sm" onClick={() => setDepositOpen(true)}>
-              {t('wallet.depositRequest')}
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => setWithdrawOpen(true)}>
-              {t('wallet.withdrawRequest')}
-            </Button>
-          </div>
-        }
-      />
+      <PageHeader title={t('nav.wallet')} subtitle={t('wallet.negativeHelp')} />
 
-      <div className="mb-6 grid gap-3 sm:grid-cols-3">
-        <Stat
-          label={owes ? t('wallet.owed') : t('wallet.balance')}
-          value={formatMoney(Math.abs(balance))}
-          tone={owes ? 'danger' : 'success'}
-        />
-        <Stat label={t('wallet.creditLimit')} value={formatMoney(wallet.data?.wallet.creditLimit ?? 0)} />
-        <Stat label={t('wallet.available')} value={formatMoney(wallet.data?.wallet.available ?? 0)} />
+      {wallet.isLoading && <StatSkeleton />}
+
+      {wallet.isError && (
+        <div className="mb-6">
+          <ErrorState onRetry={() => wallet.refetch()} isRetrying={wallet.isFetching} />
+        </div>
+      )}
+
+      {wallet.isSuccess && (
+        <div className="mb-4 grid gap-3 sm:grid-cols-3">
+          <Stat
+            label={owes ? t('wallet.owed') : t('wallet.balance')}
+            value={formatMoney(Math.abs(balance))}
+            tone={owes ? 'danger' : 'success'}
+          />
+          <Stat label={t('wallet.creditLimit')} value={formatMoney(wallet.data.wallet.creditLimit)} />
+          <Stat label={t('wallet.available')} value={formatMoney(wallet.data.wallet.available)} />
+        </div>
+      )}
+
+      {/*
+       * The two actions were `sm` buttons tucked into the page header, which on a
+       * phone put them in the top right corner at thirty-two pixels tall.
+       */}
+      <div className="mb-6 flex gap-2 [&>button]:flex-1">
+        <Button onClick={() => setDepositOpen(true)}>{t('wallet.depositRequest')}</Button>
+        <Button variant="outline" onClick={() => setWithdrawOpen(true)}>
+          {t('wallet.withdrawRequest')}
+        </Button>
       </div>
 
       <Card className="mb-6">
         <CardHeader title={t('wallet.ledger')} />
-        {ledger.data?.entries.length === 0 ? (
+
+        {ledger.isLoading && <ListSkeleton rows={4} />}
+
+        {ledger.isError && (
+          <ErrorState onRetry={() => ledger.refetch()} isRetrying={ledger.isFetching} />
+        )}
+
+        {ledger.isSuccess && ledger.data.entries.length === 0 && (
           <EmptyState title={t('wallet.noEntries')} />
-        ) : (
-          <div className="scroll-x">
-            <table className="w-full min-w-[36rem] text-sm">
-              <thead>
-                <tr>
-                  <Th>{t('app.date')}</Th>
-                  <Th>{t('app.notes')}</Th>
-                  <Th className="text-right">{t('wallet.amount')}</Th>
-                  <Th className="text-right">{t('wallet.balance')}</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {ledger.data?.entries.map((entry) => (
-                  <tr key={entry.id}>
-                    <Td className="whitespace-nowrap text-xs text-muted-foreground">
+        )}
+
+        {ledger.isSuccess && ledger.data.entries.length > 0 && (
+          <>
+            {/*
+             * A statement on a phone reads as a list, not a four column table
+             * inside a sideways scroller. The movement is the headline and the
+             * running balance the footnote, because that is the order people
+             * check them in.
+             */}
+            <ul className="divide-y divide-border sm:hidden">
+              {ledger.data.entries.map((entry) => (
+                <li key={entry.id} className="flex items-start justify-between gap-3 py-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm">{entry.note ?? entry.kind}</p>
+                    <p className="text-xs text-muted-foreground">
                       {formatDateTime(entry.createdAt)}
-                    </Td>
-                    <Td>
-                      <div>{entry.note ?? entry.kind}</div>
-                      <div className="text-xs text-muted-foreground">{entry.kind}</div>
-                    </Td>
-                    <Td
-                      className={`tabular text-right ${
+                    </p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p
+                      className={`tabular font-medium ${
                         entry.amount < 0 ? 'text-danger' : 'text-success'
                       }`}
                     >
                       {formatSignedMoney(entry.amount)}
-                    </Td>
-                    <Td className="tabular text-right">{formatMoney(entry.balanceAfter)}</Td>
+                    </p>
+                    <p className="tabular text-xs text-muted-foreground">
+                      {formatMoney(entry.balanceAfter)}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+
+            <div className="scroll-x hidden sm:block">
+              <table className="w-full min-w-[36rem] text-sm">
+                <thead>
+                  <tr>
+                    <Th>{t('app.date')}</Th>
+                    <Th>{t('app.notes')}</Th>
+                    <Th className="text-right">{t('wallet.amount')}</Th>
+                    <Th className="text-right">{t('wallet.balance')}</Th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {ledger.data.entries.map((entry) => (
+                    <tr key={entry.id}>
+                      <Td className="whitespace-nowrap text-xs text-muted-foreground">
+                        {formatDateTime(entry.createdAt)}
+                      </Td>
+                      <Td>
+                        <div>{entry.note ?? entry.kind}</div>
+                        <div className="text-xs text-muted-foreground">{entry.kind}</div>
+                      </Td>
+                      <Td
+                        className={`tabular text-right ${
+                          entry.amount < 0 ? 'text-danger' : 'text-success'
+                        }`}
+                      >
+                        {formatSignedMoney(entry.amount)}
+                      </Td>
+                      <Td className="tabular text-right">{formatMoney(entry.balanceAfter)}</Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </Card>
 
@@ -175,35 +228,61 @@ function RequestList({ title, rows }: { title: string; rows: RequestRow[] }) {
   }
 
   return (
-    <TableWrap>
-      <thead>
-        <tr>
-          <Th>{title}</Th>
-          <Th>{t('wallet.method')}</Th>
-          <Th className="text-right">{t('wallet.amount')}</Th>
-          <Th>{t('app.status')}</Th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row) => (
-          <tr key={row.id}>
-            <Td className="text-xs text-muted-foreground">{formatDateTime(row.createdAt)}</Td>
-            <Td className="uppercase">{row.method}</Td>
-            <Td className="tabular text-right">{formatMoney(row.amount)}</Td>
-            <Td>
+    <>
+      <Card className="sm:hidden">
+        <CardHeader title={title} />
+        <ul className="divide-y divide-border">
+          {rows.map((row) => (
+            <li key={row.id} className="flex items-start justify-between gap-3 py-3">
+              <div className="min-w-0">
+                <p className="tabular font-medium">{formatMoney(row.amount)}</p>
+                <p className="text-xs uppercase text-muted-foreground">{row.method}</p>
+                <p className="text-xs text-muted-foreground">{formatDateTime(row.createdAt)}</p>
+                {row.note && <p className="mt-1 text-xs text-danger">{row.note}</p>}
+              </div>
               <Badge tone={statusTone(row.status)}>{row.status}</Badge>
-              {row.note && <div className="mt-1 text-xs text-danger">{row.note}</div>}
-            </Td>
+            </li>
+          ))}
+        </ul>
+      </Card>
+
+      <TableWrap>
+        <thead>
+          <tr>
+            <Th>{title}</Th>
+            <Th>{t('wallet.method')}</Th>
+            <Th className="text-right">{t('wallet.amount')}</Th>
+            <Th>{t('app.status')}</Th>
           </tr>
-        ))}
-      </tbody>
-    </TableWrap>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.id}>
+              <Td className="text-xs text-muted-foreground">{formatDateTime(row.createdAt)}</Td>
+              <Td className="uppercase">{row.method}</Td>
+              <Td className="tabular text-right">{formatMoney(row.amount)}</Td>
+              <Td>
+                <Badge tone={statusTone(row.status)}>{row.status}</Badge>
+                {row.note && <div className="mt-1 text-xs text-danger">{row.note}</div>}
+              </Td>
+            </tr>
+          ))}
+        </tbody>
+      </TableWrap>
+    </>
   );
 }
 
 function DepositModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const queryClient = useQueryClient();
-  const [form, setForm] = useState({ amount: '', method: 'bkash', senderNumber: '', transactionId: '', note: '' });
+  const toast = useToast();
+  const [form, setForm] = useState({
+    amount: '',
+    method: 'bkash',
+    senderNumber: '',
+    transactionId: '',
+    note: '',
+  });
   const [file, setFile] = useState<File | null>(null);
 
   const submit = useMutation({
@@ -223,18 +302,28 @@ function DepositModal({ open, onClose }: { open: boolean; onClose: () => void })
       setForm({ amount: '', method: 'bkash', senderNumber: '', transactionId: '', note: '' });
       setFile(null);
       onClose();
+      toast(t('wallet.depositSubmitted'));
     },
   });
 
   const errors = fieldErrors(submit.error);
-  const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
-    setForm((prev) => ({ ...prev, [key]: e.target.value }));
+  const set =
+    (key: keyof typeof form) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
+      setForm((prev) => ({ ...prev, [key]: e.target.value }));
+
+  // A transaction id typed off a phone screen, or an attached screenshot, is not
+  // something to discard because a thumb landed on the backdrop.
+  const dirty = Boolean(
+    form.amount || form.senderNumber || form.transactionId || form.note || file
+  );
 
   return (
     <Modal
       open={open}
       onClose={onClose}
       title={t('wallet.depositRequest')}
+      dirty={dirty}
       footer={
         <>
           <Button variant="outline" onClick={onClose}>
@@ -265,7 +354,13 @@ function DepositModal({ open, onClose }: { open: boolean; onClose: () => void })
       </Field>
 
       <Field label={t('wallet.senderNumber')} htmlFor="senderNumber" error={errors.senderNumber}>
-        <Input id="senderNumber" type="tel" inputMode="numeric" value={form.senderNumber} onChange={set('senderNumber')} />
+        <Input
+          id="senderNumber"
+          type="tel"
+          inputMode="numeric"
+          value={form.senderNumber}
+          onChange={set('senderNumber')}
+        />
       </Field>
 
       <Field label={t('wallet.transactionId')} htmlFor="transactionId" error={errors.transactionId}>
@@ -278,11 +373,11 @@ function DepositModal({ open, onClose }: { open: boolean; onClose: () => void })
           type="file"
           accept="image/*"
           onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-          className="w-full text-sm"
+          className="tap w-full text-sm"
         />
       </Field>
 
-      <Field label={t('app.notes')} htmlFor="note">
+      <Field label={t('app.notes')} htmlFor="note" className="mb-0">
         <Textarea id="note" value={form.note} onChange={set('note')} rows={2} />
       </Field>
     </Modal>
@@ -299,6 +394,7 @@ function WithdrawModal({
   maxAmount: number;
 }) {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [form, setForm] = useState({ amount: '', method: 'bkash', destinationNumber: '', note: '' });
 
   const submit = useMutation({
@@ -313,18 +409,22 @@ function WithdrawModal({
       await queryClient.invalidateQueries({ queryKey: ['withdrawals'] });
       setForm({ amount: '', method: 'bkash', destinationNumber: '', note: '' });
       onClose();
+      toast(t('wallet.withdrawSubmitted'));
     },
   });
 
   const errors = fieldErrors(submit.error);
-  const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
-    setForm((prev) => ({ ...prev, [key]: e.target.value }));
+  const set =
+    (key: keyof typeof form) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
+      setForm((prev) => ({ ...prev, [key]: e.target.value }));
 
   return (
     <Modal
       open={open}
       onClose={onClose}
       title={t('wallet.withdrawRequest')}
+      dirty={Boolean(form.amount || form.destinationNumber || form.note)}
       footer={
         <>
           <Button variant="outline" onClick={onClose}>
@@ -365,6 +465,7 @@ function WithdrawModal({
         htmlFor="destinationNumber"
         error={errors.destinationNumber}
         required
+        className="mb-0"
       >
         <Input
           id="destinationNumber"

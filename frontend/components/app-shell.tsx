@@ -69,9 +69,6 @@ export function AppShell({
     }
   }, [session, isLoading, role, router]);
 
-  // Closing on navigation rather than making every item in the sheet do it.
-  useEffect(() => setMoreOpen(false), [pathname]);
-
   const isActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
 
   if (isLoading || !session || session.user.role !== role) {
@@ -187,6 +184,7 @@ export function AppShell({
             <li key={item.href}>
               <Link
                 href={item.href}
+                onClick={() => setMoreOpen(false)}
                 className="tap flex items-center gap-3 py-1 text-sm hover:bg-muted"
               >
                 <item.icon className="h-5 w-5 shrink-0 text-muted-foreground" />

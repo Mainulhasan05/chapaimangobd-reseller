@@ -2,7 +2,6 @@
 
 import { Minus, Plus } from 'lucide-react';
 import { t } from '@/lib/i18n/bn';
-import { cn } from '@/lib/utils';
 
 /*
  * Quantity entry that does not summon the keyboard.

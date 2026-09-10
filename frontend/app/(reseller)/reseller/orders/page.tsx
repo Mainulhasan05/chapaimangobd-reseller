@@ -21,7 +21,7 @@ import {
   Td,
   Th,
 } from '@/components/ui/layout';
-import { Button, Spinner } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import { ListSkeleton } from '@/components/ui/skeleton';
 import { Input, Select } from '@/components/ui/form';
 import { ConfirmOrderModal } from '@/components/confirm-order-modal';
@@ -49,7 +49,8 @@ export default function ResellerOrdersPage() {
 
 function OrdersView() {
   const params = useSearchParams();
-  const [status, setStatus] = useState('');
+  // The dashboard links here with a filter already chosen.
+  const [status, setStatus] = useState(() => params.get('status') ?? '');
   const [term, setTerm] = useState('');
   const [confirming, setConfirming] = useState<Order | null>(null);
   const [cancelling, setCancelling] = useState<Order | null>(null);

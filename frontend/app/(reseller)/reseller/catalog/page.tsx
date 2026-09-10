@@ -1,13 +1,17 @@
 'use client';
 
 import { useState } from 'react';
+import Image from 'next/image';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, errorMessage, fieldErrors } from '@/lib/api';
 import { t } from '@/lib/i18n/bn';
 import { formatMoney, formatMoneyPlain, formatNumber } from '@/lib/format';
 import type { CatalogItem } from '@/lib/types';
-import { Badge, Card, EmptyState, PageHeader } from '@/components/ui/layout';
-import { Button, Spinner } from '@/components/ui/button';
+import { Badge, Card, EmptyState, ErrorState, PageHeader } from '@/components/ui/layout';
+import { Button } from '@/components/ui/button';
+import { CardGridSkeleton } from '@/components/ui/skeleton';
+import { Switch } from '@/components/ui/switch';
+import { useToast } from '@/components/ui/toast';
 import { Field, MoneyInput } from '@/components/ui/form';
 
 export default function CatalogPage() {
@@ -20,13 +24,15 @@ export default function CatalogPage() {
     <>
       <PageHeader title={t('nav.catalog')} subtitle={t('catalog.priceFloorHelp')} />
 
-      {catalog.isLoading && (
-        <Card className="flex justify-center py-10">
-          <Spinner />
-        </Card>
+      {catalog.isLoading && <CardGridSkeleton />}
+
+      {catalog.isError && (
+        <ErrorState onRetry={() => catalog.refetch()} isRetrying={catalog.isFetching} />
       )}
 
-      {catalog.data?.products.length === 0 && <EmptyState title={t('app.none')} />}
+      {catalog.isSuccess && catalog.data.products.length === 0 && (
+        <EmptyState title={t('app.none')} />
+      )}
 
       <div className="grid gap-3 sm:grid-cols-2">
         {catalog.data?.products.map((product) => (
@@ -39,6 +45,7 @@ export default function CatalogPage() {
 
 function CatalogRow({ product }: { product: CatalogItem }) {
   const queryClient = useQueryClient();
+  const toast = useToast();
 
   // Latin digits, because this value is parsed back on save. Seeded once: the
   // parent keys this row by product id, so a different product mounts a fresh
@@ -56,16 +63,35 @@ function CatalogRow({ product }: { product: CatalogItem }) {
         hidePrice,
         isListed,
       }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['catalog'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['catalog'] });
+      /*
+       * This save previously produced no visible change at all. Nothing moved,
+       * nothing was said, and a button that appears to do nothing gets pressed
+       * again, which is how a price ends up saved twice.
+       */
+      toast(product.activated ? t('catalog.savedToast') : t('catalog.activatedToast'));
+    },
   });
 
   const errors = fieldErrors(save.error);
   const margin = Number(price) - product.costPrice;
+  const image = product.images?.[0]?.url;
 
   return (
     <Card>
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div className="min-w-0">
+      <div className="mb-3 flex items-start gap-3">
+        {image && (
+          <Image
+            src={image}
+            alt={product.name}
+            width={56}
+            height={56}
+            className="h-14 w-14 shrink-0 rounded-lg object-cover"
+          />
+        )}
+
+        <div className="min-w-0 flex-1">
           <h3 className="truncate font-medium">{product.name}</h3>
           <p className="text-xs text-muted-foreground">
             {t('catalog.costPrice')} {formatMoney(product.costPrice)} / {product.unit} ·{' '}
@@ -77,6 +103,7 @@ function CatalogRow({ product }: { product: CatalogItem }) {
             </p>
           )}
         </div>
+
         <div className="flex shrink-0 flex-col items-end gap-1">
           {product.activated ? (
             <Badge tone={isListed ? 'success' : 'neutral'}>
@@ -109,38 +136,25 @@ function CatalogRow({ product }: { product: CatalogItem }) {
         />
       </Field>
 
-      <div className="mb-3 space-y-2 text-sm">
-        <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={isListed}
-            onChange={(e) => setIsListed(e.target.checked)}
-            className="h-4 w-4"
-          />
-          <span>{t('catalog.listed')}</span>
-        </label>
-
-        <label className="flex items-start gap-2">
-          <input
-            type="checkbox"
-            checked={hidePrice}
-            onChange={(e) => setHidePrice(e.target.checked)}
-            className="mt-1 h-4 w-4"
-          />
-          <span>
-            {t('catalog.hidePrice')}
-            <span className="block text-xs text-muted-foreground">
-              {t('catalog.hidePriceHelp')}
-            </span>
-          </span>
-        </label>
+      {/*
+       * Switches, not sixteen pixel checkboxes. Both of these are visible to
+       * customers the moment they change, so the whole row is the target.
+       */}
+      <div className="mb-3 divide-y divide-border">
+        <Switch checked={isListed} onChange={setIsListed} label={t('catalog.listed')} />
+        <Switch
+          checked={hidePrice}
+          onChange={setHidePrice}
+          label={t('catalog.hidePrice')}
+          hint={t('catalog.hidePriceHelp')}
+        />
       </div>
 
       {save.error && !errors.sellPrice && (
         <p className="mb-2 text-xs text-danger">{errorMessage(save.error)}</p>
       )}
 
-      <Button size="sm" full loading={save.isPending} onClick={() => save.mutate()}>
+      <Button full loading={save.isPending} onClick={() => save.mutate()}>
         {product.activated ? t('app.save') : t('catalog.activate')}
       </Button>
     </Card>
