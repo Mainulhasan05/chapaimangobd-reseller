@@ -24,6 +24,7 @@ import { Button } from '@/components/ui/button';
 import { ListSkeleton, StatSkeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
 import { Field, Input, MoneyInput, Select, Textarea } from '@/components/ui/form';
+import { PhoneField } from '@/components/ui/phone-field';
 import { Modal } from '@/components/ui/modal';
 
 const METHODS = ['bkash', 'nagad', 'rocket', 'bank', 'cash'] as const;
@@ -63,7 +64,11 @@ export default function WalletPage() {
 
       {wallet.isError && (
         <div className="mb-6">
-          <ErrorState onRetry={() => wallet.refetch()} isRetrying={wallet.isFetching} />
+          <ErrorState
+          onRetry={() => wallet.refetch()}
+          isRetrying={wallet.isFetching}
+          error={wallet.error}
+        />
         </div>
       )}
 
@@ -96,7 +101,11 @@ export default function WalletPage() {
         {ledger.isLoading && <ListSkeleton rows={4} />}
 
         {ledger.isError && (
-          <ErrorState onRetry={() => ledger.refetch()} isRetrying={ledger.isFetching} />
+          <ErrorState
+          onRetry={() => ledger.refetch()}
+          isRetrying={ledger.isFetching}
+          error={ledger.error}
+        />
         )}
 
         {ledger.isSuccess && ledger.data.entries.length === 0 && (
@@ -353,15 +362,14 @@ function DepositModal({ open, onClose }: { open: boolean; onClose: () => void })
         </Select>
       </Field>
 
-      <Field label={t('wallet.senderNumber')} htmlFor="senderNumber" error={errors.senderNumber}>
-        <Input
-          id="senderNumber"
-          type="tel"
-          inputMode="numeric"
-          value={form.senderNumber}
-          onChange={set('senderNumber')}
-        />
-      </Field>
+      <PhoneField
+        id="senderNumber"
+        label={t('wallet.senderNumber')}
+        value={form.senderNumber}
+        onChange={(senderNumber) => setForm((prev) => ({ ...prev, senderNumber }))}
+        error={errors.senderNumber}
+        autoComplete="off"
+      />
 
       <Field label={t('wallet.transactionId')} htmlFor="transactionId" error={errors.transactionId}>
         <Input id="transactionId" value={form.transactionId} onChange={set('transactionId')} />
@@ -460,21 +468,16 @@ function WithdrawModal({
         </Select>
       </Field>
 
-      <Field
+      <PhoneField
+        id="destinationNumber"
         label={t('wallet.destinationNumber')}
-        htmlFor="destinationNumber"
+        value={form.destinationNumber}
+        onChange={(destinationNumber) => setForm((prev) => ({ ...prev, destinationNumber }))}
         error={errors.destinationNumber}
+        autoComplete="off"
         required
         className="mb-0"
-      >
-        <Input
-          id="destinationNumber"
-          type="tel"
-          inputMode="numeric"
-          value={form.destinationNumber}
-          onChange={set('destinationNumber')}
-        />
-      </Field>
+      />
     </Modal>
   );
 }

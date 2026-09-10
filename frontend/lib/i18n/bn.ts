@@ -67,6 +67,12 @@ export const bn = {
   'auth.hasAccount': 'আগে থেকেই অ্যাকাউন্ট আছে?',
   'auth.phoneHint': 'যেমন ০১৭XXXXXXXX',
   'auth.passwordHint': 'কমপক্ষে ৮ অক্ষর',
+  'auth.showPassword': 'পাসওয়ার্ড দেখুন',
+  'auth.hidePassword': 'পাসওয়ার্ড লুকান',
+  'auth.phoneValid': 'নম্বরটি ঠিক আছে',
+  'auth.phoneRemaining': 'আর {n}টি সংখ্যা বাকি',
+  'auth.phonePrefix': 'বাংলাদেশি নম্বর ০১৩ থেকে ০১৯ দিয়ে শুরু হয়',
+  'auth.phoneCounter': '{n}/১১ সংখ্যা',
 
   'nav.dashboard': 'ড্যাশবোর্ড',
   'nav.orders': 'অর্ডার',

@@ -10,6 +10,8 @@ import type { Session } from '@/lib/types';
 import { t } from '@/lib/i18n/bn';
 import { Button } from '@/components/ui/button';
 import { Field, Input } from '@/components/ui/form';
+import { PhoneField } from '@/components/ui/phone-field';
+import { PasswordField } from '@/components/ui/password-field';
 import { Alert } from '@/components/ui/layout';
 
 export default function RegisterPage() {
@@ -60,35 +62,25 @@ export default function RegisterPage() {
         <Input id="shopName" value={form.shopName} onChange={set('shopName')} />
       </Field>
 
-      <Field label={t('auth.phone')} htmlFor="phone" hint={t('auth.phoneHint')} error={errors.phone} required>
-        <Input
-          id="phone"
-          type="tel"
-          inputMode="numeric"
-          autoComplete="tel"
-          value={form.phone}
-          onChange={set('phone')}
-          required
-        />
-      </Field>
+      <PhoneField
+        id="phone"
+        label={t('auth.phone')}
+        value={form.phone}
+        onChange={(phone) => setForm((prev) => ({ ...prev, phone }))}
+        error={errors.phone}
+        required
+      />
 
-      <Field
+      <PasswordField
+        id="password"
         label={t('auth.password')}
-        htmlFor="password"
+        autoComplete="new-password"
         hint={t('auth.passwordHint')}
+        value={form.password}
+        onChange={(password) => setForm((prev) => ({ ...prev, password }))}
         error={errors.password}
         required
-      >
-        <Input
-          id="password"
-          type="password"
-          autoComplete="new-password"
-          value={form.password}
-          onChange={set('password')}
-          required
-          minLength={8}
-        />
-      </Field>
+      />
 
       <Button type="submit" full size="lg" loading={register.isPending}>
         {t('auth.register')}

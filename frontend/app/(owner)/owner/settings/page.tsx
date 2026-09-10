@@ -8,6 +8,7 @@ import { formatMoneyPlain } from '@/lib/format';
 import { Alert, Card, CardHeader, PageHeader } from '@/components/ui/layout';
 import { Button, Spinner } from '@/components/ui/button';
 import { Field, Input, MoneyInput } from '@/components/ui/form';
+import { PhoneField } from '@/components/ui/phone-field';
 
 type Settings = {
   businessName: string;
@@ -89,15 +90,14 @@ function SettingsForm({ initial }: { initial: Settings }) {
           />
         </Field>
 
-        <Field label={t('auth.phone')} htmlFor="supportPhone" error={errors.supportPhone}>
-          <Input
-            id="supportPhone"
-            type="tel"
-            inputMode="numeric"
-            value={draft.supportPhone ?? ''}
-            onChange={(e) => set('supportPhone', e.target.value)}
-          />
-        </Field>
+        <PhoneField
+          id="supportPhone"
+          label={t('auth.phone')}
+          value={draft.supportPhone ?? ''}
+          onChange={(supportPhone: string) => set('supportPhone', supportPhone)}
+          error={errors.supportPhone}
+          autoComplete="off"
+        />
 
         <Field
           label="Powered by"

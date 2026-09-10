@@ -9,7 +9,8 @@ import { sessionKey, homeFor } from '@/lib/session';
 import type { Session } from '@/lib/types';
 import { t } from '@/lib/i18n/bn';
 import { Button } from '@/components/ui/button';
-import { Field, Input } from '@/components/ui/form';
+import { PhoneField } from '@/components/ui/phone-field';
+import { PasswordField } from '@/components/ui/password-field';
 import { Alert } from '@/components/ui/layout';
 
 export default function LoginPage() {
@@ -48,30 +49,23 @@ export default function LoginPage() {
 
       {generalError && <Alert tone="danger">{generalError}</Alert>}
 
-      <Field label={t('auth.phone')} htmlFor="phone" hint={t('auth.phoneHint')} error={errors.phone} required>
-        <Input
-          id="phone"
-          name="phone"
-          type="tel"
-          autoComplete="tel"
-          inputMode="numeric"
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          required
-        />
-      </Field>
+      <PhoneField
+        id="phone"
+        label={t('auth.phone')}
+        value={phone}
+        onChange={setPhone}
+        error={errors.phone}
+        required
+      />
 
-      <Field label={t('auth.password')} htmlFor="password" error={errors.password} required>
-        <Input
-          id="password"
-          name="password"
-          type="password"
-          autoComplete="current-password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-        />
-      </Field>
+      <PasswordField
+        id="password"
+        label={t('auth.password')}
+        value={password}
+        onChange={setPassword}
+        error={errors.password}
+        required
+      />
 
       <Button type="submit" full size="lg" loading={login.isPending}>
         {t('auth.login')}

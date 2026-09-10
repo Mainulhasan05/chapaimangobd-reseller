@@ -7,9 +7,13 @@ import { api, ApiError, fieldErrors } from '@/lib/api';
 import { t } from '@/lib/i18n/bn';
 import { formatMoney, formatMoneyPlain, formatNumber } from '@/lib/format';
 import type { CatalogItem, DeliveryZone, PaymentMode } from '@/lib/types';
-import { Alert, Card, CardHeader, PageHeader } from '@/components/ui/layout';
-import { Button, Spinner } from '@/components/ui/button';
+import { Alert, Card, CardHeader, ErrorState, PageHeader, StickyBar } from '@/components/ui/layout';
+import { Button } from '@/components/ui/button';
+import { CardGridSkeleton } from '@/components/ui/skeleton';
+import { QuantityStepper } from '@/components/ui/stepper';
+import { useToast } from '@/components/ui/toast';
 import { Field, Input, MoneyInput, Select, Textarea } from '@/components/ui/form';
+import { PhoneField } from '@/components/ui/phone-field';
 
 type Line = { quantity: string; sellPrice: string };
 
@@ -22,6 +26,7 @@ type Line = { quantity: string; sellPrice: string };
 export default function ManualOrderPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const toast = useToast();
 
   const catalog = useQuery({
     queryKey: ['catalog'],
@@ -83,14 +88,30 @@ export default function ManualOrderPage() {
       await queryClient.invalidateQueries({ queryKey: ['orders'] });
       await queryClient.invalidateQueries({ queryKey: ['wallet'] });
       router.push('/reseller/orders');
+      // This route skips pending and debits the wallet immediately, so it says so.
+      toast(t('order.createdToast'));
     },
   });
 
   if (catalog.isLoading) {
     return (
-      <div className="flex justify-center py-10">
-        <Spinner />
-      </div>
+      <>
+        <PageHeader title={t('order.manualOrder')} />
+        <CardGridSkeleton count={3} />
+      </>
+    );
+  }
+
+  if (catalog.isError) {
+    return (
+      <>
+        <PageHeader title={t('order.manualOrder')} />
+        <ErrorState
+          onRetry={() => catalog.refetch()}
+          isRetrying={catalog.isFetching}
+          error={catalog.error}
+        />
+      </>
     );
   }
 
@@ -147,14 +168,14 @@ export default function ManualOrderPage() {
 
                 <div className="grid gap-3 sm:grid-cols-2">
                   <Field label={`${t('order.quantity')} (${product.unit})`} className="mb-0">
-                    <Input
-                      type="number"
-                      inputMode="decimal"
-                      className="tabular"
-                      min={0}
+                    <QuantityStepper
+                      value={Number(line?.quantity) || 0}
                       step={product.step}
-                      value={line?.quantity ?? ''}
-                      onChange={(e) => setLine(product.id, 'quantity', e.target.value)}
+                      min={product.minOrderQty}
+                      unit={product.unit}
+                      onChange={(value) =>
+                        setLine(product.id, 'quantity', value ? String(value) : '')
+                      }
                     />
                   </Field>
 
@@ -178,22 +199,14 @@ export default function ManualOrderPage() {
           <Input id="name" value={customer.name} onChange={setCustomerField('name')} required />
         </Field>
 
-        <Field
+        <PhoneField
+          id="phone"
           label={t('shop.yourPhone')}
-          htmlFor="phone"
-          hint={t('auth.phoneHint')}
+          value={customer.phone}
+          onChange={(phone) => setCustomer((prev) => ({ ...prev, phone }))}
           error={errors['customer.phone'] ?? errors.phone}
           required
-        >
-          <Input
-            id="phone"
-            type="tel"
-            inputMode="numeric"
-            value={customer.phone}
-            onChange={setCustomerField('phone')}
-            required
-          />
-        </Field>
+        />
 
         <Field label={t('order.district')} htmlFor="district" error={errors.district} required>
           <Select id="district" value={customer.district} onChange={setCustomerField('district')} required>
@@ -255,9 +268,19 @@ export default function ManualOrderPage() {
         </dl>
       )}
 
-      <Button type="submit" size="lg" full loading={create.isPending} disabled={selected.length === 0}>
-        {selected.length === 0 ? t('shop.emptyCart') : t('order.manualOrder')}
-      </Button>
+      <StickyBar>
+        {selected.length > 0 && (
+          <div className="mb-2 flex items-baseline justify-between gap-3">
+            <span className="text-xs text-muted-foreground">{t('order.walletDebit')}</span>
+            <span className="tabular text-lg font-semibold text-danger">
+              {formatMoney(costSubtotal + deliveryCharge)}
+            </span>
+          </div>
+        )}
+        <Button type="submit" size="lg" full loading={create.isPending} disabled={selected.length === 0}>
+          {selected.length === 0 ? t('shop.emptyCart') : t('order.manualOrder')}
+        </Button>
+      </StickyBar>
     </form>
   );
 }

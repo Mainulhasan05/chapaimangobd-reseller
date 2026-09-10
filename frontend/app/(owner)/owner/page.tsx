@@ -6,8 +6,18 @@ import { api } from '@/lib/api';
 import { t } from '@/lib/i18n/bn';
 import { formatMoney, formatNumber, formatAge } from '@/lib/format';
 import type { Order, OwnerDashboard, Paged } from '@/lib/types';
-import { Badge, Card, CardHeader, EmptyState, PageHeader, Stat, statusTone } from '@/components/ui/layout';
-import { Button, Spinner } from '@/components/ui/button';
+import {
+  Badge,
+  Card,
+  CardHeader,
+  EmptyState,
+  ErrorState,
+  PageHeader,
+  Stat,
+  statusTone,
+} from '@/components/ui/layout';
+import { Button } from '@/components/ui/button';
+import { ListSkeleton, StatSkeleton } from '@/components/ui/skeleton';
 
 export default function OwnerDashboardPage() {
   const dashboard = useQuery({
@@ -30,9 +40,24 @@ export default function OwnerDashboardPage() {
 
   if (dashboard.isLoading) {
     return (
-      <div className="flex justify-center py-10">
-        <Spinner />
-      </div>
+      <>
+        <PageHeader title={t('nav.dashboard')} />
+        <StatSkeleton count={4} />
+        <ListSkeleton rows={3} />
+      </>
+    );
+  }
+
+  if (dashboard.isError) {
+    return (
+      <>
+        <PageHeader title={t('nav.dashboard')} />
+        <ErrorState
+          onRetry={() => dashboard.refetch()}
+          isRetrying={dashboard.isFetching}
+          error={dashboard.error}
+        />
+      </>
     );
   }
 

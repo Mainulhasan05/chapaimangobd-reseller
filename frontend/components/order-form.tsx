@@ -13,6 +13,7 @@ import { Alert, Badge, Card, StickyBar } from '@/components/ui/layout';
 import { Button } from '@/components/ui/button';
 import { QuantityStepper } from '@/components/ui/stepper';
 import { Field, Input, Select, Textarea } from '@/components/ui/form';
+import { PhoneField } from '@/components/ui/phone-field';
 
 type Line = { product: string; quantity: number };
 
@@ -211,23 +212,14 @@ export function OrderForm({
             />
           </Field>
 
-          <Field
+          <PhoneField
+            id="phone"
             label={t('shop.yourPhone')}
-            htmlFor="phone"
-            hint={t('auth.phoneHint')}
+            value={customer.phone}
+            onChange={(phone) => setCustomer((prev) => ({ ...prev, phone }))}
             error={errors['customer.phone'] ?? errors.phone}
             required
-          >
-            <Input
-              id="phone"
-              type="tel"
-              inputMode="numeric"
-              autoComplete="tel"
-              value={customer.phone}
-              onChange={set('phone')}
-              required
-            />
-          </Field>
+          />
 
           <Field label={t('order.district')} htmlFor="district" error={errors.district} required>
             <Select id="district" value={customer.district} onChange={set('district')} required>

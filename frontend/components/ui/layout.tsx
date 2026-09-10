@@ -1,5 +1,6 @@
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n/bn';
+import { errorMessage, errorHint } from '@/lib/api';
 
 export function Card({ className, ...props }: React.ComponentProps<'div'>) {
   return <div className={cn('card p-4 sm:p-5', className)} {...props} />;
@@ -162,16 +163,30 @@ export function TableWrap({
 export function ErrorState({
   onRetry,
   isRetrying,
+  error,
   message,
 }: {
   onRetry: () => void;
   isRetrying?: boolean;
+  /** The failure itself, so this component decides the wording and the hint. */
+  error?: unknown;
+  /** Explicit override, for the few callers that are not reporting an ApiError. */
   message?: string;
 }) {
+  const text = message ?? (error !== undefined ? errorMessage(error) : t('app.errorHelp'));
+  // Says what actually broke, e.g. that the API is not running. Development only,
+  // because it names ports and services a shopkeeper has no use for.
+  const hint = error !== undefined ? errorHint(error) : undefined;
+
   return (
     <div className="card flex flex-col items-center gap-2 px-6 py-10 text-center">
       <p className="font-medium">{t('app.errorTitle')}</p>
-      <p className="max-w-sm text-sm text-muted-foreground">{message ?? t('app.errorHelp')}</p>
+      <p className="max-w-sm text-sm text-muted-foreground">{text}</p>
+      {hint && (
+        <p className="max-w-sm rounded-md bg-muted px-3 py-2 font-mono text-xs text-muted-foreground">
+          {hint}
+        </p>
+      )}
       <button
         type="button"
         onClick={onRetry}

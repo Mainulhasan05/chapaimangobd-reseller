@@ -10,6 +10,7 @@ import type { PublicOrder } from '@/lib/types';
 import { Alert, Badge, Card, statusTone } from '@/components/ui/layout';
 import { Button, Spinner } from '@/components/ui/button';
 import { Field, Input } from '@/components/ui/form';
+import { PhoneField } from '@/components/ui/phone-field';
 
 export default function TrackPage() {
   return (
@@ -61,16 +62,13 @@ function TrackView() {
             />
           </Field>
 
-          <Field label={t('shop.yourPhone')} htmlFor="phone" hint={t('auth.phoneHint')} required>
-            <Input
-              id="phone"
-              type="tel"
-              inputMode="numeric"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              required
-            />
-          </Field>
+          <PhoneField
+            id="phone"
+            label={t('shop.yourPhone')}
+            value={phone}
+            onChange={setPhone}
+            required
+          />
 
           <Button type="submit" full loading={lookup.isPending}>
             {t('app.search')}

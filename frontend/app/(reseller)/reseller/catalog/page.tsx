@@ -27,7 +27,11 @@ export default function CatalogPage() {
       {catalog.isLoading && <CardGridSkeleton />}
 
       {catalog.isError && (
-        <ErrorState onRetry={() => catalog.refetch()} isRetrying={catalog.isFetching} />
+        <ErrorState
+          onRetry={() => catalog.refetch()}
+          isRetrying={catalog.isFetching}
+          error={catalog.error}
+        />
       )}
 
       {catalog.isSuccess && catalog.data.products.length === 0 && (

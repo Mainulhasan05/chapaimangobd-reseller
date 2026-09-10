@@ -8,6 +8,7 @@ import type { Source } from '@/lib/types';
 import { Alert, Card, EmptyState, PageHeader, TableWrap, Td, Th } from '@/components/ui/layout';
 import { Button, Spinner } from '@/components/ui/button';
 import { Field, Input, Textarea } from '@/components/ui/form';
+import { PhoneField } from '@/components/ui/phone-field';
 import { Modal } from '@/components/ui/modal';
 
 type Draft = { name: string; address: string; phone: string; note: string };
@@ -156,9 +157,15 @@ function SourceModal({ source, onClose }: { source: Source | null; onClose: () =
         <Textarea id="address" rows={2} value={draft.address} onChange={set('address')} />
       </Field>
 
-      <Field label={t('auth.phone')} htmlFor="phone" hint={t('app.optional')} error={errors.phone}>
-        <Input id="phone" type="tel" inputMode="numeric" value={draft.phone} onChange={set('phone')} />
-      </Field>
+      <PhoneField
+        id="phone"
+        label={t('auth.phone')}
+        hint={t('app.optional')}
+        value={draft.phone}
+        onChange={(phone) => setDraft((prev) => ({ ...prev, phone }))}
+        error={errors.phone}
+        autoComplete="off"
+      />
 
       <Field label={t('app.notes')} htmlFor="note">
         <Textarea id="note" rows={2} value={draft.note} onChange={set('note')} />

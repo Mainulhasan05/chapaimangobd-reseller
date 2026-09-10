@@ -161,7 +161,11 @@ function OrdersView() {
       {orders.isLoading && <ListSkeleton />}
 
       {orders.isError && (
-        <ErrorState onRetry={() => orders.refetch()} isRetrying={orders.isFetching} />
+        <ErrorState
+          onRetry={() => orders.refetch()}
+          isRetrying={orders.isFetching}
+          error={orders.error}
+        />
       )}
 
       {orders.isSuccess && rows.length === 0 && (

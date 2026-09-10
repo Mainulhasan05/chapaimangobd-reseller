@@ -83,7 +83,11 @@ export default function ResellerDashboard() {
 
       {wallet.isError && (
         <div className="mb-6">
-          <ErrorState onRetry={() => wallet.refetch()} isRetrying={wallet.isFetching} />
+          <ErrorState
+          onRetry={() => wallet.refetch()}
+          isRetrying={wallet.isFetching}
+          error={wallet.error}
+        />
         </div>
       )}
 
@@ -145,7 +149,11 @@ export default function ResellerDashboard() {
         {pending.isLoading && <ListSkeleton rows={3} />}
 
         {pending.isError && (
-          <ErrorState onRetry={() => pending.refetch()} isRetrying={pending.isFetching} />
+          <ErrorState
+          onRetry={() => pending.refetch()}
+          isRetrying={pending.isFetching}
+          error={pending.error}
+        />
         )}
 
         {pending.isSuccess && pending.data.orders.length === 0 && (

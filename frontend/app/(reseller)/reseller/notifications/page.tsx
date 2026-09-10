@@ -43,7 +43,7 @@ export default function NotificationsPage() {
         action={
           (notifications.data?.unread ?? 0) > 0 ? (
             <Button size="sm" variant="outline" loading={markRead.isPending} onClick={() => markRead.mutate()}>
-              {t('app.yes')}
+              {t('app.markAllRead')}
             </Button>
           ) : undefined
         }
@@ -71,7 +71,7 @@ export default function NotificationsPage() {
                 {row.body && <p className="text-sm text-muted-foreground">{row.body}</p>}
                 <p className="text-xs text-muted-foreground">{formatDateTime(row.createdAt)}</p>
               </div>
-              {!row.readAt && <Badge tone="primary">{t('app.yes')}</Badge>}
+              {!row.readAt && <Badge tone="primary">{t('app.unread')}</Badge>}
             </li>
           ))}
         </ul>
