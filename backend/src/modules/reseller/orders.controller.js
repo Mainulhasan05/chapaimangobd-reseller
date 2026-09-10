@@ -6,8 +6,9 @@ const { ok } = require('../../middleware/error');
 const { notFound } = require('../../utils/errors');
 const { normalizeBdPhone } = require('../../utils/phone');
 const { orderSearchFilter } = require('../../utils/orderSearch');
+const { businessDate } = require('../../utils/dhakaTime');
 const { toMilli } = require('../../utils/quantity');
-const { toPoisha } = require('../../utils/money');
+const { toPoisha, toTaka } = require('../../utils/money');
 const present = require('../../utils/present');
 const { availableActions } = require('../../domain/orderStateMachine');
 const { ROLES } = require('../../domain/constants');
@@ -111,4 +112,61 @@ async function cancelOrder(req, res) {
   return ok(res, { order: present.order(order) });
 }
 
-module.exports = { listOrders, getOrder, confirmOrder, createManualOrder, cancelOrder };
+/**
+ * The reseller's own last N business days, for the dashboard chart.
+ *
+ * Grouped on the denormalised `businessDate` string rather than on `createdAt`,
+ * so this is an index scan over { reseller: 1, businessDate: 1 } and never has
+ * to reason about where a Dhaka day falls in UTC. Cancelled orders are left out,
+ * because the chart is about what the reseller actually earned.
+ *
+ * Empty days are filled with zeroes here rather than in the browser: a series
+ * with holes in it draws a chart that lies about its own shape.
+ */
+async function dailyStats(req, res) {
+  const days = Math.min(Math.max(Number(req.query.days) || 7, 1), 31);
+
+  const dates = [];
+  for (let back = days - 1; back >= 0; back -= 1) {
+    dates.push(businessDate(new Date(Date.now() - back * 86_400_000)));
+  }
+
+  const rows = await Order.aggregate([
+    {
+      $match: {
+        reseller: req.reseller._id,
+        businessDate: { $gte: dates[0] },
+        status: { $ne: 'cancelled' },
+      },
+    },
+    {
+      $group: {
+        _id: '$businessDate',
+        orders: { $sum: 1 },
+        marginPoisha: { $sum: '$totals.resellerMarginPoisha' },
+      },
+    },
+  ]);
+
+  const byDate = new Map(rows.map((row) => [row._id, row]));
+
+  return ok(res, {
+    days: dates.map((date) => {
+      const row = byDate.get(date);
+      return {
+        date,
+        orders: row ? row.orders : 0,
+        margin: row ? toTaka(row.marginPoisha) : 0,
+      };
+    }),
+  });
+}
+
+module.exports = {
+  listOrders,
+  dailyStats,
+  getOrder,
+  confirmOrder,
+  createManualOrder,
+  cancelOrder,
+};

@@ -53,10 +53,38 @@ Integrations are optional and the app reports which are live at `/api/health`:
 
 - **Cloudflare R2** is required for KYC documents, deposit screenshots and
   product images. Without it those uploads fail; the rest of the system works.
-  The bucket must be **private**: national ID scans and bKash screenshots are
-  served only through signed URLs that expire in ten minutes. Product photos are
-  the exception, so set `R2_PUBLIC_BASE_URL` to the bucket's public hostname
-  (an `r2.dev` subdomain or your own domain) or image uploads are refused.
+
+  It needs **two buckets**, not one. R2 public access is bucket wide and cannot
+  be scoped to a prefix, so there is no way to serve product photos publicly
+  while keeping national ID scans private inside a single bucket.
+
+  | Variable | Bucket | Holds | Access |
+  |---|---|---|---|
+  | `R2_BUCKET` | private | KYC scans, deposit screenshots | signed URLs only, ten minute expiry |
+  | `R2_PUBLIC_BUCKET` | public | product photos, shop logos | readable by anyone, via `R2_PUBLIC_BASE_URL` |
+
+  The app refuses to write a public image into the private bucket, and refuses to
+  start public delivery if the two names match. Leave `R2_PUBLIC_BUCKET` unset and
+  product image uploads fail with a clear message while KYC keeps working.
+
+  `R2_PUBLIC_BASE_URL` is the public bucket's `r2.dev` URL or your own domain. It
+  is **not** the S3 API endpoint, which requires a signature on every request.
+
+  Everything is written under a single prefix, `R2_PREFIX`, defaulting to
+  `chapaimango`, so a bucket shared with another project stays legible and a
+  staging environment can use a different value:
+
+  ```
+  chapaimango/kyc/<uuid>.jpg        private bucket, signed URLs only
+  chapaimango/deposits/<uuid>.jpg   private bucket, signed URLs only
+  chapaimango/products/<uuid>.jpg   public bucket, served from R2_PUBLIC_BASE_URL
+  chapaimango/logos/<uuid>.png      public bucket, served from R2_PUBLIC_BASE_URL
+  ```
+
+  Run `npm run check:storage` to verify it end to end. It uploads a throwaway
+  object, reads it back through a signed URL, checks it is **not** readable
+  without one, and deletes it.
+
 - **Web push** needs a VAPID keypair. Generate once with
   `node -e "console.log(require('web-push').generateVAPIDKeys())"` and keep it.
   Regenerating silently invalidates every existing subscription.

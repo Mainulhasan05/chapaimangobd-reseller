@@ -66,7 +66,7 @@ Three rules the code depends on:
 
 ```bash
 cd backend
-npm test        # 59 tests against an in-memory replica set, no local MongoDB
+npm test        # 64 tests against an in-memory replica set, no local MongoDB
 npm run smoke   # boots both real servers and walks the whole flow over HTTP
 ```
 
@@ -89,10 +89,12 @@ docs/        the plan and the decision records
 
 ## Known gaps
 
-- **Cloudflare R2 is required for uploads.** Without credentials, KYC documents,
-  deposit screenshots and product images fail. Everything else works. The bucket
-  must be private; product photos additionally need `R2_PUBLIC_BASE_URL` set to
-  the hostname the bucket is served from.
+- **Cloudflare R2 is required for uploads,** and it needs two buckets. R2 public
+  access is bucket wide, so KYC scans cannot share a bucket with product photos
+  that customers must load without signing in. `R2_BUCKET` stays private;
+  `R2_PUBLIC_BUCKET` plus `R2_PUBLIC_BASE_URL` serve the images. Without
+  credentials those uploads fail and everything else works. Verify with
+  `npm run check:storage`.
 - **SMS is built but switched off.** The Automas gateway integration, credit
   purchase and owner toggle are all complete, behind a feature flag that defaults
   to off, because Bengali messages are Unicode and cost roughly double.

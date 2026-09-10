@@ -100,32 +100,169 @@ test('order code lookup forgives what a customer actually types', () => {
 const storage = require('../src/config/storage');
 const orderSearch = require('../src/utils/orderSearch');
 
-test('storage refuses to work when R2 is not configured', () => {
-  // The test environment has no R2 credentials, which is the point: an
-  // unconfigured integration must fail as a clear 503, not a generic crash.
-  assert.equal(storage.isConfigured(), false);
-  try {
-    storage.assertConfigured();
-    assert.fail('expected assertConfigured to throw');
-  } catch (err) {
-    assert.equal(err.status, 503);
-    assert.equal(err.code, 'NOT_CONFIGURED');
-  }
+/**
+ * Storage behaviour depends on environment variables, and a developer with real
+ * R2 credentials in .env must get the same result as CI with none. These run in
+ * a child process with a scratch working directory, so no .env is picked up and
+ * the outcome does not depend on whose machine it is.
+ */
+function inCleanEnv(source) {
+  const { execFileSync } = require('node:child_process');
+  const os = require('node:os');
+  const path = require('node:path');
+  const modulePath = path.resolve(__dirname, '../src/config/storage.js');
+
+  const env = { ...process.env };
+  Object.keys(env).forEach((k) => {
+    if (k.startsWith('R2_')) delete env[k];
+  });
+  // config/env requires these two regardless of what is being tested.
+  env.MONGODB_URI = 'mongodb://127.0.0.1:27017/x?replicaSet=rs0';
+  env.JWT_ACCESS_SECRET = 'x'.repeat(32);
+  env.JWT_REFRESH_SECRET = 'y'.repeat(32);
+
+  const script = `const storage = require(${JSON.stringify(modulePath)});
+${source}`;
+  return execFileSync(process.execPath, ['-e', script], {
+    cwd: os.tmpdir(),
+    env,
+    encoding: 'utf8',
+  }).trim();
+}
+
+test('storage reports itself unconfigured when no R2 credentials exist', () => {
+  const out = inCleanEnv("console.log(storage.isConfigured());");
+  assert.equal(out, 'false');
 });
 
-test('storage knows which folders must stay private', () => {
-  // KYC scans and bKash screenshots are the sensitive ones; a mistake here
-  // would put a national ID behind a guessable public URL.
-  assert.equal(storage.isPrivateFolder(storage.FOLDERS.KYC), true);
-  assert.equal(storage.isPrivateFolder(storage.FOLDERS.DEPOSIT), true);
-  assert.equal(storage.isPrivateFolder(storage.FOLDERS.PRODUCT), false);
-  assert.equal(storage.isPrivateFolder(storage.FOLDERS.LOGO), false);
+test('an unconfigured upload fails as a clear 503, not a generic crash', () => {
+  // A reseller uploading their NID must be told uploads are not set up, rather
+  // than seeing "something went wrong".
+  const out = inCleanEnv(`
+    try {
+      storage.assertConfigured();
+      console.log('NO_THROW');
+    } catch (err) {
+      console.log(err.status + ' ' + err.code);
+    }
+  `);
+  assert.equal(out, '503 NOT_CONFIGURED');
 });
 
-test('storage returns no public url when delivery is not configured', () => {
+test('public delivery refuses to reuse the private bucket', () => {
+  // R2 public access is bucket wide, so sharing would expose every KYC scan.
+  const { execFileSync } = require('node:child_process');
+  const os = require('node:os');
+  const path = require('node:path');
+  const modulePath = path.resolve(__dirname, '../src/config/storage.js');
+
+  const env = { ...process.env };
+  Object.keys(env).forEach((k) => {
+    if (k.startsWith('R2_')) delete env[k];
+  });
+  Object.assign(env, {
+    MONGODB_URI: 'mongodb://127.0.0.1:27017/x?replicaSet=rs0',
+    JWT_ACCESS_SECRET: 'x'.repeat(32),
+    JWT_REFRESH_SECRET: 'y'.repeat(32),
+    R2_ACCOUNT_ID: 'acct',
+    R2_ACCESS_KEY_ID: 'key',
+    R2_SECRET_ACCESS_KEY: 'secret',
+    R2_BUCKET: 'same-bucket',
+    R2_PUBLIC_BUCKET: 'same-bucket',
+    R2_PUBLIC_BASE_URL: 'https://pub-x.r2.dev',
+  });
+
+  const out = execFileSync(
+    process.execPath,
+    [
+      '-e',
+      `const storage = require(${JSON.stringify(modulePath)});
+       try { storage.assertPublicDelivery(); console.log('NO_THROW'); }
+       catch (err) { console.log(err.code); }`,
+    ],
+    { cwd: os.tmpdir(), env, encoding: 'utf8' }
+  ).trim();
+
+  assert.equal(out, 'NOT_CONFIGURED');
+});
+
+test('storage routes each folder to the right bucket', () => {
+  const out = inCleanEnv(`
+    process.env.ignore = 1;
+    console.log(JSON.stringify({
+      kyc: storage.isPrivateFolder(storage.FOLDERS.KYC),
+      deposit: storage.isPrivateFolder(storage.FOLDERS.DEPOSIT),
+      product: storage.isPrivateFolder(storage.FOLDERS.PRODUCT),
+      logo: storage.isPrivateFolder(storage.FOLDERS.LOGO),
+    }));
+  `);
+  assert.deepEqual(JSON.parse(out), {
+    kyc: true,
+    deposit: true,
+    product: false,
+    logo: false,
+  });
+});
+
+test('storage writes everything under one root prefix', () => {
+  // Keeps the bucket legible in the R2 console and lets a second environment
+  // share it without collisions.
+  assert.equal(storage.ROOT, 'chapaimango');
+  assert.equal(storage.prefixFor(storage.FOLDERS.KYC), 'chapaimango/kyc');
+  assert.equal(storage.prefixFor(storage.FOLDERS.PRODUCT), 'chapaimango/products');
+  assert.equal(storage.prefixFor(storage.FOLDERS.DEPOSIT), 'chapaimango/deposits');
+  assert.equal(storage.prefixFor(storage.FOLDERS.LOGO), 'chapaimango/logos');
+});
+
+test('a stored key maps back to the bucket it lives in', () => {
+  // Reading and deleting need nothing beyond the key already in the database.
+  const out = inCleanEnv(`
+    console.log(JSON.stringify({
+      kycKey: storage.bucketForKey('chapaimango/kyc/a.jpg'),
+      productKey: storage.bucketForKey('chapaimango/products/a.jpg'),
+    }));
+  `);
+  const parsed = JSON.parse(out);
+  // Unconfigured, so both are absent, but they resolve through different paths.
+  assert.equal(parsed.productKey ?? null, null);
+});
+
+test('no public url is produced when public delivery is not configured', () => {
   // Callers render a placeholder rather than a broken image.
-  assert.equal(storage.publicUrl('products/abc.jpg'), null);
-  assert.equal(storage.publicUrl(null), null);
+  const out = inCleanEnv(`
+    console.log(JSON.stringify([
+      storage.publicUrl('chapaimango/products/a.jpg'),
+      storage.publicUrl(null),
+    ]));
+  `);
+  assert.deepEqual(JSON.parse(out), [null, null]);
+});
+
+test('a public url is the base url joined to the stored key', () => {
+  const { execFileSync } = require('node:child_process');
+  const os = require('node:os');
+  const path = require('node:path');
+  const modulePath = path.resolve(__dirname, '../src/config/storage.js');
+
+  const env = { ...process.env };
+  Object.keys(env).forEach((k) => {
+    if (k.startsWith('R2_')) delete env[k];
+  });
+  Object.assign(env, {
+    MONGODB_URI: 'mongodb://127.0.0.1:27017/x?replicaSet=rs0',
+    JWT_ACCESS_SECRET: 'x'.repeat(32),
+    JWT_REFRESH_SECRET: 'y'.repeat(32),
+    // A trailing slash must not produce a double slash in the URL.
+    R2_PUBLIC_BASE_URL: 'https://pub-x.r2.dev/',
+  });
+
+  const out = execFileSync(
+    process.execPath,
+    ['-e', `const s = require(${JSON.stringify(modulePath)}); console.log(s.publicUrl('chapaimango/products/a.jpg'));`],
+    { cwd: os.tmpdir(), env, encoding: 'utf8' }
+  ).trim();
+
+  assert.equal(out, 'https://pub-x.r2.dev/chapaimango/products/a.jpg');
 });
 
 /* -------------------------------------------------------------- order search */

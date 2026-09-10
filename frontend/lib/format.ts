@@ -78,6 +78,32 @@ export function formatAge(value: string | Date | null | undefined): string {
   return `${BENGALI.format(Math.floor(hours / 24))} দিন আগে`;
 }
 
+/**
+ * The hour of the day in Dhaka, 0 to 23.
+ *
+ * Read from the formatter rather than from the device clock, because a reseller
+ * whose phone is set to the wrong timezone should still be greeted with the hour
+ * their own business is living in.
+ */
+export function dhakaHour(date = new Date()): number {
+  const hour = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Dhaka',
+    hour: 'numeric',
+    hour12: false,
+  }).format(date);
+  return Number(hour) % 24;
+}
+
+/** A business date string, as the short day-and-month a chart axis wants. */
+export function formatDayShort(value: string): string {
+  // The string is already a Dhaka calendar date, so it is parsed as local noon
+  // to keep a timezone shift from moving it onto the day before.
+  const [year, month, day] = value.split('-').map(Number);
+  return new Intl.DateTimeFormat('bn-BD', { day: 'numeric', month: 'short' }).format(
+    new Date(year, month - 1, day, 12)
+  );
+}
+
 /** The Dhaka calendar date as YYYY-MM-DD, for date range inputs. */
 export function businessDate(date = new Date()): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dhaka' }).format(date);

@@ -25,6 +25,7 @@ import { ListSkeleton, StatSkeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
 import { Field, Input, MoneyInput, Select, Textarea } from '@/components/ui/form';
 import { PhoneField } from '@/components/ui/phone-field';
+import { FileField } from '@/components/ui/file-field';
 import { Modal } from '@/components/ui/modal';
 
 const METHODS = ['bkash', 'nagad', 'rocket', 'bank', 'cash'] as const;
@@ -375,15 +376,15 @@ function DepositModal({ open, onClose }: { open: boolean; onClose: () => void })
         <Input id="transactionId" value={form.transactionId} onChange={set('transactionId')} />
       </Field>
 
-      <Field label={t('wallet.screenshot')} htmlFor="screenshot" hint={t('app.optional')}>
-        <input
+      <div className="mb-4">
+        <FileField
           id="screenshot"
-          type="file"
-          accept="image/*"
-          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-          className="tap w-full text-sm"
+          label={t('wallet.screenshot')}
+          hint={t('app.optional')}
+          value={file}
+          onChange={setFile}
         />
-      </Field>
+      </div>
 
       <Field label={t('app.notes')} htmlFor="note" className="mb-0">
         <Textarea id="note" value={form.note} onChange={set('note')} rows={2} />

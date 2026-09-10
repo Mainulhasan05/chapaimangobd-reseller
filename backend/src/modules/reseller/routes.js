@@ -50,6 +50,8 @@ router.delete('/catalog/:productId', asyncHandler(controller.removeCatalogListin
 
 /* orders */
 router.get('/orders', validate({ query: schema.listOrders }), asyncHandler(orders.listOrders));
+// Before the :id route, or 'stats' is read as an order id.
+router.get('/orders/stats/daily', asyncHandler(orders.dailyStats));
 router.get('/orders/:id', asyncHandler(orders.getOrder));
 
 // Confirming and taking orders are the two actions that create a real obligation,

@@ -71,7 +71,7 @@ Not open for reinterpretation during implementation.
 | Language | Bengali, typed dictionary, no locale routing |
 | Backend | Express and Mongoose, JavaScript CommonJS, zod validation |
 | Auth | JWT access and refresh in httpOnly cookies, roles owner and reseller |
-| Uploads | Cloudflare R2, private bucket, KYC and deposit images via signed URLs |
+| Uploads | Cloudflare R2, private bucket, all objects under one `R2_PREFIX`, KYC and deposit images via signed URLs |
 | Form branding | Reseller's branding with a small powered-by line |
 | Notifications | In-app record always, plus web push, Telegram and SMS |
 | SMS | Automas gateway, owner-toggleable, resellers buy credits, built but hidden at launch |

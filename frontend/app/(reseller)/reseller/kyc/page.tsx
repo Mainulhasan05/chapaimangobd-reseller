@@ -2,14 +2,26 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { CircleCheck } from 'lucide-react';
 import { api, errorMessage } from '@/lib/api';
 import { sessionKey } from '@/lib/session';
 import { t, type DictKey } from '@/lib/i18n/bn';
-import { formatDateTime } from '@/lib/format';
+import { formatDateTime, formatNumber } from '@/lib/format';
 import type { KycStatus } from '@/lib/types';
-import { Alert, Badge, Card, CardHeader, PageHeader, statusTone } from '@/components/ui/layout';
+import {
+  Alert,
+  Badge,
+  Card,
+  CardHeader,
+  ErrorState,
+  PageHeader,
+  StickyBar,
+  statusTone,
+} from '@/components/ui/layout';
 import { Button } from '@/components/ui/button';
-import { Field } from '@/components/ui/form';
+import { CardGridSkeleton } from '@/components/ui/skeleton';
+import { FileField } from '@/components/ui/file-field';
+import { useToast } from '@/components/ui/toast';
 
 type KycResponse = {
   status: KycStatus;
@@ -24,7 +36,7 @@ type KycResponse = {
 };
 
 /** Field name must match the document type the API expects. */
-const DOCUMENTS: { field: string; labelKey: DictKey; required: boolean }[] = [
+const DOCUMENTS: { field: string; labelKey: DictKey; required: boolean; hintKey?: DictKey }[] = [
   { field: 'nid_front', labelKey: 'kyc.nidFront', required: true },
   { field: 'nid_back', labelKey: 'kyc.nidBack', required: true },
   { field: 'selfie', labelKey: 'kyc.selfie', required: false },
@@ -38,8 +50,11 @@ const STATUS_LABEL: Record<KycStatus, DictKey> = {
   rejected: 'kyc.rejected',
 };
 
+const REQUIRED_COUNT = DOCUMENTS.filter((doc) => doc.required).length;
+
 export default function KycPage() {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [files, setFiles] = useState<Record<string, File | null>>({});
 
   const kyc = useQuery({
@@ -59,12 +74,34 @@ export default function KycPage() {
       await queryClient.invalidateQueries({ queryKey: ['kyc'] });
       await queryClient.invalidateQueries({ queryKey: sessionKey });
       setFiles({});
+      toast(t('kyc.pending'));
     },
   });
 
+  if (kyc.isLoading) {
+    return (
+      <>
+        <PageHeader title={t('kyc.title')} />
+        <CardGridSkeleton count={4} />
+      </>
+    );
+  }
+
+  if (kyc.isError) {
+    return (
+      <>
+        <PageHeader title={t('kyc.title')} />
+        <ErrorState onRetry={() => kyc.refetch()} isRetrying={kyc.isFetching} error={kyc.error} />
+      </>
+    );
+  }
+
   const status = kyc.data?.status ?? 'not_submitted';
   const approved = status === 'approved';
-  const hasRequired = DOCUMENTS.filter((d) => d.required).every((d) => files[d.field]);
+
+  const requiredDone = DOCUMENTS.filter((doc) => doc.required && files[doc.field]).length;
+  const totalChosen = DOCUMENTS.filter((doc) => files[doc.field]).length;
+  const hasRequired = requiredDone === REQUIRED_COUNT;
 
   return (
     <>
@@ -81,15 +118,17 @@ export default function KycPage() {
       )}
 
       {approved && (
-        <Alert tone="success" title={t('kyc.approved')}>
-          {t('shop.shareHelp')}
-        </Alert>
+        <Card className="mb-4 flex flex-col items-center gap-2 py-8 text-center">
+          <CircleCheck className="h-12 w-12 text-success" />
+          <p className="text-lg font-bold">{t('kyc.approved')}</p>
+          <p className="text-sm text-muted-foreground">{t('shop.shareHelp')}</p>
+        </Card>
       )}
 
       {kyc.data?.submission && (
         <Card className="mb-4">
           <CardHeader
-            title={t('kyc.title')}
+            title={t('kyc.viewDocuments')}
             subtitle={formatDateTime(kyc.data.submission.createdAt)}
             action={
               <Badge tone={statusTone(kyc.data.submission.status)}>
@@ -97,40 +136,84 @@ export default function KycPage() {
               </Badge>
             }
           />
-          <p className="text-sm text-muted-foreground">
-            {kyc.data.submission.documentTypes.join(', ')}
-          </p>
+          <ul className="flex flex-wrap gap-2">
+            {kyc.data.submission.documentTypes.map((type) => (
+              <li key={type}>
+                <Badge tone="neutral">{type}</Badge>
+              </li>
+            ))}
+          </ul>
         </Card>
       )}
 
       {!approved && (
-        <Card>
-          <CardHeader title={t('kyc.submit')} />
+        <>
+          <Card className="mb-4">
+            <CardHeader
+              title={t('kyc.submit')}
+              subtitle={t('kyc.needRequired')}
+              action={
+                <span className="tabular shrink-0 text-sm font-semibold text-muted-foreground">
+                  {t('kyc.progress')
+                    .replace('{done}', formatNumber(totalChosen))
+                    .replace('{total}', formatNumber(DOCUMENTS.length))}
+                </span>
+              }
+            />
 
-          {submit.error && <Alert tone="danger">{errorMessage(submit.error)}</Alert>}
+            {submit.error && <Alert tone="danger">{errorMessage(submit.error)}</Alert>}
 
-          {DOCUMENTS.map((doc) => (
-            <Field key={doc.field} label={t(doc.labelKey)} htmlFor={doc.field} required={doc.required}>
-              <input
-                id={doc.field}
-                type="file"
-                accept="image/*"
-                className="w-full text-sm"
-                onChange={(e) =>
-                  setFiles((prev) => ({ ...prev, [doc.field]: e.target.files?.[0] ?? null }))
-                }
+            {/*
+             * A progress rail rather than a count alone. Four uploads on a phone
+             * is long enough that "how much is left" is a real question.
+             */}
+            <div
+              className="mb-5 h-1.5 overflow-hidden rounded-full bg-muted"
+              role="progressbar"
+              aria-valuenow={totalChosen}
+              aria-valuemin={0}
+              aria-valuemax={DOCUMENTS.length}
+            >
+              <div
+                className={`h-full rounded-full transition-all duration-500 ${
+                  hasRequired ? 'bg-success' : 'bg-primary'
+                }`}
+                style={{ width: `${(totalChosen / DOCUMENTS.length) * 100}%` }}
               />
-            </Field>
-          ))}
+            </div>
 
-          <Button
-            loading={submit.isPending}
-            disabled={!hasRequired}
-            onClick={() => submit.mutate()}
-          >
-            {t('kyc.submit')}
-          </Button>
-        </Card>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {DOCUMENTS.map((doc) => (
+                <FileField
+                  key={doc.field}
+                  id={doc.field}
+                  label={t(doc.labelKey)}
+                  required={doc.required}
+                  value={files[doc.field] ?? null}
+                  onChange={(file) => setFiles((prev) => ({ ...prev, [doc.field]: file }))}
+                />
+              ))}
+            </div>
+          </Card>
+
+          <StickyBar>
+            {hasRequired && (
+              <p className="mb-2 flex items-center justify-center gap-1.5 text-xs font-semibold text-success">
+                <CircleCheck className="h-4 w-4" />
+                {t('kyc.readyToSubmit')}
+              </p>
+            )}
+            <Button
+              full
+              size="lg"
+              loading={submit.isPending}
+              disabled={!hasRequired}
+              onClick={() => submit.mutate()}
+            >
+              {t('kyc.submit')}
+            </Button>
+          </StickyBar>
+        </>
       )}
     </>
   );
