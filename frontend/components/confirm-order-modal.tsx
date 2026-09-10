@@ -7,6 +7,7 @@ import { t } from '@/lib/i18n/bn';
 import { formatMoney, formatMoneyPlain, formatNumber } from '@/lib/format';
 import type { Order, PaymentMode } from '@/lib/types';
 import { Modal } from '@/components/ui/modal';
+import { useToast } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
 import { Field, MoneyInput, Input, Select } from '@/components/ui/form';
 import { Alert } from '@/components/ui/layout';
@@ -30,6 +31,7 @@ export function ConfirmOrderModal({ order, onClose }: { order: Order | null; onC
 
 function ConfirmForm({ order, onClose }: { order: Order; onClose: () => void }) {
   const queryClient = useQueryClient();
+  const toast = useToast();
 
   const [drafts, setDrafts] = useState<Draft[]>(() =>
     order.items.map((item) => ({
@@ -55,6 +57,8 @@ function ConfirmForm({ order, onClose }: { order: Order; onClose: () => void }) 
       await queryClient.invalidateQueries({ queryKey: ['orders'] });
       await queryClient.invalidateQueries({ queryKey: ['wallet'] });
       onClose();
+      // The sheet closing is not, by itself, a confirmation that money moved.
+      toast(t('order.confirmedToast'));
     },
   });
 
@@ -85,6 +89,18 @@ function ConfirmForm({ order, onClose }: { order: Order; onClose: () => void }) 
       wide
       onClose={onClose}
       title={`${t('order.confirmOrder')} · ${order.orderCode}`}
+      /*
+       * This is the moment money moves, so the numbers behind the decision are
+       * pinned above the button rather than left at the end of the scroll. On a
+       * phone the wallet debit was previously never on screen with Confirm.
+       */
+      footerLead={
+        <dl className="space-y-1 rounded-lg bg-muted p-3 text-sm">
+          <Row label={t('order.customerTotal')} value={formatMoney(customerTotal)} strong />
+          <Row label={t('order.walletDebit')} value={formatMoney(walletDebit)} tone="danger" />
+          <Row label={t('order.yourProfit')} value={formatMoney(profit)} tone="success" strong />
+        </dl>
+      }
       footer={
         <>
           <Button variant="outline" onClick={onClose}>
@@ -117,6 +133,11 @@ function ConfirmForm({ order, onClose }: { order: Order; onClose: () => void }) 
           <option value="cod">{t('order.cod')}</option>
         </Select>
       </Field>
+
+      <div className="mb-4 flex justify-between rounded-lg bg-muted p-3 text-sm">
+        <span className="text-muted-foreground">{t('order.deliveryCharge')}</span>
+        <span className="tabular">{formatMoney(order.deliveryCharge)}</span>
+      </div>
 
       <div className="mb-4 space-y-3">
         {order.items.map((item, index) => (
@@ -166,12 +187,7 @@ function ConfirmForm({ order, onClose }: { order: Order; onClose: () => void }) 
         ))}
       </div>
 
-      <dl className="space-y-1 rounded-lg bg-muted p-3 text-sm">
-        <Row label={t('order.deliveryCharge')} value={formatMoney(order.deliveryCharge)} />
-        <Row label={t('order.customerTotal')} value={formatMoney(customerTotal)} strong />
-        <Row label={t('order.walletDebit')} value={formatMoney(walletDebit)} tone="danger" />
-        <Row label={t('order.yourProfit')} value={formatMoney(profit)} tone="success" strong />
-      </dl>
+      <p className="text-xs text-muted-foreground">{t('order.confirmHelp')}</p>
     </Modal>
   );
 }

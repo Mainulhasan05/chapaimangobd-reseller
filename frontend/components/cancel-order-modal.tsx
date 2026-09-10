@@ -6,6 +6,7 @@ import { api, errorMessage } from '@/lib/api';
 import { t } from '@/lib/i18n/bn';
 import type { Order } from '@/lib/types';
 import { Modal } from '@/components/ui/modal';
+import { useToast } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
 import { Field, Textarea } from '@/components/ui/form';
 import { Alert } from '@/components/ui/layout';
@@ -25,6 +26,7 @@ export function CancelOrderModal({
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [reason, setReason] = useState('');
 
   const cancel = useMutation({
@@ -35,6 +37,8 @@ export function CancelOrderModal({
       await queryClient.invalidateQueries({ queryKey: ['owner'] });
       setReason('');
       onClose();
+      // The sheet closing is not, on its own, a confirmation that anything happened.
+      toast(t('order.cancelledToast'));
     },
   });
 
@@ -45,6 +49,7 @@ export function CancelOrderModal({
       open
       onClose={onClose}
       title={`${t('order.cancelOrder')} · ${order.orderCode}`}
+      dirty={reason.trim().length > 0}
       footer={
         <>
           <Button variant="outline" onClick={onClose}>
@@ -69,7 +74,6 @@ export function CancelOrderModal({
           value={reason}
           onChange={(e) => setReason(e.target.value)}
           rows={3}
-          autoFocus
         />
       </Field>
     </Modal>

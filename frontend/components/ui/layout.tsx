@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils';
+import { t } from '@/lib/i18n/bn';
 
 export function Card({ className, ...props }: React.ComponentProps<'div'>) {
   return <div className={cn('card p-4 sm:p-5', className)} {...props} />;
@@ -127,11 +128,73 @@ export function Alert({
   );
 }
 
-/** Tables scroll inside their own box so the page body never scrolls sideways. */
-export function TableWrap({ children }: { children: React.ReactNode }) {
+/**
+ * A table, from `sm` up.
+ *
+ * It is hidden below that by default, because a 42rem table inside a sideways
+ * scroller on a 360px screen puts the action column off the right edge: the
+ * primary button of the whole app was reachable only by scrolling to find it.
+ * Every list that uses this renders cards for phones instead. Pass
+ * `alwaysVisible` for the few tables that genuinely have nowhere else to go.
+ */
+export function TableWrap({
+  children,
+  alwaysVisible,
+}: {
+  children: React.ReactNode;
+  alwaysVisible?: boolean;
+}) {
   return (
-    <div className="card scroll-x">
+    <div className={cn('card scroll-x', alwaysVisible ? undefined : 'hidden sm:block')}>
       <table className="w-full min-w-[42rem] text-sm">{children}</table>
+    </div>
+  );
+}
+
+/**
+ * A query that failed, with the way out.
+ *
+ * Before this, a failed fetch rendered nothing: no message, no retry, just an
+ * empty page that looked like an account with no orders in it. On a phone with
+ * one bar that is the most common state of all, and `app.retry` sat unused in
+ * the dictionary the whole time.
+ */
+export function ErrorState({
+  onRetry,
+  isRetrying,
+  message,
+}: {
+  onRetry: () => void;
+  isRetrying?: boolean;
+  message?: string;
+}) {
+  return (
+    <div className="card flex flex-col items-center gap-2 px-6 py-10 text-center">
+      <p className="font-medium">{t('app.errorTitle')}</p>
+      <p className="max-w-sm text-sm text-muted-foreground">{message ?? t('app.errorHelp')}</p>
+      <button
+        type="button"
+        onClick={onRetry}
+        disabled={isRetrying}
+        className="tap mt-2 rounded-lg border border-border px-4 text-sm font-medium hover:bg-muted disabled:opacity-50"
+      >
+        {t('app.retry')}
+      </button>
+    </div>
+  );
+}
+
+/**
+ * The bar that pins a page's primary action to the bottom of the viewport.
+ *
+ * The two screens where money is decided, the public order form and the confirm
+ * sheet, both put their totals and their submit button at the end of a long
+ * scroll. On a phone that means committing to a number you cannot see.
+ */
+export function StickyBar({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-surface/95 px-4 py-3 pb-safe backdrop-blur sm:static sm:border-0 sm:bg-transparent sm:px-0 sm:backdrop-blur-none">
+      <div className="mx-auto max-w-2xl">{children}</div>
     </div>
   );
 }

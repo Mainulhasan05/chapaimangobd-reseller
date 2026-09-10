@@ -59,6 +59,7 @@ const reviewDecision = z.object({
 /* orders */
 const listOrders = z.object({
   status: z.string().optional(),
+  q: z.string().trim().max(80).optional(),
   reseller: objectId.optional(),
   from: z.string().optional(),
   to: z.string().optional(),

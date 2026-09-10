@@ -1,10 +1,15 @@
 import { cn } from '@/lib/utils';
 
+/*
+ * `text-base` rather than `text-sm` below `sm`: iOS Safari zooms the whole page
+ * when a focused input is under 16px, and the user then has to pinch back out to
+ * see the form they are filling in.
+ */
 const control =
-  'w-full rounded-lg border border-input bg-surface px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-ring disabled:opacity-60';
+  'w-full rounded-lg border border-input bg-surface px-3 py-2 text-base text-foreground placeholder:text-muted-foreground focus:border-ring disabled:opacity-60 sm:text-sm';
 
 export function Input({ className, ...props }: React.ComponentProps<'input'>) {
-  return <input className={cn(control, 'h-10', className)} {...props} />;
+  return <input className={cn(control, 'h-11 sm:h-10', className)} {...props} />;
 }
 
 export function Textarea({ className, ...props }: React.ComponentProps<'textarea'>) {
@@ -13,7 +18,7 @@ export function Textarea({ className, ...props }: React.ComponentProps<'textarea
 
 export function Select({ className, children, ...props }: React.ComponentProps<'select'>) {
   return (
-    <select className={cn(control, 'h-10', className)} {...props}>
+    <select className={cn(control, 'h-11 sm:h-10', className)} {...props}>
       {children}
     </select>
   );

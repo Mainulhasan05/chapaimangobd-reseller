@@ -1,6 +1,7 @@
 'use strict';
 
 const Order = require('../../models/Order');
+const { orderSearchFilter } = require('../../utils/orderSearch');
 const orderService = require('../../services/orderService');
 const { getSettings } = require('../../services/settings');
 const audit = require('../../services/audit');
@@ -13,7 +14,7 @@ const { availableActions } = require('../../domain/orderStateMachine');
 const { ROLES, ORDER_STATUS } = require('../../domain/constants');
 
 async function listOrders(req, res) {
-  const { status, reseller, from, to, aging, page, limit } = req.query;
+  const { status, reseller, q, from, to, aging, page, limit } = req.query;
   const filter = {};
 
   if (status) filter.status = { $in: status.split(',') };
@@ -32,6 +33,9 @@ async function listOrders(req, res) {
     filter.status = ORDER_STATUS.CONFIRMED;
     filter.confirmedAt = { $lt: agingCutoff(settings.orderAgingHours) };
   }
+
+  const search = orderSearchFilter(q);
+  if (search) Object.assign(filter, search);
 
   const [orders, total] = await Promise.all([
     Order.find(filter)

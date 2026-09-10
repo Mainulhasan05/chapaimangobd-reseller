@@ -116,7 +116,32 @@ async function waitFor(url, label, timeoutMs = 90_000) {
   fail(`${label} did not come up within ${timeoutMs / 1000}s`);
 }
 
+/**
+ * Refuse to run against someone else's server. The frontend build hard-codes the
+ * rewrite destination, so the smoke test has to use that exact port; if a
+ * development API is already sitting on it, every call would silently hit the
+ * real database instead of the throwaway one.
+ */
+async function assertPortFree() {
+  try {
+    const res = await fetch(`http://127.0.0.1:${API_PORT}/api/health`, {
+      signal: AbortSignal.timeout(2000),
+    });
+    if (!res.ok) return;
+  } catch {
+    return; // Nothing listening, which is what we want.
+  }
+
+  fail(
+    `Something is already serving the API on port ${API_PORT}. Stop your ` +
+      'development server first, or the smoke test would run against your real ' +
+      'database instead of a throwaway one.'
+  );
+}
+
 async function main() {
+  await assertPortFree();
+
   console.log('\nStarting an in-memory replica set (transactions need one)...');
   replset = await MongoMemoryReplSet.create({
     replSet: { count: 1, storageEngine: 'wiredTiger' },
@@ -218,7 +243,32 @@ async function runFlow() {
   }
   log('tracking works with the phone number and leaks no cost price');
 
-  // 5. The reseller signs in and confirms, which is where money moves.
+  // 5. Registration through the proxy, including a Bengali shop name.
+  const signup = makeSession();
+  const newPhone = `019${String(Date.now()).slice(-8)}`;
+  const registered = await signup.post('/api/auth/register', {
+    name: 'রিফাত ম্যাঙ্গো ঘর',
+    phone: newPhone,
+    password: 'password123',
+  });
+  if (registered.status !== 201) {
+    fail(`register failed: ${registered.status} ${JSON.stringify(registered.body)}`);
+  }
+  const me = await signup.get('/api/auth/me');
+  if (me.status !== 200) fail('the session from register did not work');
+  if (me.body.data.profile.kycStatus !== 'not_submitted') fail('unexpected kyc status after register');
+  log('registration works through the proxy and signs the new reseller straight in');
+
+  // A duplicate registration is a clean 400, not a crash.
+  const duplicate = await makeSession().post('/api/auth/register', {
+    name: 'Someone Else',
+    phone: newPhone,
+    password: 'password123',
+  });
+  if (duplicate.status !== 400) fail(`duplicate register returned ${duplicate.status}`);
+  log('a duplicate phone number is rejected cleanly');
+
+  // 6. The reseller signs in and confirms, which is where money moves.
   const reseller = makeSession();
   const login = await reseller.post('/api/auth/login', RESELLER);
   if (login.status !== 200) fail(`reseller login failed: ${JSON.stringify(login.body)}`);
@@ -247,7 +297,7 @@ async function runFlow() {
   }
   log(`confirm debited ${debited} taka, the cost plus delivery, not the selling price`);
 
-  // 6. The owner walks it to delivered and the margin lands.
+  // 7. The owner walks it to delivered and the margin lands.
   const owner = makeSession();
   const ownerLogin = await owner.post('/api/auth/login', OWNER);
   if (ownerLogin.status !== 200) fail('owner login failed');
@@ -276,7 +326,7 @@ async function runFlow() {
   }
   log(`cash on delivery settled: net position moved by the ${margin} taka margin`);
 
-  // 7. Deposits credit once, however many times they are approved.
+  // 8. Deposits credit once, however many times they are approved.
   const deposit = await reseller.post('/api/reseller/deposits', {
     amount: 1000,
     method: 'bkash',
@@ -296,7 +346,7 @@ async function runFlow() {
   }
   log('deposit approved once and credited once, despite a double approval');
 
-  // 8. The ledger reconciles against the stored balance.
+  // 9. The ledger reconciles against the stored balance.
   const dashboard = await owner.get('/api/owner/reports/dashboard');
   if (dashboard.status !== 200) fail('owner dashboard failed');
 
@@ -307,7 +357,7 @@ async function runFlow() {
   }
   log(`ledger reconciles for all ${reconcile.body.data.checked} resellers`);
 
-  // 9. The CSV export carries a byte order mark so Excel reads Bengali.
+  // 10. The CSV export carries a byte order mark so Excel reads Bengali.
   const csv = await owner.get('/api/owner/exports/orders.csv', { raw: true });
   // Read the bytes, not text(): the fetch spec strips a leading BOM when
   // decoding, so text() would hide exactly the thing being checked.
@@ -320,7 +370,7 @@ async function runFlow() {
   }
   log('csv export keeps the byte order mark and Bengali text intact');
 
-  // 10. Signing out actually revokes the session.
+  // 11. Signing out actually revokes the session.
   await reseller.post('/api/auth/logout', {});
   const afterLogout = await reseller.get('/api/reseller/wallet');
   if (afterLogout.status !== 401) fail('the session still worked after logging out');

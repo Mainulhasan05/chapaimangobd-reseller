@@ -5,6 +5,7 @@ const orderService = require('../../services/orderService');
 const { ok } = require('../../middleware/error');
 const { notFound } = require('../../utils/errors');
 const { normalizeBdPhone } = require('../../utils/phone');
+const { orderSearchFilter } = require('../../utils/orderSearch');
 const { toMilli } = require('../../utils/quantity');
 const { toPoisha } = require('../../utils/money');
 const present = require('../../utils/present');
@@ -12,9 +13,12 @@ const { availableActions } = require('../../domain/orderStateMachine');
 const { ROLES } = require('../../domain/constants');
 
 async function listOrders(req, res) {
-  const { status, page, limit } = req.query;
+  const { status, q, page, limit } = req.query;
   const filter = { reseller: req.reseller._id };
   if (status) filter.status = status;
+
+  const search = orderSearchFilter(q);
+  if (search) Object.assign(filter, search);
 
   const [orders, total] = await Promise.all([
     Order.find(filter)

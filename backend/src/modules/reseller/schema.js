@@ -78,6 +78,7 @@ const subscribePush = z.object({
 
 const listOrders = z.object({
   status: z.string().optional(),
+  q: z.string().trim().max(80).optional(),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });

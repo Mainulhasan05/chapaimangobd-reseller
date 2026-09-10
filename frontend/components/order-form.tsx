@@ -1,17 +1,23 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { useMutation } from '@tanstack/react-query';
+import { CircleCheck } from 'lucide-react';
 import { api, ApiError, fieldErrors } from '@/lib/api';
 import { t } from '@/lib/i18n/bn';
 import { formatMoney, formatNumber } from '@/lib/format';
 import type { DeliveryZone, PaymentMode, PublicShop } from '@/lib/types';
-import { Alert, Badge, Card } from '@/components/ui/layout';
+import { Alert, Badge, Card, StickyBar } from '@/components/ui/layout';
 import { Button } from '@/components/ui/button';
+import { QuantityStepper } from '@/components/ui/stepper';
 import { Field, Input, Select, Textarea } from '@/components/ui/form';
 
 type Line = { product: string; quantity: number };
+
+/** The submit button lives outside the form, in the bar pinned to the viewport. */
+const FORM_ID = 'shop-order-form';
 
 export function OrderForm({
   slug,
@@ -83,12 +89,17 @@ export function OrderForm({
   if (placed) {
     return (
       <Card className="text-center">
-        <h2 className="mb-2 text-lg font-semibold text-success">{t('shop.orderPlaced')}</h2>
-        <p className="mb-4 text-sm text-muted-foreground">{t('shop.orderPlacedHelp')}</p>
+        <CircleCheck className="mx-auto mb-3 h-12 w-12 text-success" />
+        <h2 className="mb-2 text-lg font-semibold">{t('shop.orderPlaced')}</h2>
+        <p className="mb-5 text-sm text-muted-foreground">{t('shop.orderPlacedHelp')}</p>
+
         <p className="mb-1 text-sm text-muted-foreground">{t('order.code')}</p>
-        <p className="tabular mb-5 text-2xl font-semibold">{placed}</p>
-        <Link href={`/track?code=${placed}`}>
-          <Button variant="outline">{t('shop.trackOrder')}</Button>
+        <p className="tabular mb-6 text-3xl font-semibold">{placed}</p>
+
+        <Link href={`/track?code=${placed}`} className="block">
+          <Button variant="outline" full size="lg">
+            {t('shop.trackOrder')}
+          </Button>
         </Link>
       </Card>
     );
@@ -104,145 +115,218 @@ export function OrderForm({
       setCustomer((prev) => ({ ...prev, [key]: e.target.value }));
 
   return (
-    <form
-      onSubmit={(event) => {
-        event.preventDefault();
-        submit.mutate();
-      }}
-    >
-      {generalError && <Alert tone="danger">{generalError}</Alert>}
-
-      <div className="mb-6 space-y-3">
-        {shop.products.map((product) => {
-          const quantity = lines[product.id] ?? 0;
-          return (
-            <Card key={product.id} className={quantity > 0 ? 'ring-1 ring-primary' : undefined}>
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <h3 className="font-medium">{product.name}</h3>
-                  <p className="text-sm text-muted-foreground">
-                    {product.priceHidden
-                      ? t('shop.priceOnCall')
-                      : `${formatMoney(product.price ?? 0)} / ${product.unit}`}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {t('catalog.minOrderQty')} {formatNumber(product.minOrderQty)} {product.unit}
-                  </p>
-                </div>
-                {!product.inStock && <Badge tone="danger">{t('catalog.outOfStock')}</Badge>}
-              </div>
-
-              {product.inStock && (
-                <div className="mt-3 flex items-center gap-2">
-                  <Input
-                    type="number"
-                    inputMode="decimal"
-                    className="tabular w-32"
-                    min={0}
-                    step={product.step}
-                    placeholder={`0 ${product.unit}`}
-                    value={quantity || ''}
-                    onChange={(e) =>
-                      setLines((prev) => ({ ...prev, [product.id]: Number(e.target.value) || 0 }))
-                    }
-                  />
-                  <span className="text-sm text-muted-foreground">{product.unit}</span>
-                </div>
-              )}
-            </Card>
-          );
-        })}
-      </div>
-
-      <Card className="mb-6">
-        <h2 className="mb-4 font-semibold">{t('shop.deliveryAddress')}</h2>
-
-        <Field label={t('shop.yourName')} htmlFor="name" error={errors['customer.name']} required>
-          <Input id="name" value={customer.name} onChange={set('name')} autoComplete="name" required />
-        </Field>
-
-        <Field
-          label={t('shop.yourPhone')}
-          htmlFor="phone"
-          hint={t('auth.phoneHint')}
-          error={errors['customer.phone'] ?? errors.phone}
-          required
-        >
-          <Input
-            id="phone"
-            type="tel"
-            inputMode="numeric"
-            autoComplete="tel"
-            value={customer.phone}
-            onChange={set('phone')}
-            required
-          />
-        </Field>
-
-        <Field label={t('order.district')} htmlFor="district" error={errors.district} required>
-          <Select id="district" value={customer.district} onChange={set('district')} required>
-            <option value="">{t('app.search')}</option>
-            {districts.map((d) => (
-              <option key={d.district} value={d.district}>
-                {d.district} · {formatMoney(d.charge)}
-              </option>
-            ))}
-          </Select>
-        </Field>
-
-        <Field label={t('order.address')} htmlFor="address" error={errors['customer.address']} required>
-          <Textarea id="address" rows={2} value={customer.address} onChange={set('address')} required />
-        </Field>
-
-        <Field label={t('order.paymentMode')} htmlFor="paymentMode">
-          <Select
-            id="paymentMode"
-            value={paymentMode}
-            onChange={(e) => setPaymentMode(e.target.value as PaymentMode)}
-          >
-            <option value="cod">{t('order.cod')}</option>
-            <option value="prepaid">{t('order.prepaid')}</option>
-          </Select>
-        </Field>
-
-        <Field label={t('app.notes')} htmlFor="note" hint={t('app.optional')}>
-          <Textarea id="note" rows={2} value={customer.note} onChange={set('note')} />
-        </Field>
-      </Card>
-
-      {selected.length > 0 && (
-        <dl className="mb-4 space-y-1 rounded-lg bg-muted p-4 text-sm">
-          {!anyHidden && (
-            <div className="flex justify-between">
-              <dt className="text-muted-foreground">{t('order.items')}</dt>
-              <dd className="tabular">{formatMoney(itemsTotal)}</dd>
-            </div>
-          )}
-          <div className="flex justify-between">
-            <dt className="text-muted-foreground">{t('order.deliveryCharge')}</dt>
-            <dd className="tabular">{formatMoney(deliveryCharge)}</dd>
-          </div>
-          {!anyHidden && (
-            <div className="flex justify-between border-t border-border pt-1 font-semibold">
-              <dt>{t('app.total')}</dt>
-              <dd className="tabular">{formatMoney(itemsTotal + deliveryCharge)}</dd>
-            </div>
-          )}
-          {anyHidden && (
-            <p className="pt-1 text-xs text-muted-foreground">{t('shop.priceOnCall')}</p>
-          )}
-        </dl>
-      )}
-
-      <Button
-        type="submit"
-        full
-        size="lg"
-        loading={submit.isPending}
-        disabled={selected.length === 0}
+    <>
+      <form
+        id={FORM_ID}
+        onSubmit={(event) => {
+          event.preventDefault();
+          submit.mutate();
+        }}
       >
-        {selected.length === 0 ? t('shop.emptyCart') : t('shop.placeOrder')}
-      </Button>
-    </form>
+        {generalError && <Alert tone="danger">{generalError}</Alert>}
+
+        <div className="mb-6 space-y-3">
+          {shop.products.map((product) => {
+            const quantity = lines[product.id] ?? 0;
+            const image = product.images?.[0]?.url;
+
+            return (
+              <Card
+                key={product.id}
+                className={quantity > 0 ? 'ring-2 ring-primary' : undefined}
+              >
+                <div className="flex items-start gap-3">
+                  {/*
+                   * A mango shop with no photographs of mangoes was asking people
+                   * to buy fruit from a spreadsheet. Fixed size and lazy, because
+                   * this page loads over a mobile connection.
+                   */}
+                  {image ? (
+                    <Image
+                      src={image}
+                      alt={product.name}
+                      width={72}
+                      height={72}
+                      className="h-18 w-18 shrink-0 rounded-lg object-cover"
+                    />
+                  ) : (
+                    <div
+                      aria-hidden
+                      className="h-18 w-18 shrink-0 rounded-lg bg-muted"
+                    />
+                  )}
+
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-start justify-between gap-2">
+                      <h3 className="font-medium">{product.name}</h3>
+                      {!product.inStock && <Badge tone="danger">{t('catalog.outOfStock')}</Badge>}
+                    </div>
+
+                    <p className="mt-0.5 font-semibold text-[oklch(0.45_0.14_70)]">
+                      {product.priceHidden
+                        ? t('shop.priceOnCall')
+                        : `${formatMoney(product.price ?? 0)} / ${product.unit}`}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {t('catalog.minOrderQty')} {formatNumber(product.minOrderQty)} {product.unit}
+                    </p>
+                  </div>
+                </div>
+
+                {product.inStock && (
+                  <div className="mt-3 flex items-center justify-between gap-3">
+                    <QuantityStepper
+                      id={`qty-${product.id}`}
+                      value={quantity}
+                      step={product.step}
+                      min={product.minOrderQty}
+                      unit={product.unit}
+                      onChange={(value) =>
+                        setLines((prev) => ({ ...prev, [product.id]: value }))
+                      }
+                    />
+
+                    {quantity > 0 && !product.priceHidden && (
+                      <span className="tabular text-sm font-medium">
+                        {formatMoney((product.price ?? 0) * quantity)}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </Card>
+            );
+          })}
+        </div>
+
+        <Card className="mb-6">
+          <h2 className="mb-4 font-semibold">{t('shop.deliveryAddress')}</h2>
+
+          <Field label={t('shop.yourName')} htmlFor="name" error={errors['customer.name']} required>
+            <Input
+              id="name"
+              value={customer.name}
+              onChange={set('name')}
+              autoComplete="name"
+              required
+            />
+          </Field>
+
+          <Field
+            label={t('shop.yourPhone')}
+            htmlFor="phone"
+            hint={t('auth.phoneHint')}
+            error={errors['customer.phone'] ?? errors.phone}
+            required
+          >
+            <Input
+              id="phone"
+              type="tel"
+              inputMode="numeric"
+              autoComplete="tel"
+              value={customer.phone}
+              onChange={set('phone')}
+              required
+            />
+          </Field>
+
+          <Field label={t('order.district')} htmlFor="district" error={errors.district} required>
+            <Select id="district" value={customer.district} onChange={set('district')} required>
+              <option value="">{t('app.search')}</option>
+              {districts.map((d) => (
+                <option key={d.district} value={d.district}>
+                  {d.district} · {formatMoney(d.charge)}
+                </option>
+              ))}
+            </Select>
+          </Field>
+
+          <Field
+            label={t('order.address')}
+            htmlFor="address"
+            error={errors['customer.address']}
+            required
+          >
+            <Textarea
+              id="address"
+              rows={2}
+              value={customer.address}
+              onChange={set('address')}
+              autoComplete="street-address"
+              required
+            />
+          </Field>
+
+          <Field label={t('order.paymentMode')} htmlFor="paymentMode">
+            <Select
+              id="paymentMode"
+              value={paymentMode}
+              onChange={(e) => setPaymentMode(e.target.value as PaymentMode)}
+            >
+              <option value="cod">{t('order.cod')}</option>
+              <option value="prepaid">{t('order.prepaid')}</option>
+            </Select>
+          </Field>
+
+          <Field label={t('app.notes')} htmlFor="note" hint={t('app.optional')} className="mb-0">
+            <Textarea id="note" rows={2} value={customer.note} onChange={set('note')} />
+          </Field>
+        </Card>
+
+        {selected.length > 0 && (
+          <dl className="mb-4 space-y-1 rounded-lg bg-muted p-4 text-sm">
+            {!anyHidden && (
+              <div className="flex justify-between">
+                <dt className="text-muted-foreground">{t('order.items')}</dt>
+                <dd className="tabular">{formatMoney(itemsTotal)}</dd>
+              </div>
+            )}
+            <div className="flex justify-between">
+              <dt className="text-muted-foreground">{t('order.deliveryCharge')}</dt>
+              <dd className="tabular">{formatMoney(deliveryCharge)}</dd>
+            </div>
+            {!anyHidden && (
+              <div className="flex justify-between border-t border-border pt-1 font-semibold">
+                <dt>{t('app.total')}</dt>
+                <dd className="tabular">{formatMoney(itemsTotal + deliveryCharge)}</dd>
+              </div>
+            )}
+            {anyHidden && (
+              <p className="pt-1 text-xs text-muted-foreground">{t('shop.priceOnCall')}</p>
+            )}
+          </dl>
+        )}
+      </form>
+
+      {/*
+       * The total and the button follow the viewport rather than sitting at the
+       * end of a long scroll. On a phone with eight products the decision and the
+       * number behind it were previously never on screen at the same time.
+       */}
+      <StickyBar>
+        {selected.length > 0 && (
+          <div className="mb-2 flex items-baseline justify-between gap-3">
+            <span className="text-xs text-muted-foreground">
+              {formatNumber(selected.length)} {t('shop.itemsSelected')}
+            </span>
+            {!anyHidden && (
+              <span className="tabular text-lg font-semibold">
+                {formatMoney(itemsTotal + deliveryCharge)}
+              </span>
+            )}
+          </div>
+        )}
+
+        <Button
+          type="submit"
+          form={FORM_ID}
+          full
+          size="lg"
+          loading={submit.isPending}
+          disabled={selected.length === 0}
+        >
+          {selected.length === 0 ? t('shop.emptyCart') : t('shop.placeOrder')}
+        </Button>
+      </StickyBar>
+    </>
   );
 }

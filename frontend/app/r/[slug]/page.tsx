@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation';
+import Image from 'next/image';
 import type { Metadata } from 'next';
 import type { PublicShop, DeliveryZone } from '@/lib/types';
 import { OrderForm } from '@/components/order-form';
@@ -39,7 +40,21 @@ export async function generateMetadata({
   // params is a Promise in Next 16; synchronous access was removed, not deprecated.
   const { slug } = await params;
   const shop = await loadShop(slug);
-  return { title: shop ? shop.shop.name : 'দোকান' };
+  if (!shop) return { title: 'দোকান' };
+
+  /*
+   * This link's whole life is being pasted into a chat, so the preview card is
+   * the shop's storefront. Without it WhatsApp renders a bare URL and the
+   * reseller's name never appears.
+   */
+  return {
+    title: shop.shop.name,
+    openGraph: {
+      title: shop.shop.name,
+      description: 'সরাসরি অর্ডার করুন',
+      images: shop.shop.logoUrl ? [{ url: shop.shop.logoUrl }] : undefined,
+    },
+  };
 }
 
 export default async function ShopPage({ params }: { params: Promise<{ slug: string }> }) {
@@ -49,8 +64,18 @@ export default async function ShopPage({ params }: { params: Promise<{ slug: str
   if (!shop) notFound();
 
   return (
-    <main className="mx-auto max-w-2xl px-4 py-6">
-      <header className="mb-6 text-center">
+    // `pb-nav` keeps the last field clear of the order bar pinned to the bottom.
+    <main className="mx-auto max-w-2xl px-4 py-6 pb-nav">
+      <header className="mb-6 flex flex-col items-center gap-3 text-center">
+        {shop.shop.logoUrl && (
+          <Image
+            src={shop.shop.logoUrl}
+            alt={shop.shop.name}
+            width={64}
+            height={64}
+            className="h-16 w-16 rounded-full object-cover"
+          />
+        )}
         <h1 className="text-2xl font-semibold">{shop.shop.name}</h1>
       </header>
 
