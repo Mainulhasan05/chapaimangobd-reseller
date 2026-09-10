@@ -33,7 +33,20 @@ const createProduct = z.object({
   source: objectId.optional(),
   sortOrder: z.coerce.number().int().optional(),
 });
-const updateProduct = createProduct.partial().extend({ isArchived: z.boolean().optional() });
+/*
+ * Storage keys of images to drop. A multipart body repeats the field name once
+ * per value, which arrives as a bare string when there is exactly one, so it is
+ * normalised to an array before validation rather than at every call site.
+ */
+const storageKeys = z.preprocess(
+  (value) => (value === undefined ? undefined : Array.isArray(value) ? value : [value]),
+  z.array(z.string().trim().min(1).max(512)).max(6).optional()
+);
+
+const updateProduct = createProduct.partial().extend({
+  isArchived: z.boolean().optional(),
+  removeImages: storageKeys,
+});
 
 /* delivery zones */
 const createZone = z.object({

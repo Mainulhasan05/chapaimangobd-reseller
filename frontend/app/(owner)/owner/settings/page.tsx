@@ -8,6 +8,7 @@ import { formatMoneyPlain } from '@/lib/format';
 import { Alert, Card, CardHeader, PageHeader } from '@/components/ui/layout';
 import { Button, Spinner } from '@/components/ui/button';
 import { Field, Input, MoneyInput } from '@/components/ui/form';
+import { Switch } from '@/components/ui/switch';
 import { PhoneField } from '@/components/ui/phone-field';
 
 type Settings = {
@@ -145,20 +146,12 @@ function SettingsForm({ initial }: { initial: Settings }) {
           />
         </Field>
 
-        <label className="flex items-start gap-2 text-sm">
-          <input
-            type="checkbox"
-            className="mt-1 h-4 w-4"
-            checked={draft.reverseDeliveryChargeOnReturn}
-            onChange={(e) => set('reverseDeliveryChargeOnReturn', e.target.checked)}
-          />
-          <span>
-            ফেরত এলে ডেলিভারি চার্জও ফেরত দিন
-            <span className="block text-xs text-muted-foreground">
-              বন্ধ রাখলে কুরিয়ার খরচ রিসেলারের কাছেই থাকবে
-            </span>
-          </span>
-        </label>
+        <Switch
+          checked={draft.reverseDeliveryChargeOnReturn}
+          onChange={(checked) => set('reverseDeliveryChargeOnReturn', checked)}
+          label="ফেরত এলে ডেলিভারি চার্জও ফেরত দিন"
+          hint="বন্ধ রাখলে কুরিয়ার খরচ রিসেলারের কাছেই থাকবে"
+        />
       </Card>
 
       <Card className="mb-4">
@@ -176,40 +169,24 @@ function SettingsForm({ initial }: { initial: Settings }) {
           segment, so it stays off until the credit purchase flow has been tested
           against the live gateway.
         */}
-        <label className="mb-2 flex items-start gap-2 text-sm">
-          <input
-            type="checkbox"
-            className="mt-1 h-4 w-4"
+        <div className="mb-4 divide-y divide-border">
+          <Switch
             checked={draft.features.sms}
-            onChange={(e) => set('features', { ...draft.features, sms: e.target.checked })}
+            onChange={(checked) => set('features', { ...draft.features, sms: checked })}
+            label="SMS"
+            hint="চালু করলে রিসেলাররা SMS ক্রেডিট কিনতে পারবে"
           />
-          <span>
-            SMS
-            <span className="block text-xs text-muted-foreground">
-              চালু করলে রিসেলাররা SMS ক্রেডিট কিনতে পারবে
-            </span>
-          </span>
-        </label>
-
-        <label className="mb-2 flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            className="h-4 w-4"
+          <Switch
             checked={draft.features.telegram}
-            onChange={(e) => set('features', { ...draft.features, telegram: e.target.checked })}
+            onChange={(checked) => set('features', { ...draft.features, telegram: checked })}
+            label="Telegram"
           />
-          <span>Telegram</span>
-        </label>
-
-        <label className="mb-4 flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            className="h-4 w-4"
+          <Switch
             checked={draft.features.webPush}
-            onChange={(e) => set('features', { ...draft.features, webPush: e.target.checked })}
+            onChange={(checked) => set('features', { ...draft.features, webPush: checked })}
+            label="Web push"
           />
-          <span>Web push</span>
-        </label>
+        </div>
 
         <Field
           label="প্রতি SMS ক্রেডিটের দাম"

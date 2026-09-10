@@ -122,7 +122,17 @@ async function updateProduct(req, res) {
 
   const patch = buildProductPatch(req.body);
   const images = await uploadImages(req.files);
-  if (images.length > 0) patch.images = [...existing.images, ...images];
+
+  /*
+   * Removal is expressed as the keys to drop rather than the list to keep, so a
+   * second owner adding a photo from another tab does not have theirs deleted by
+   * whoever saves last. Only keys this product actually owns are honoured.
+   */
+  const requested = new Set(req.body.removeImages || []);
+  const removed = existing.images.filter((img) => requested.has(img.key));
+  const kept = existing.images.filter((img) => !requested.has(img.key));
+
+  if (images.length > 0 || removed.length > 0) patch.images = [...kept, ...images];
 
   const nextCost = patch.costPricePoisha ?? existing.costPricePoisha;
   const nextMax = patch.maxSellPricePoisha ?? existing.maxSellPricePoisha;
@@ -133,6 +143,20 @@ async function updateProduct(req, res) {
   }
 
   const product = await Product.findByIdAndUpdate(req.params.id, { $set: patch }, { new: true });
+
+  /*
+   * The bucket is reconciled only after the document is, and a failure here is
+   * swallowed deliberately. An orphaned object costs a fraction of a paisa a
+   * month; failing the request would tell the owner their edit did not save when
+   * it did, and the retry would then delete an image that is already gone.
+   */
+  await Promise.all(
+    removed.map((img) =>
+      storage.destroy(img.key).catch(() => {
+        /* orphaned in the bucket, already detached from the product */
+      })
+    )
+  );
 
   // A cost price change is the kind of thing that gets argued about later.
   if (patch.costPricePoisha !== undefined && patch.costPricePoisha !== existing.costPricePoisha) {

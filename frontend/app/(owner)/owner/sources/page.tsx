@@ -64,7 +64,7 @@ export default function OwnerSourcesPage() {
                 <Td className="text-right">
                   <div className="flex justify-end gap-2">
                     <Button size="sm" variant="outline" onClick={() => setEditing(source)}>
-                      {t('app.save')}
+                      {t('app.edit')}
                     </Button>
                     {/* Archived, never deleted: shipped orders still reference it. */}
                     <Button

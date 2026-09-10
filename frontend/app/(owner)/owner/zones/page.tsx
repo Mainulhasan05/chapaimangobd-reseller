@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/layout';
 import { Button, Spinner } from '@/components/ui/button';
 import { Field, Input, MoneyInput, Textarea } from '@/components/ui/form';
+import { Switch } from '@/components/ui/switch';
 import { Modal } from '@/components/ui/modal';
 
 export default function OwnerZonesPage() {
@@ -69,7 +70,7 @@ export default function OwnerZonesPage() {
                 </Td>
                 <Td className="text-right">
                   <Button size="sm" variant="outline" onClick={() => setEditing(zone)}>
-                    {t('app.save')}
+                    {t('app.edit')}
                   </Button>
                 </Td>
               </tr>
@@ -165,15 +166,14 @@ function ZoneModal({ zone, onClose }: { zone: DeliveryZone | null; onClose: () =
         <MoneyInput id="charge" value={charge} onChange={(e) => setCharge(e.target.value)} />
       </Field>
 
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          className="h-4 w-4"
-          checked={isActive}
-          onChange={(e) => setIsActive(e.target.checked)}
-        />
-        <span>{t('app.yes')}</span>
-      </label>
+      {/* Previously a bare checkbox labelled only "হ্যাঁ", which answered a
+          question the form never asked. */}
+      <Switch
+        checked={isActive}
+        onChange={setIsActive}
+        label={t('zone.active')}
+        hint={t('zone.activeHint')}
+      />
     </Modal>
   );
 }

@@ -18,6 +18,8 @@ import {
 } from '@/components/ui/layout';
 import { Button, Spinner } from '@/components/ui/button';
 import { Field, Input, MoneyInput, Select, Textarea } from '@/components/ui/form';
+import { ImagesField } from '@/components/ui/images-field';
+import { Switch } from '@/components/ui/switch';
 import { Modal } from '@/components/ui/modal';
 
 const UNITS = ['kg', 'gram', 'litre', 'pcs', 'dozen', 'box'] as const;
@@ -117,7 +119,7 @@ export default function OwnerProductsPage() {
                 </Td>
                 <Td className="text-right">
                   <Button size="sm" variant="outline" onClick={() => setEditing(product)}>
-                    {t('app.save')}
+                    {t('app.edit')}
                   </Button>
                 </Td>
               </tr>
@@ -141,7 +143,14 @@ export default function OwnerProductsPage() {
 
 function ProductModal({ product, onClose }: { product: OwnerProduct | null; onClose: () => void }) {
   const queryClient = useQueryClient();
-  const [files, setFiles] = useState<FileList | null>(null);
+
+  // Held as an array rather than the input's own FileList, because a FileList is
+  // read-only: dropping one photo out of a chosen five means rebuilding the set.
+  const [files, setFiles] = useState<File[]>([]);
+
+  // Keys of stored images the owner has removed, applied on save rather than
+  // immediately, so closing the sheet without saving changes nothing.
+  const [removedKeys, setRemovedKeys] = useState<string[]>([]);
 
   const sources = useQuery({
     queryKey: ['owner', 'sources'],
@@ -185,7 +194,8 @@ function ProductModal({ product, onClose }: { product: OwnerProduct | null; onCl
       if (draft.trackStock) data.set('stockQty', draft.stockQty);
       data.set('isAvailable', String(draft.isAvailable));
       if (draft.source) data.set('source', draft.source);
-      if (files) Array.from(files).forEach((file) => data.append('images', file));
+      files.forEach((file) => data.append('images', file));
+      removedKeys.forEach((key) => data.append('removeImages', key));
 
       return product
         ? api.upload(`/owner/products/${product.id}`, data, 'PATCH')
@@ -308,20 +318,19 @@ function ProductModal({ product, onClose }: { product: OwnerProduct | null; onCl
         </Field>
       </div>
 
-      <label className="mb-3 flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          className="h-4 w-4"
+      {/*
+       * Switches, not sixteen pixel checkboxes. Both of these decide what a
+       * customer sees, and a native checkbox on a phone is both hard to hit and
+       * hard to read the state of at a glance.
+       */}
+      <div className="mb-3 divide-y divide-border">
+        <Switch
           checked={draft.trackStock}
-          onChange={(e) => set('trackStock', e.target.checked)}
+          onChange={(checked) => set('trackStock', checked)}
+          label={t('catalog.trackStock')}
+          hint={t('catalog.trackStockHint')}
         />
-        <span>
-          {t('catalog.trackStock')}
-          <span className="block text-xs text-muted-foreground">
-            বন্ধ রাখলে স্টক সীমাহীন ধরা হবে
-          </span>
-        </span>
-      </label>
+      </div>
 
       {draft.trackStock && (
         <Field label={t('catalog.stockQty')} htmlFor="stockQty" error={errors.stockQty}>
@@ -337,26 +346,28 @@ function ProductModal({ product, onClose }: { product: OwnerProduct | null; onCl
         </Field>
       )}
 
-      <label className="mb-4 flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          className="h-4 w-4"
+      <div className="mb-4 divide-y divide-border">
+        <Switch
           checked={draft.isAvailable}
-          onChange={(e) => set('isAvailable', e.target.checked)}
+          onChange={(checked) => set('isAvailable', checked)}
+          label={t('catalog.available')}
+          hint={t('catalog.availableHint')}
         />
-        <span>{t('catalog.inStock')}</span>
-      </label>
+      </div>
 
-      <Field label="ছবি" htmlFor="images" hint={t('app.optional')}>
-        <input
-          id="images"
-          type="file"
-          accept="image/*"
-          multiple
-          className="w-full text-sm"
-          onChange={(e) => setFiles(e.target.files)}
-        />
-      </Field>
+      <ImagesField
+        id="images"
+        label={t('catalog.images')}
+        hint={t('catalog.imagesHint')}
+        value={files}
+        onChange={setFiles}
+        existing={(product?.images ?? []).filter((image) => !removedKeys.includes(image.key))}
+        onRemoveExisting={(key) => setRemovedKeys((prev) => [...prev, key])}
+      />
+
+      {save.error && errors.images && (
+        <p className="mt-1 text-xs font-semibold text-danger">{errors.images}</p>
+      )}
     </Modal>
   );
 }

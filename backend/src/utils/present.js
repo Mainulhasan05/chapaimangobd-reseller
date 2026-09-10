@@ -15,11 +15,15 @@ const storage = require('../config/storage');
  * orphaning the ones already saved. An unconfigured bucket yields an empty list,
  * and the UI falls back to its placeholder rather than a broken image.
  */
+/**
+ * The key travels alongside the URL because the owner's product form needs to
+ * name an individual image in order to delete it. It leaks nothing: product
+ * images live in the public bucket, so the key is already the tail of the URL.
+ */
 const images = (list) =>
   (list || [])
-    .map((img) => storage.publicUrl(img.key))
-    .filter(Boolean)
-    .map((url) => ({ url }));
+    .map((img) => ({ key: img.key, url: storage.publicUrl(img.key) }))
+    .filter((img) => Boolean(img.url));
 
 const line = (l) => ({
   id: l._id,
