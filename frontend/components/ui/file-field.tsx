@@ -50,22 +50,27 @@ export function FileField({
   const galleryRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
 
-  const [preview, setPreview] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+
+  const imageRef = useRef<HTMLImageElement>(null);
 
   /*
    * An object URL is a live handle into the page's memory, not a string. Left
    * unrevoked, every photo a reseller reconsiders stays resident for the life of
    * the tab, which on a cheap phone is how a form starts to stutter.
+   *
+   * The URL is written straight onto the img element rather than mirrored into
+   * React state. Pushing the latest value out to a DOM node and tearing it down
+   * again is what an effect is for; holding a second copy of the file in state
+   * would just be two sources of truth that can disagree for a render.
    */
   useEffect(() => {
-    if (!value) {
-      setPreview(null);
-      return undefined;
-    }
+    const image = imageRef.current;
+    if (!image || !value) return undefined;
+
     const url = URL.createObjectURL(value);
-    setPreview(url);
+    image.src = url;
     return () => URL.revokeObjectURL(url);
   }, [value]);
 
@@ -111,7 +116,7 @@ export function FileField({
           value && !dragging && 'border-solid border-success'
         )}
       >
-        {value && preview ? (
+        {value ? (
           <div className="flex items-center gap-3 p-3">
             {/*
              * A local object URL, so next/image would only add a proxy hop to a
@@ -119,9 +124,11 @@ export function FileField({
              */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={preview}
+              ref={imageRef}
               alt={label}
-              className="h-16 w-16 shrink-0 rounded-lg object-cover"
+              // Tinted, so the tile never flashes a broken-image icon in the
+              // frame between mount and the effect setting src.
+              className="h-16 w-16 shrink-0 rounded-lg bg-muted object-cover"
             />
 
             <div className="min-w-0 flex-1">
