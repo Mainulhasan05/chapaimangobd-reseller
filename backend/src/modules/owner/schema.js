@@ -1,0 +1,136 @@
+'use strict';
+
+const { z } = require('zod');
+const { UNITS } = require('../../utils/quantity');
+const { DEPOSIT_METHOD, values } = require('../../domain/constants');
+
+const objectId = z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid identifier');
+// Multipart bodies arrive as strings, so numbers coerce at the boundary.
+const money = z.coerce.number().nonnegative().max(10000000);
+const qty = z.coerce.number().positive().max(1000000);
+
+/* sources */
+const createSource = z.object({
+  name: z.string().trim().min(2, 'Name is required').max(120),
+  address: z.string().trim().max(500).optional(),
+  phone: z.string().max(20).optional(),
+  note: z.string().max(1000).optional(),
+});
+const updateSource = createSource.partial().extend({ isArchived: z.boolean().optional() });
+
+/* products */
+const createProduct = z.object({
+  name: z.string().trim().min(2, 'Name is required').max(160),
+  description: z.string().max(2000).optional(),
+  unit: z.enum(UNITS),
+  step: qty.optional(),
+  minOrderQty: qty,
+  costPrice: money,
+  maxSellPrice: money.nullable().optional(),
+  trackStock: z.coerce.boolean().optional(),
+  stockQty: z.coerce.number().nonnegative().max(10000000).optional(),
+  isAvailable: z.coerce.boolean().optional(),
+  source: objectId.optional(),
+  sortOrder: z.coerce.number().int().optional(),
+});
+const updateProduct = createProduct.partial().extend({ isArchived: z.boolean().optional() });
+
+/* delivery zones */
+const createZone = z.object({
+  name: z.string().trim().min(2, 'Name is required').max(120),
+  districts: z.array(z.string().trim().min(2).max(80)).min(1, 'List at least one district'),
+  charge: money,
+  isActive: z.boolean().optional(),
+  sortOrder: z.number().int().optional(),
+});
+const updateZone = createZone.partial();
+
+/* resellers */
+const updateReseller = z.object({
+  creditLimit: money.optional(),
+  isActive: z.boolean().optional(),
+  smsEnabled: z.boolean().optional(),
+});
+
+const reviewDecision = z.object({
+  reason: z.string().trim().max(500).optional(),
+});
+
+/* orders */
+const listOrders = z.object({
+  status: z.string().optional(),
+  reseller: objectId.optional(),
+  from: z.string().optional(),
+  to: z.string().optional(),
+  aging: z.coerce.boolean().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+
+const shipOrder = z.object({
+  courierName: z.string().trim().min(2, 'Courier name is required').max(120),
+  trackingNumber: z.string().trim().max(120).optional(),
+});
+
+const transitionBody = z.object({
+  reason: z.string().trim().max(500).optional(),
+  note: z.string().trim().max(500).optional(),
+});
+
+const overrideDeliveryCharge = z.object({ deliveryCharge: money });
+
+/* finance */
+const manualEntry = z.object({
+  amount: z.coerce.number().max(10000000),
+  direction: z.enum(['credit', 'debit']),
+  note: z.string().trim().min(3, 'Say why this adjustment exists').max(500),
+});
+
+const approveWithdrawal = z.object({
+  payoutReference: z.string().trim().max(120).optional(),
+});
+
+const listFinance = z.object({
+  status: z.string().optional(),
+  method: z.enum(values(DEPOSIT_METHOD)).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+
+/* settings */
+const updateSettings = z.object({
+  businessName: z.string().trim().max(120).optional(),
+  supportPhone: z.string().max(20).optional(),
+  poweredByText: z.string().max(200).optional(),
+  defaultCreditLimit: money.optional(),
+  orderAgingHours: z.coerce.number().int().min(1).max(720).optional(),
+  reverseDeliveryChargeOnReturn: z.boolean().optional(),
+  smsPricePerCredit: money.optional(),
+  features: z
+    .object({
+      sms: z.boolean().optional(),
+      telegram: z.boolean().optional(),
+      webPush: z.boolean().optional(),
+    })
+    .optional(),
+});
+
+module.exports = {
+  objectId,
+  createSource,
+  updateSource,
+  createProduct,
+  updateProduct,
+  createZone,
+  updateZone,
+  updateReseller,
+  reviewDecision,
+  listOrders,
+  shipOrder,
+  transitionBody,
+  overrideDeliveryCharge,
+  manualEntry,
+  approveWithdrawal,
+  listFinance,
+  updateSettings,
+};

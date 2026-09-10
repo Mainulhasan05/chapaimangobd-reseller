@@ -1,0 +1,129 @@
+@import 'tailwindcss';
+
+/*
+ * Light only, deliberately. This is a business tool used on cheap Android phones
+ * in daylight, and committing to one scheme removes a whole class of contrast
+ * bugs. The scaffold prefers-color-scheme block and the dark class block that
+ * `shadcn init` added are both gone for that reason.
+ *
+ * Token names follow the shadcn convention (card, popover, secondary,
+ * destructive, radius) so their components can be dropped in later without a
+ * palette rewrite, but the values are ours.
+ */
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+
+  --color-card: var(--surface);
+  --color-card-foreground: var(--foreground);
+  --color-popover: var(--surface);
+  --color-popover-foreground: var(--foreground);
+
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-danger: var(--danger);
+  --color-danger-foreground: var(--danger-foreground);
+  --color-destructive: var(--danger);
+
+  --font-sans: var(--font-bengali), ui-sans-serif, system-ui, sans-serif;
+
+  --radius-card: 0.75rem;
+}
+
+:root {
+  --background: oklch(0.985 0.005 95);
+  --surface: oklch(1 0 0);
+  --foreground: oklch(0.22 0.02 60);
+  --muted: oklch(0.96 0.008 95);
+  --muted-foreground: oklch(0.52 0.02 70);
+  --border: oklch(0.9 0.012 90);
+  --input: oklch(0.93 0.01 90);
+  --ring: oklch(0.72 0.15 75);
+
+  /* Mango. The product is the brand. */
+  --primary: oklch(0.72 0.16 72);
+  --primary-foreground: oklch(0.99 0.01 90);
+  --secondary: oklch(0.96 0.008 95);
+  --secondary-foreground: oklch(0.22 0.02 60);
+  --accent: oklch(0.55 0.12 145);
+  --accent-foreground: oklch(0.99 0.01 145);
+
+  --success: oklch(0.62 0.14 150);
+  --success-foreground: oklch(0.99 0.01 150);
+  --warning: oklch(0.78 0.15 80);
+  --warning-foreground: oklch(0.26 0.05 70);
+  --danger: oklch(0.58 0.19 27);
+  --danger-foreground: oklch(0.99 0.01 27);
+
+  --radius: 0.625rem;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    /*
+     * Bengali conjuncts render broken under system fallbacks on Windows and older
+     * Android, so the loaded face has to come first. The scaffold set Arial here,
+     * which silently overrode the font variable.
+     */
+    font-family: var(--font-bengali), ui-sans-serif, system-ui, sans-serif;
+    font-feature-settings: 'liga' 1, 'calt' 1;
+    /* Bengali sits low; a little extra leading stops descenders colliding. */
+    line-height: 1.65;
+  }
+
+  h1,
+  h2,
+  h3 {
+    line-height: 1.35;
+    font-weight: 600;
+  }
+
+  /* Tabular Latin digits, so a Bengali numeral never reaches parseFloat. */
+  input[type='number'],
+  input[type='tel'],
+  code,
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+}
+
+@layer utilities {
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+  }
+
+  /* Wide content scrolls inside its own box; the page body never does. */
+  .scroll-x {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
