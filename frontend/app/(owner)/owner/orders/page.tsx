@@ -1,13 +1,14 @@
 'use client';
 
 import { useState } from 'react';
-import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ban, ClipboardList, Eye, PackageCheck, Truck } from 'lucide-react';
 import { api, errorMessage } from '@/lib/api';
 import { useDebounced } from '@/lib/use-debounced';
 import { t, tStatus } from '@/lib/i18n/bn';
-import { formatMoney, formatAge } from '@/lib/format';
-import type { Order, Paged } from '@/lib/types';
+import { formatMoney, formatAge, formatNumber } from '@/lib/format';
+import { cn } from '@/lib/utils';
+import type { Order, OwnerDashboard, Paged } from '@/lib/types';
 import {
   Alert,
   Badge,
@@ -36,12 +37,18 @@ import { Segmented, SearchInput, SortSelect, Toolbar, ToolbarSpacer } from '@/co
 import { Button } from '@/components/ui/button';
 import { ListSkeleton, TableSkeleton } from '@/components/ui/skeleton';
 import { Field, Input } from '@/components/ui/form';
-import { Switch } from '@/components/ui/switch';
 import { Modal } from '@/components/ui/modal';
 import { useToast } from '@/components/ui/toast';
 import { AcceptOrderModal } from '@/components/accept-order-modal';
 import { CancelOrderModal } from '@/components/cancel-order-modal';
 import { OrderDetail } from '@/components/order-detail';
+import {
+  firstProduct,
+  OrderItems,
+  OrderItemsInline,
+  OrderTiles,
+  StageTrack,
+} from '@/components/orders-panel';
 
 const PAGE_SIZE = 20;
 
@@ -67,12 +74,13 @@ const ACTION_LABELS: Record<string, string> = {
   return: t('order.return'),
 };
 
-type SortKey = 'code' | 'reseller' | 'customer' | 'amount' | 'status';
+type SortKey = 'code' | 'reseller' | 'customer' | 'items' | 'amount' | 'status';
 
 const COLUMNS: ColumnDef<SortKey>[] = [
   { key: 'code', label: t('order.code'), locked: true },
   { key: 'reseller', label: t('nav.resellers') },
   { key: 'customer', label: t('order.customer') },
+  { key: 'items', label: t('order.items') },
   { key: 'amount', label: t('order.walletDebit') },
   { key: 'status', label: t('app.status') },
 ];
@@ -108,6 +116,21 @@ export default function OwnerOrdersPage() {
     refetchInterval: 60_000,
   });
 
+  /*
+   * Counts for the tiles and the filter chips.
+   *
+   * The dashboard report already groups every order by status, so this needs no
+   * endpoint of its own. It shares that query's cache key, which means opening
+   * this page after the dashboard costs nothing at all.
+   */
+  const summary = useQuery({
+    queryKey: ['owner', 'dashboard'],
+    queryFn: () => api.get<OwnerDashboard>('/owner/reports/dashboard'),
+    staleTime: 60_000,
+  });
+
+  const counts = summary.data?.byStatus ?? {};
+
   const loaded = orders.data?.pages.flatMap((page) => page.orders) ?? [];
   const total = orders.data?.pages[0]?.total ?? 0;
 
@@ -123,6 +146,7 @@ export default function OwnerOrdersPage() {
     code: (order) => order.orderCode,
     reseller: shopName,
     customer: (order) => order.customer.name,
+    items: firstProduct,
     amount: (order) => order.totals.walletDebit,
     status: (order) => tStatus(order.status),
   });
@@ -211,18 +235,82 @@ export default function OwnerOrdersPage() {
       : []),
   ];
 
+  /**
+   * The single action an order is most likely waiting for.
+   *
+   * Follows the fulfilment order, so a confirmed order offers accept, an
+   * accepted one offers pack, and so on. Returns nothing once an order is
+   * finished or when the server says none of these are allowed, in which case
+   * the row simply has no button and the menu still has everything.
+   */
+  const primaryAction = (order: Order): { label: string; run: () => void } | null => {
+    if (order.actions.includes('accept')) {
+      return { label: t('order.accept'), run: () => setAccepting(order) };
+    }
+    if (order.actions.includes('pack')) {
+      return {
+        label: t('order.pack'),
+        run: () => transition.mutate({ id: order.id, action: 'pack' }),
+      };
+    }
+    if (order.actions.includes('ship')) {
+      return { label: t('order.ship'), run: () => setShipping(order) };
+    }
+    if (order.actions.includes('deliver')) {
+      return {
+        label: t('order.deliver'),
+        run: () => transition.mutate({ id: order.id, action: 'deliver' }),
+      };
+    }
+    return null;
+  };
+
   const visibleCols = 2 + COLUMNS.filter((column) => columns.isVisible(column.key)).length;
 
   return (
     <>
-      <PageHeader title={t('nav.orders')} subtitle={`${total} ${t('nav.orders')}`} />
+      <PageHeader
+        title={t('nav.orders')}
+        subtitle={`${formatNumber(total)} ${t('nav.orders')}`}
+      />
+
+      {/*
+       * The four numbers worth looking at before touching anything, each one a
+       * filter. The list below used to open on a status with nothing to say how
+       * many were waiting anywhere else.
+       */}
+      <OrderTiles
+        counts={counts}
+        aging={summary.data?.agingOrders ?? 0}
+        active={status}
+        agingActive={aging}
+        onPick={(next) => {
+          setAging(false);
+          setStatus(next);
+        }}
+        onPickAging={() => {
+          // Aging is only meaningful against confirmed orders, which is what
+          // the server filters, so the status follows the toggle.
+          setStatus('confirmed');
+          setAging((current) => !current);
+        }}
+      />
 
       <Toolbar>
         <Segmented
           label={t('app.status')}
           value={status}
-          onChange={setStatus}
-          options={FILTERS.map((filter) => ({ value: filter.value, label: filter.label }))}
+          onChange={(next) => {
+            setAging(false);
+            setStatus(next);
+          }}
+          options={FILTERS.map((filter) => ({
+            value: filter.value,
+            label: filter.label,
+            // A chip on the tab, so the cost of looking somewhere else is
+            // visible without going there.
+            count: filter.value ? counts[filter.value] : undefined,
+          }))}
         />
         <ToolbarSpacer />
         <SearchInput value={term} onChange={setTerm} placeholder={t('app.searchOrders')} />
@@ -239,10 +327,6 @@ export default function OwnerOrdersPage() {
           />
         </div>
       </Toolbar>
-
-      <div className="mb-4 sm:max-w-xs">
-        <Switch checked={aging} onChange={setAging} label={t('order.aging')} />
-      </div>
 
       {transition.error && <Alert tone="danger">{errorMessage(transition.error)}</Alert>}
       {bulk.error && <Alert tone="danger">{errorMessage(bulk.error)}</Alert>}
@@ -304,7 +388,19 @@ export default function OwnerOrdersPage() {
                         <p className="mt-1 text-xs text-muted-foreground">
                           {order.paymentMode === 'cod' ? t('order.cod') : t('order.prepaid')}
                         </p>
+                        <span className="flex justify-end">
+                          <StageTrack status={order.status} />
+                        </span>
                       </div>
+                    </div>
+
+                    {/*
+                     * What was ordered, above the money. A card that showed a
+                     * total and no mangoes told the owner nothing they could act
+                     * on without opening it.
+                     */}
+                    <div className="mt-3 rounded-lg bg-muted/60 px-3 py-2">
+                      <OrderItemsInline items={order.items} />
                     </div>
 
                     <div className="mt-3 flex items-end justify-between gap-3 border-t border-border pt-3">
@@ -379,6 +475,11 @@ export default function OwnerOrdersPage() {
                     {t('order.customer')}
                   </SortTh>
                 )}
+                {columns.isVisible('items') && (
+                  <SortTh column="items" sort={sorting.sort} onSort={sorting.toggle}>
+                    {t('order.items')}
+                  </SortTh>
+                )}
                 {columns.isVisible('amount') && (
                   <SortTh column="amount" sort={sorting.sort} onSort={sorting.toggle} align="right">
                     {t('order.walletDebit')}
@@ -389,7 +490,7 @@ export default function OwnerOrdersPage() {
                     {t('app.status')}
                   </SortTh>
                 )}
-                <Th className="w-12 text-right">
+                <Th className="w-40 text-right">
                   <span className="sr-only">{t('app.actions')}</span>
                 </Th>
               </tr>
@@ -412,11 +513,26 @@ export default function OwnerOrdersPage() {
                       <button
                         type="button"
                         onClick={() => setViewing(order)}
-                        className="tabular font-semibold text-primary-ink underline-offset-2 hover:underline"
+                        className="tabular rounded-md bg-subtle px-1.5 py-0.5 font-semibold text-primary-ink transition-colors hover:bg-primary-softer"
                       >
                         {order.orderCode}
                       </button>
-                      <div className="text-xs text-muted-foreground">
+                      {/*
+                       * Cash on delivery is the owner's exposure on this parcel,
+                       * so it sits with the code rather than three columns away
+                       * under the status.
+                       */}
+                      <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <span
+                          className={cn(
+                            'rounded px-1 py-0.5 text-[0.625rem] font-semibold',
+                            order.paymentMode === 'cod'
+                              ? 'bg-warning-soft text-warning-ink'
+                              : 'bg-success-soft text-success'
+                          )}
+                        >
+                          {order.paymentMode === 'cod' ? t('order.cod') : t('order.prepaid')}
+                        </span>
                         {formatAge(order.confirmedAt ?? order.createdAt)}
                       </div>
                     </Td>
@@ -442,9 +558,26 @@ export default function OwnerOrdersPage() {
                     </Td>
                   )}
 
+                  {/*
+                   * The reason this column exists: the row never said what had
+                   * been ordered, so deciding anything about it meant opening it.
+                   */}
+                  {columns.isVisible('items') && (
+                    <Td>
+                      <OrderItems items={order.items} />
+                    </Td>
+                  )}
+
                   {columns.isVisible('amount') && (
-                    <Td className="tabular text-right font-semibold">
-                      {formatMoney(order.totals.walletDebit)}
+                    <Td className="text-right">
+                      <div className="tabular text-base font-bold leading-tight">
+                        {formatMoney(order.totals.walletDebit)}
+                      </div>
+                      {/* What the customer pays, which is the other number in
+                        * every conversation about an order. */}
+                      <div className="tabular text-xs text-muted-foreground">
+                        {formatMoney(order.totals.customerTotal)}
+                      </div>
                     </Td>
                   )}
 
@@ -453,14 +586,41 @@ export default function OwnerOrdersPage() {
                       <Badge tone={statusTone(order.status)} dot>
                         {tStatus(order.status)}
                       </Badge>
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        {order.paymentMode === 'cod' ? t('order.cod') : t('order.prepaid')}
-                      </div>
+                      {/*
+                       * The pill says where the order is; the track says how much
+                       * is left. Without it every row looked the same weight and
+                       * a nearly finished order was indistinguishable from an
+                       * untouched one.
+                       */}
+                      <StageTrack status={order.status} />
                     </Td>
                   )}
 
                   <Td className="text-right">
-                    <RowMenu label={`${t('app.actions')} ${order.orderCode}`} items={menuFor(order)} />
+                    {/*
+                     * The one thing this order most likely needs, as a button.
+                     *
+                     * Every action lived behind the overflow menu, which meant
+                     * accepting forty confirmed orders was forty clicks to open
+                     * a menu and forty more to choose the only item anyone ever
+                     * chooses. The rest stay in the menu.
+                     */}
+                    <div className="flex items-center justify-end gap-1">
+                      {primaryAction(order) && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          loading={transition.isPending && transition.variables?.id === order.id}
+                          onClick={() => primaryAction(order)!.run()}
+                        >
+                          {primaryAction(order)!.label}
+                        </Button>
+                      )}
+                      <RowMenu
+                        label={`${t('app.actions')} ${order.orderCode}`}
+                        items={menuFor(order)}
+                      />
+                    </div>
                   </Td>
                 </Tr>
               ))}

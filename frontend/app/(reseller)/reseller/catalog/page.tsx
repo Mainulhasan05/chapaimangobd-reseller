@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Package } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, errorMessage, fieldErrors } from '@/lib/api';
-import { t } from '@/lib/i18n/bn';
+import { t, tUnit } from '@/lib/i18n/bn';
 import { formatMoney, formatMoneyPlain, formatNumber } from '@/lib/format';
 import type { CatalogItem } from '@/lib/types';
 import { Badge, Card, EmptyState, ErrorState, PageHeader } from '@/components/ui/layout';
@@ -89,8 +89,8 @@ function CatalogRow({ product }: { product: CatalogItem }) {
         <div className="min-w-0 flex-1">
           <h3 className="truncate font-semibold">{product.name}</h3>
           <p className="text-xs text-muted-foreground">
-            {t('catalog.costPrice')} {formatMoney(product.costPrice)} / {product.unit} ·{' '}
-            {t('catalog.minOrderQty')} {formatNumber(product.minOrderQty)} {product.unit}
+            {t('catalog.costPrice')} {formatMoney(product.costPrice)} / {tUnit(product.unit)} ·{' '}
+            {t('catalog.minOrderQty')} {formatNumber(product.minOrderQty)} {tUnit(product.unit)}
           </p>
           {product.maxSellPrice != null && (
             <p className="text-xs text-muted-foreground">
@@ -121,7 +121,7 @@ function CatalogRow({ product }: { product: CatalogItem }) {
         error={errors.sellPrice}
         hint={
           Number.isFinite(margin) && margin >= 0
-            ? `${t('order.yourProfit')} ${formatMoney(margin)} / ${product.unit}`
+            ? `${t('order.yourProfit')} ${formatMoney(margin)} / ${tUnit(product.unit)}`
             : undefined
         }
         className="mb-3"

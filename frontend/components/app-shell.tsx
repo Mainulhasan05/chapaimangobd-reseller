@@ -4,13 +4,21 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import type { Route } from 'next';
-import { Bell, CalendarDays, ChevronRight, Ellipsis, LogOut, WifiOff } from 'lucide-react';
+import {
+  Bell,
+  CalendarDays,
+  ChevronRight,
+  Ellipsis,
+  LogOut,
+  Menu,
+  WifiOff,
+  X,
+} from 'lucide-react';
 import { useSession, useLogout } from '@/lib/session';
 import { useOnline } from '@/lib/use-online';
 import { t, type DictKey } from '@/lib/i18n/bn';
 import { formatToday } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { Modal } from '@/components/ui/modal';
 import { Avatar } from '@/components/ui/layout';
 import { Logo } from '@/components/ui/logo';
 import { Skeleton, ListSkeleton } from '@/components/ui/skeleton';
@@ -76,7 +84,7 @@ export function AppShell({
   const { data: session, isLoading } = useSession();
   const logout = useLogout();
   const online = useOnline();
-  const [moreOpen, setMoreOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
     if (isLoading) return;
@@ -87,7 +95,11 @@ export function AppShell({
     }
   }, [session, isLoading, role, router]);
 
-  const isActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
+  /*
+   * Whether a path falls under a destination. Prefix matching, so an order's
+   * detail page still belongs to Orders.
+   */
+  const matches = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
 
   if (isLoading || !session || session.user.role !== role) {
     /*
@@ -108,6 +120,22 @@ export function AppShell({
     );
   }
 
+  /*
+   * Exactly one destination is current, and it is the most specific one that
+   * matches.
+   *
+   * Prefix matching alone lit up two rows at once: the dashboard lives at
+   * `/owner`, which is a prefix of `/owner/orders`, so standing on Orders
+   * highlighted Orders and Dashboard together. Picking the longest match and
+   * comparing against that one leaves a single row lit, in the sidebar, in the
+   * bottom bar and in the More sheet, because all three ask the same question.
+   */
+  const current = nav
+    .filter((item) => matches(item.href))
+    .sort((a, b) => b.href.length - a.href.length)[0];
+
+  const isActive = (href: string) => current?.href === href;
+
   const tabs = nav.slice(0, TABS);
   const overflow = nav.slice(TABS);
   const overflowActive = overflow.some((item) => isActive(item.href));
@@ -119,14 +147,6 @@ export function AppShell({
    * during render is a mutation the compiler is right to object to.
    */
   const sections = Array.from(new Set(nav.map((item) => item.section)));
-
-  /*
-   * The deepest match rather than the first, so `/owner/orders` does not lose
-   * to a hypothetical `/owner` prefix and leave every page named Dashboard.
-   */
-  const current = nav
-    .filter((item) => isActive(item.href))
-    .sort((a, b) => b.href.length - a.href.length)[0];
 
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[17rem_1fr]">
@@ -193,12 +213,30 @@ export function AppShell({
          * instead.
          */}
         <header className="sticky top-0 z-30 border-b border-border bg-surface/90 backdrop-blur">
-          <div className="mx-auto flex h-16 max-w-7xl items-center gap-3 px-4 sm:px-6 lg:px-8">
-            <Link href={home} className="flex shrink-0 items-center gap-2 lg:hidden">
+          <div className="mx-auto flex h-16 max-w-7xl items-center gap-2 px-4 sm:gap-3 sm:px-6 lg:px-8">
+            {/*
+             * The way into the full map, on the screens that have no sidebar.
+             *
+             * The bar carried a logo and two controls with a wide empty gap
+             * between them, and every destination past the fourth was reachable
+             * only through the More button at the far bottom of the screen. The
+             * drawer is that whole map, and this is the obvious place to look
+             * for it.
+             */}
+            <button
+              type="button"
+              onClick={() => setMenuOpen(true)}
+              aria-label={t('app.menu')}
+              aria-haspopup="dialog"
+              aria-expanded={menuOpen}
+              className="-ml-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-foreground transition-colors hover:bg-muted lg:hidden"
+            >
+              <Menu className="h-5 w-5" />
+            </button>
+
+            <Link href={home} className="flex min-w-0 shrink items-center gap-2 lg:hidden">
               <Logo />
-              <span className="hidden truncate font-bold tracking-tight sm:inline">
-                {t('app.name')}
-              </span>
+              <span className="truncate font-bold tracking-tight">{t('app.name')}</span>
             </Link>
 
             {/*
@@ -255,7 +293,7 @@ export function AppShell({
           {overflow.length > 0 && (
             <button
               type="button"
-              onClick={() => setMoreOpen(true)}
+              onClick={() => setMenuOpen(true)}
               aria-haspopup="dialog"
               className={cn(
                 'flex flex-1 flex-col items-center justify-center gap-1 py-2 text-[0.6875rem]',
@@ -276,32 +314,18 @@ export function AppShell({
         </div>
       </nav>
 
-      <Modal open={moreOpen} onClose={() => setMoreOpen(false)} title={t('app.menu')}>
-        <ul className="-my-1 divide-y divide-border">
-          {overflow.map((item) => (
-            <li key={item.href}>
-              <Link
-                href={item.href}
-                onClick={() => setMoreOpen(false)}
-                className="tap flex items-center gap-3 rounded-lg py-1 text-sm hover:bg-muted"
-              >
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-subtle text-muted-foreground">
-                  <item.icon className="h-[1.125rem] w-[1.125rem]" />
-                </span>
-                <span className={cn('flex-1', isActive(item.href) && 'font-semibold')}>
-                  {t(item.labelKey)}
-                </span>
-                {item.badge ? (
-                  <span className="tabular rounded-full bg-danger px-2 py-0.5 text-xs font-semibold text-danger-foreground">
-                    {item.badge}
-                  </span>
-                ) : null}
-                <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </Modal>
+      <NavDrawer
+        open={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        nav={nav}
+        sections={sections}
+        isActive={isActive}
+        home={home}
+        name={session.user.name}
+        role={role}
+        onLogout={() => logout.mutate()}
+        loggingOut={logout.isPending}
+      />
     </div>
   );
 }
@@ -528,5 +552,191 @@ function TabLink({ item, active }: { item: NavItem; active: boolean }) {
       </span>
       <span className="max-w-full truncate px-1">{t(item.labelKey)}</span>
     </Link>
+  );
+}
+
+/**
+ * The whole map, on a screen too narrow for a sidebar.
+ *
+ * It replaces the More sheet, which only ever listed the destinations that did
+ * not fit in the bottom bar. That made the overflow feel like a scrap heap and
+ * left the top bar with nothing in it but a logo and a wide empty gap. This
+ * carries every destination, grouped exactly as the sidebar groups them, plus
+ * the account, so the two navigations are the same navigation at two widths.
+ *
+ * Both the hamburger and the bottom bar's More button open it. One menu, two
+ * ways in, rather than two menus that each know half the story.
+ */
+function NavDrawer({
+  open,
+  onClose,
+  nav,
+  sections,
+  isActive,
+  home,
+  name,
+  role,
+  onLogout,
+  loggingOut,
+}: {
+  open: boolean;
+  onClose: () => void;
+  nav: NavItem[];
+  sections: (DictKey | undefined)[];
+  isActive: (href: string) => boolean;
+  home: Route;
+  name: string;
+  role: Role;
+  onLogout: () => void;
+  loggingOut: boolean;
+}) {
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.stopPropagation();
+        onClose();
+      }
+    };
+    document.addEventListener('keydown', onKey, true);
+
+    /*
+     * iOS Safari keeps scrolling the page behind an overlay whatever `overflow`
+     * says, so it is pinned by position instead, at the cost of having to put
+     * the reader back where they were. Same approach as the sheet; see Modal.
+     */
+    const { body } = document;
+    const scrollY = window.scrollY;
+    const saved = {
+      position: body.style.position,
+      top: body.style.top,
+      width: body.style.width,
+      overflow: body.style.overflow,
+    };
+
+    body.style.position = 'fixed';
+    body.style.top = `-${scrollY}px`;
+    body.style.width = '100%';
+    body.style.overflow = 'hidden';
+
+    panelRef.current?.focus();
+
+    return () => {
+      document.removeEventListener('keydown', onKey, true);
+      body.style.position = saved.position;
+      body.style.top = saved.top;
+      body.style.width = saved.width;
+      body.style.overflow = saved.overflow;
+      window.scrollTo(0, scrollY);
+      previouslyFocused?.focus?.();
+    };
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  const roleLabel = t(role === 'owner' ? 'role.owner' : 'role.reseller');
+
+  return (
+    <div
+      className="fade-in fixed inset-0 z-50 bg-black/50 lg:hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-label={t('app.menu')}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        ref={panelRef}
+        tabIndex={-1}
+        className="drawer-in elev-3 flex h-full w-[17rem] max-w-[85vw] flex-col bg-surface outline-none"
+      >
+        <div className="flex h-16 shrink-0 items-center gap-2.5 border-b border-border px-4">
+          <Link href={home} onClick={onClose} className="flex min-w-0 items-center gap-2.5">
+            <Logo />
+            <span className="truncate font-bold tracking-tight">{t('app.name')}</span>
+          </Link>
+
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label={t('app.close')}
+            className="ml-auto flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Its own scroller, so the account stays pinned at the bottom however
+          * many destinations a role has. */}
+        <nav className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-3">
+          {sections.map((section) => (
+            <div key={section ?? 'main'} className="mb-1">
+              {section && (
+                <p className="px-3 pb-1.5 pt-4 text-[0.6875rem] font-semibold uppercase tracking-wider text-muted-foreground">
+                  {t(section)}
+                </p>
+              )}
+              <ul className="space-y-0.5">
+                {nav
+                  .filter((item) => item.section === section)
+                  .map((item) => (
+                    <li key={item.href}>
+                      <Link
+                        href={item.href}
+                        onClick={onClose}
+                        aria-current={isActive(item.href) ? 'page' : undefined}
+                        className={cn(
+                          // Forty-four pixels tall, because this is a list tapped
+                          // with a thumb rather than clicked with a pointer.
+                          'flex min-h-11 items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors',
+                          isActive(item.href)
+                            ? 'bg-primary-soft font-semibold text-primary-ink'
+                            : 'font-medium text-muted-foreground hover:bg-muted hover:text-foreground'
+                        )}
+                      >
+                        <item.icon className="h-[1.125rem] w-[1.125rem] shrink-0" />
+                        <span className="min-w-0 flex-1 truncate">{t(item.labelKey)}</span>
+                        {item.badge ? (
+                          <span className="tabular shrink-0 rounded-full bg-danger px-1.5 text-xs font-semibold text-danger-foreground">
+                            {item.badge > 99 ? '99+' : item.badge}
+                          </span>
+                        ) : (
+                          <ChevronRight className="h-4 w-4 shrink-0 opacity-40" />
+                        )}
+                      </Link>
+                    </li>
+                  ))}
+              </ul>
+            </div>
+          ))}
+        </nav>
+
+        <div className="shrink-0 border-t border-border p-3 pb-safe">
+          <div className="flex items-center gap-2.5 px-1 py-2">
+            <Avatar name={name} size="lg" />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-semibold">{name}</span>
+              <span className="block text-xs text-muted-foreground">{roleLabel}</span>
+            </span>
+          </div>
+
+          <button
+            type="button"
+            disabled={loggingOut}
+            onClick={onLogout}
+            className="flex min-h-11 w-full items-center gap-2.5 rounded-xl px-3 text-left text-sm font-medium text-danger transition-colors hover:bg-danger-soft disabled:opacity-50"
+          >
+            <LogOut className="h-4 w-4 shrink-0" />
+            {t('auth.logout')}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

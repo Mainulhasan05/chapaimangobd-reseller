@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError, fieldErrors } from '@/lib/api';
-import { t } from '@/lib/i18n/bn';
+import { t, tUnit } from '@/lib/i18n/bn';
 import { formatMoney, formatMoneyPlain, formatNumber } from '@/lib/format';
 import type { CatalogItem, DeliveryZone, PaymentMode } from '@/lib/types';
 import { Alert, Card, CardHeader, ErrorState, PageHeader, StickyBar } from '@/components/ui/layout';
@@ -161,13 +161,13 @@ export default function ManualOrderPage() {
                 <div className="mb-2 flex items-baseline justify-between gap-2">
                   <p className="font-medium">{product.name}</p>
                   <p className="text-xs text-muted-foreground">
-                    {t('catalog.costPrice')} {formatMoney(product.costPrice)} / {product.unit} ·{' '}
+                    {t('catalog.costPrice')} {formatMoney(product.costPrice)} / {tUnit(product.unit)} ·{' '}
                     {t('catalog.minOrderQty')} {formatNumber(product.minOrderQty)}
                   </p>
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <Field label={`${t('order.quantity')} (${product.unit})`} className="mb-0">
+                  <Field label={`${t('order.quantity')} (${tUnit(product.unit)})`} className="mb-0">
                     <QuantityStepper
                       value={Number(line?.quantity) || 0}
                       step={product.step}

@@ -170,6 +170,22 @@ export const bn = {
   'order.confirmHelp':
     'নিশ্চিত করার সময় আপনার বিক্রয়মূল্য ঠিক করুন। আপনার ওয়ালেট থেকে শুধু ক্রয়মূল্য ও ডেলিভারি চার্জ কাটা হবে।',
   'order.aging': 'পুরনো হয়ে যাচ্ছে',
+  'order.inProgress': 'চলমান',
+  'order.moreItems': 'আরও {n}টি পণ্য',
+
+  /*
+   * The six units the catalog sells in. Stored in English, because the unit is
+   * a domain value the server validates against a fixed list; only the label a
+   * person reads is Bengali.
+   */
+  'unit.kg': 'কেজি',
+  'unit.gram': 'গ্রাম',
+  'unit.litre': 'লিটার',
+  'unit.pcs': 'পিস',
+  'unit.dozen': 'ডজন',
+  'unit.box': 'বাক্স',
+  'order.stage': 'ধাপ',
+  'order.repeatBuyer': 'পুরনো ক্রেতা',
   'order.accept': 'গ্রহণ করুন',
   'order.acceptTitle': 'অর্ডার গ্রহণ করুন',
   'order.sourceHelp': 'প্রতিটি পণ্য কোন উৎস থেকে যাবে তা বেছে নিন',
@@ -465,6 +481,18 @@ export function t(key: DictKey): string {
 }
 
 /** Order and review statuses arrive from the API as English identifiers. */
+/**
+ * A unit, as a person reads it.
+ *
+ * Units were rendered raw, so a Bengali order form priced mangoes "৳২৫০ / kg".
+ * An unknown unit falls back to itself rather than to nothing: a stray value is
+ * better shown as it is than silently dropped from a quantity.
+ */
+export function tUnit(unit: string): string {
+  const key = `unit.${unit}` as DictKey;
+  return key in bn ? bn[key] : unit;
+}
+
 export function tStatus(status: string): string {
   const key = `order.${status}` as DictKey;
   return key in bn ? bn[key] : status;

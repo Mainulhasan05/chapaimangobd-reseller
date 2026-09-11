@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useMutation } from '@tanstack/react-query';
 import { CircleCheck } from 'lucide-react';
 import { api, ApiError, fieldErrors } from '@/lib/api';
-import { t } from '@/lib/i18n/bn';
+import { t, tUnit } from '@/lib/i18n/bn';
 import { formatMoney, formatNumber } from '@/lib/format';
 import type { DeliveryZone, PaymentMode, PublicShop } from '@/lib/types';
 import { Alert, Badge, Card, StickyBar } from '@/components/ui/layout';
@@ -153,10 +153,10 @@ export function OrderForm({
                     <p className="mt-0.5 font-semibold text-[oklch(0.45_0.14_70)]">
                       {product.priceHidden
                         ? t('shop.priceOnCall')
-                        : `${formatMoney(product.price ?? 0)} / ${product.unit}`}
+                        : `${formatMoney(product.price ?? 0)} / ${tUnit(product.unit)}`}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {t('catalog.minOrderQty')} {formatNumber(product.minOrderQty)} {product.unit}
+                      {t('catalog.minOrderQty')} {formatNumber(product.minOrderQty)} {tUnit(product.unit)}
                     </p>
                   </div>
                 </div>

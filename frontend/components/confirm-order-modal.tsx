@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError, fieldErrors } from '@/lib/api';
-import { t } from '@/lib/i18n/bn';
+import { t, tUnit } from '@/lib/i18n/bn';
 import { formatMoney, formatMoneyPlain, formatNumber } from '@/lib/format';
 import type { Order, PaymentMode } from '@/lib/types';
 import { Modal } from '@/components/ui/modal';
@@ -145,13 +145,13 @@ function ConfirmForm({ order, onClose }: { order: Order; onClose: () => void }) 
             <div className="mb-2 flex items-baseline justify-between gap-2">
               <p className="font-medium">{item.productName}</p>
               <p className="text-xs text-muted-foreground">
-                {t('catalog.costPrice')} {formatMoney(item.costPrice)} / {item.unit}
+                {t('catalog.costPrice')} {formatMoney(item.costPrice)} / {tUnit(item.unit)}
               </p>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
               <Field
-                label={`${t('order.quantity')} (${item.unit})`}
+                label={`${t('order.quantity')} (${tUnit(item.unit)})`}
                 htmlFor={`qty-${index}`}
                 hint={`${t('catalog.minOrderQty')} ${formatNumber(item.quantity)}`}
                 error={errors[`items.${index}.quantity`]}

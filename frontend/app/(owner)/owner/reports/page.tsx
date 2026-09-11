@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { ClipboardList, Download, TrendingDown } from 'lucide-react';
 import { api, errorMessage } from '@/lib/api';
-import { t } from '@/lib/i18n/bn';
+import { t, tUnit } from '@/lib/i18n/bn';
 import { formatMoney, formatNumber, businessDate } from '@/lib/format';
 import {
   Alert,
@@ -205,7 +205,7 @@ export default function OwnerReportsPage() {
                 <Tr key={row.product}>
                   <Td className="font-medium">{row.name}</Td>
                   <Td className="tabular text-right">
-                    {formatNumber(row.quantity)} {row.unit}
+                    {formatNumber(row.quantity)} {tUnit(row.unit)}
                   </Td>
                   <Td className="tabular text-right">{formatNumber(row.orders)}</Td>
                   <Td className="tabular text-right">{formatMoney(row.cost)}</Td>

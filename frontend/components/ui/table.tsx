@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { createPortal } from 'react-dom';
 import { ArrowDownUp, ArrowDown, ArrowUp, Check, Ellipsis, SlidersHorizontal } from 'lucide-react';
 import { t } from '@/lib/i18n/bn';
 import { cn } from '@/lib/utils';
@@ -316,12 +317,41 @@ export type MenuItem = {
  * hides the only route to an action fails on a phone, where this table does not
  * render at all.
  */
+/** Where a portalled menu sits on screen, in viewport coordinates. */
+type MenuPosition = { top: number; right: number };
+
 export function RowMenu({ items, label }: { items: MenuItem[]; label?: string }) {
   const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState<MenuPosition | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const menuId = useId();
+
+  /**
+   * Measures where the menu should go, from the trigger's place on screen.
+   *
+   * Flipped above the trigger when the space below runs out, so the last row of
+   * a long table does not open a menu into the bottom edge of the window. The
+   * estimate is per item plus the padding; it only decides which side to open
+   * on, so being a pixel or two out costs nothing.
+   */
+  const place = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+
+    const rect = trigger.getBoundingClientRect();
+    const estimated = items.length * 38 + 8;
+    const below = window.innerHeight - rect.bottom;
+
+    setPosition({
+      top: below < estimated ? rect.top - estimated - 4 : rect.bottom + 4,
+      // Right-anchored, so the menu hangs inward from the trigger rather than
+      // off the right edge of the page.
+      right: window.innerWidth - rect.right,
+    });
+  }, [items.length]);
 
   const close = useCallback((restoreFocus = true) => {
     setOpen(false);
@@ -331,8 +361,15 @@ export function RowMenu({ items, label }: { items: MenuItem[]; label?: string })
   useEffect(() => {
     if (!open) return undefined;
 
+    /*
+     * The menu is portalled to the body, so it is no longer inside `rootRef`
+     * and a click on one of its own items would otherwise read as an outside
+     * click and close it before the item ever fired.
+     */
     const onPointerDown = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+      const target = event.target as Node;
+      if (rootRef.current?.contains(target) || menuRef.current?.contains(target)) return;
+      setOpen(false);
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
@@ -341,13 +378,23 @@ export function RowMenu({ items, label }: { items: MenuItem[]; label?: string })
       }
     };
 
+    /*
+     * Fixed coordinates stop tracking the trigger the moment anything scrolls,
+     * including the table's own sideways scroller, so they are recomputed.
+     * Capture phase, because the scroll happens on an inner element and does
+     * not bubble to the window.
+     */
     document.addEventListener('pointerdown', onPointerDown);
     document.addEventListener('keydown', onKeyDown);
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
     return () => {
       document.removeEventListener('pointerdown', onPointerDown);
       document.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('scroll', place, true);
+      window.removeEventListener('resize', place);
     };
-  }, [open, close]);
+  }, [open, close, place]);
 
   // Opening with the keyboard should land on the first item, not on nothing.
   useEffect(() => {
@@ -371,7 +418,10 @@ export function RowMenu({ items, label }: { items: MenuItem[]; label?: string })
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
         aria-label={label ?? t('app.actions')}
-        onClick={() => setOpen((current) => !current)}
+        onClick={() => {
+          if (!open) place();
+          setOpen((current) => !current);
+        }}
         className={cn(
           'flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
           open && 'bg-muted text-foreground'
@@ -380,12 +430,26 @@ export function RowMenu({ items, label }: { items: MenuItem[]; label?: string })
         <Ellipsis className="h-4 w-4" />
       </button>
 
-      {open && (
-        <div
-          id={menuId}
-          role="menu"
-          className="menu-in elev-3 absolute right-0 top-full z-40 mt-1 min-w-44 overflow-hidden rounded-xl border border-border bg-surface py-1"
-        >
+      {/*
+       * Portalled to the body rather than positioned inside the row.
+       *
+       * `TableWrap` is a horizontal scroller, which clips anything that leaves
+       * its box, so a menu on the last row rendered underneath the table and a
+       * menu on the right-hand column was cut off at the edge. No z-index fixes
+       * that: an overflow container clips its descendants whatever they claim.
+       * Leaving the container entirely is the only real answer, and the cost is
+       * having to place it by hand.
+       */}
+      {open &&
+        position &&
+        createPortal(
+          <div
+            ref={menuRef}
+            id={menuId}
+            role="menu"
+            style={{ top: position.top, right: position.right }}
+            className="menu-in elev-3 fixed z-50 min-w-44 overflow-hidden rounded-xl border border-border bg-surface py-1"
+          >
           {items.map((item, index) => (
             <button
               key={item.label}
@@ -407,12 +471,13 @@ export function RowMenu({ items, label }: { items: MenuItem[]; label?: string })
                   : 'text-foreground hover:bg-muted'
               )}
             >
-              {item.icon && <item.icon className="h-4 w-4 shrink-0 opacity-70" />}
-              <span className="truncate">{item.label}</span>
-            </button>
-          ))}
-        </div>
-      )}
+                {item.icon && <item.icon className="h-4 w-4 shrink-0 opacity-70" />}
+                <span className="truncate">{item.label}</span>
+              </button>
+            ))}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

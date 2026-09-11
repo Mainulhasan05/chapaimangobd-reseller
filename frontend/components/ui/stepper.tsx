@@ -1,7 +1,7 @@
 'use client';
 
 import { Minus, Plus } from 'lucide-react';
-import { t } from '@/lib/i18n/bn';
+import { t, tUnit } from '@/lib/i18n/bn';
 
 /*
  * Quantity entry that does not summon the keyboard.
@@ -86,7 +86,12 @@ export function QuantityStepper({
         </button>
       </div>
 
-      <span className="text-sm text-muted-foreground">{unit}</span>
+      {/*
+       * Translated at the point of display, not by the caller. The prop is the
+       * domain value the server validates against, so every call site passing
+       * `product.unit` stays correct and none of them has to remember this.
+       */}
+      <span className="text-sm text-muted-foreground">{tUnit(unit)}</span>
     </div>
   );
 }

@@ -6,6 +6,8 @@
  * a Bengali-digit string through `parseFloat` is `NaN`.
  */
 
+import { tUnit } from '@/lib/i18n/bn';
+
 const BENGALI = new Intl.NumberFormat('bn-BD', {
   maximumFractionDigits: 2,
 });
@@ -33,7 +35,7 @@ export function formatMoneyPlain(value: number): string {
 }
 
 export function formatQuantity(value: number, unit: string): string {
-  return `${BENGALI.format(value)} ${unit}`;
+  return `${BENGALI.format(value)} ${tUnit(unit)}`;
 }
 
 /** Signed, so a ledger row reads as a movement rather than a total. */

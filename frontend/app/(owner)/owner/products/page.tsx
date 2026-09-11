@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Package, Plus } from 'lucide-react';
 import { api, errorMessage, fieldErrors } from '@/lib/api';
 import { useDebounced } from '@/lib/use-debounced';
-import { t } from '@/lib/i18n/bn';
+import { t, tUnit } from '@/lib/i18n/bn';
 import { formatMoney, formatMoneyPlain, formatNumber } from '@/lib/format';
 import type { OwnerProduct } from '@/lib/types';
 import {
@@ -192,7 +192,7 @@ export default function OwnerProductsPage() {
                       <div className="min-w-0">
                         <div className="truncate font-semibold">{product.name}</div>
                         <div className="text-xs text-muted-foreground">
-                          {formatNumber(product.minOrderQty)} {product.unit}{' '}
+                          {formatNumber(product.minOrderQty)} {tUnit(product.unit)}{' '}
                           {t('catalog.minOrderQty')}
                         </div>
                       </div>
@@ -203,7 +203,7 @@ export default function OwnerProductsPage() {
                 {columns.isVisible('cost') && (
                   <Td className="tabular text-right font-semibold">
                     {formatMoney(product.costPrice)}
-                    <span className="font-normal text-muted-foreground"> / {product.unit}</span>
+                    <span className="font-normal text-muted-foreground"> / {tUnit(product.unit)}</span>
                   </Td>
                 )}
 
@@ -215,7 +215,7 @@ export default function OwnerProductsPage() {
 
                 {columns.isVisible('minQty') && (
                   <Td className="tabular text-right">
-                    {formatNumber(product.minOrderQty)} {product.unit}
+                    {formatNumber(product.minOrderQty)} {tUnit(product.unit)}
                   </Td>
                 )}
 
@@ -354,9 +354,11 @@ function ProductModal({ product, onClose }: { product: OwnerProduct | null; onCl
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label={t('catalog.unit')} htmlFor="unit" error={errors.unit}>
           <Select id="unit" value={draft.unit} onChange={(e) => set('unit', e.target.value)}>
+            {/* The value is the domain unit the server validates; only the
+              * label a person reads is Bengali. */}
             {UNITS.map((u) => (
               <option key={u} value={u}>
-                {u}
+                {tUnit(u)}
               </option>
             ))}
           </Select>

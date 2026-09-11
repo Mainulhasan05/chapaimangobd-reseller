@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import type { Route } from 'next';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, ClipboardList } from 'lucide-react';
+import { ArrowLeft, ClipboardList, Warehouse } from 'lucide-react';
 import { api } from '@/lib/api';
 import { t, tStatus } from '@/lib/i18n/bn';
 import { formatMoney, formatDateTime } from '@/lib/format';
@@ -31,6 +31,19 @@ import type { Customer, Order } from '@/lib/types';
  */
 
 type Response = { customer: Customer; orders: (Order & { shopName?: string | null })[] };
+
+/**
+ * The distinct orchards one order was collected from.
+ *
+ * Taken from the line snapshots rather than by populating a source, for the
+ * same reason a line carries its own price: renaming or retiring an orchard
+ * must not rewrite what happened. One order can draw on several, so the list is
+ * deduplicated and an order not yet accepted yields nothing at all.
+ */
+const sourcesOf = (order: Order): string[] =>
+  Array.from(
+    new Set((order.items || []).map((item) => item.sourceName).filter((name): name is string => Boolean(name)))
+  );
 
 export function CustomerDetail({
   base,
@@ -120,6 +133,29 @@ export function CustomerDetail({
                     <span className="block text-xs text-muted-foreground">
                       {formatDateTime(order.createdAt)}
                     </span>
+
+                    {/*
+                     * Which orchard this order's crates were collected from.
+                     *
+                     * Read from the line snapshots, not by looking up a source:
+                     * the name was copied onto the line when the owner accepted
+                     * the order, so a retired orchard still renders correctly
+                     * here years later. An order not yet accepted has none,
+                     * because nobody has decided yet.
+                     */}
+                    {sourcesOf(order).length > 0 && (
+                      <span className="mt-1 flex flex-wrap items-center gap-1">
+                        <Warehouse aria-hidden className="h-3 w-3 shrink-0 text-muted-foreground" />
+                        {sourcesOf(order).map((name) => (
+                          <span
+                            key={name}
+                            className="rounded bg-subtle px-1.5 py-0.5 text-[0.6875rem] font-medium text-muted-foreground"
+                          >
+                            {name}
+                          </span>
+                        ))}
+                      </span>
+                    )}
                   </span>
 
                   <span className="tabular shrink-0 text-sm font-semibold">
