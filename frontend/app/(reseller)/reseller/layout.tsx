@@ -1,7 +1,15 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { BadgeCheck, ClipboardList, LayoutDashboard, Package, Store, Wallet } from 'lucide-react';
+import {
+  BadgeCheck,
+  ClipboardList,
+  Contact,
+  LayoutDashboard,
+  Package,
+  Store,
+  Wallet,
+} from 'lucide-react';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { AppShell, type NavItem } from '@/components/app-shell';
@@ -31,6 +39,12 @@ const NAV: NavItem[] = [
   },
   { href: '/reseller/catalog', labelKey: 'nav.catalog', icon: Package, section: 'nav.groupDaily' },
   { href: '/reseller/wallet', labelKey: 'nav.wallet', icon: Wallet, section: 'nav.groupDaily' },
+  /*
+   * Fifth, so the bottom bar keeps the four that are the daily job and this
+   * sits behind More. It is a reference screen, opened when a number rings,
+   * rather than something touched every hour.
+   */
+  { href: '/reseller/customers', labelKey: 'nav.customers', icon: Contact, section: 'nav.groupDaily' },
   { href: '/reseller/shop', labelKey: 'nav.myShop', icon: Store, section: 'nav.groupSetup' },
   { href: '/reseller/kyc', labelKey: 'nav.kyc', icon: BadgeCheck, section: 'nav.groupSetup' },
 ];
