@@ -24,6 +24,37 @@ const resellerProfileSchema = new mongoose.Schema(
      */
     logoUrl: { type: String },
     logo: { type: publicImageSchema, default: null },
+
+    /*
+     * The shopfront. Everything here is written by the reseller and read by a
+     * customer who is not logged in, which is the whole reason it exists: an
+     * order form carrying only a name and a price list gives a buyer no way to
+     * ask a question and no reason to trust the person taking their money.
+     *
+     * None of it is required. A reseller who fills in nothing still has a
+     * working shop, and every one of these is simply left off the public page
+     * when it is blank.
+     */
+
+    // The number customers ring. Deliberately not the login phone on the User:
+    // one is an account credential and the other is printed on a public page,
+    // and a reseller may well want them to be different numbers.
+    publicPhone: { type: String, trim: true, maxlength: 20 },
+    whatsappNumber: { type: String, trim: true, maxlength: 20 },
+    facebookUrl: { type: String, trim: true, maxlength: 300 },
+
+    // A sentence or two about the shop, shown above the products.
+    about: { type: String, trim: true, maxlength: 600 },
+
+    /*
+     * Where a prepaid customer sends the money. On a prepaid order the customer
+     * pays the reseller directly, and without these numbers on the page that
+     * conversation happens over the phone every single time.
+     */
+    payment: {
+      bkash: { type: String, trim: true, maxlength: 20 },
+      nagad: { type: String, trim: true, maxlength: 20 },
+    },
     address: { type: String, maxlength: 500 },
 
     kycStatus: {

@@ -7,6 +7,8 @@ const orders = require('./orders.controller');
 const finance = require('./finance.controller');
 const reports = require('./reports.controller');
 const settings = require('./settings.controller');
+const customers = require('./customers.controller');
+const notifications = require('../shared/notifications.controller');
 const schema = require('./schema');
 const validate = require('../../middleware/validate');
 const asyncHandler = require('../../utils/asyncHandler');
@@ -71,6 +73,15 @@ router.post(
   asyncHandler(finance.manualEntry)
 );
 router.get('/resellers/:id/reconcile', asyncHandler(finance.reconcile));
+
+/*
+ * customers
+ *
+ * A buyer is a phone number with a history, not a row per order. See
+ * models/Customer.js for why the number is the identity and the name is not.
+ */
+router.get('/customers', asyncHandler(customers.listCustomers));
+router.get('/customers/:id', asyncHandler(customers.getCustomer));
 
 /* kyc */
 router.get('/kyc', asyncHandler(resellers.listKyc));
@@ -145,5 +156,23 @@ router.post(
 );
 router.delete('/settings/brand-logo', asyncHandler(settings.removeBrandLogo));
 router.get('/settings/sms-balance', asyncHandler(settings.smsBalance));
+
+/*
+ * The owner's inbox.
+ *
+ * Every confirmed order already wrote the owner a notification and queued it
+ * for Telegram and web push; there was simply no route that would hand them
+ * back, so the owner's copy piled up unread and unreadable. Same five handlers
+ * the reseller uses, scoped by the signed-in user rather than by role.
+ */
+router.get('/notifications', asyncHandler(notifications.list));
+router.post('/notifications/read', asyncHandler(notifications.markRead));
+router.get('/push/key', asyncHandler(notifications.pushKey));
+router.post(
+  '/push/subscribe',
+  validate({ body: schema.subscribePush }),
+  asyncHandler(notifications.subscribePush)
+);
+router.post('/push/unsubscribe', asyncHandler(notifications.unsubscribePush));
 
 module.exports = router;

@@ -4,7 +4,19 @@ const multer = require('multer');
 const { badRequest } = require('../utils/errors');
 
 const MAX_BYTES = 5 * 1024 * 1024;
-const ALLOWED = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic']);
+/*
+ * WebP leads because it is what the browser now sends: every picker re-encodes
+ * to WebP before uploading, so the others are the fallback for a browser that
+ * could not do it. HEIF sits alongside HEIC for the iPhones that report one
+ * rather than the other.
+ */
+const ALLOWED = new Set([
+  'image/webp',
+  'image/jpeg',
+  'image/png',
+  'image/heic',
+  'image/heif',
+]);
 
 /**
  * Files stay in memory and are streamed straight to R2, so nothing

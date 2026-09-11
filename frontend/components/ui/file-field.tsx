@@ -6,6 +6,8 @@ import { t } from '@/lib/i18n/bn';
 import { formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { Label } from '@/components/ui/form';
+import { Spinner } from '@/components/ui/button';
+import { optimizeImage, PRESETS } from '@/lib/image-optimize';
 
 /**
  * Picking a photograph, without the browser's own file input.
@@ -21,6 +23,13 @@ import { Label } from '@/components/ui/form';
  */
 
 const MAX_BYTES = 5 * 1024 * 1024;
+
+/**
+ * Some iPhones hand over a HEIC with an empty mime type. The name is the only
+ * thing left to go on, and the file is re-encoded to WebP a moment later.
+ */
+const isImage = (file: File) =>
+  file.type.startsWith('image/') || (file.type === '' && /\.(heic|heif)$/i.test(file.name));
 
 function humanSize(bytes: number): string {
   if (bytes < 1024 * 1024) return `${formatNumber(Math.round(bytes / 1024))} ${t('file.kb')}`;
@@ -52,6 +61,8 @@ export function FileField({
 
   const [dragging, setDragging] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [working, setWorking] = useState(false);
+  const [originalBytes, setOriginalBytes] = useState<number | null>(null);
 
   const imageRef = useRef<HTMLImageElement>(null);
 
@@ -74,19 +85,34 @@ export function FileField({
     return () => URL.revokeObjectURL(url);
   }, [value]);
 
-  /** Rejects here rather than after an upload that was always going to fail. */
-  const accept = (file: File | null | undefined) => {
+  /**
+   * Rejects here rather than after an upload that was always going to fail.
+   *
+   * The document is shrunk and re-encoded to WebP first, which is what makes a
+   * photographed national ID uploadable at all on a slow connection. The
+   * `document` preset is the gentlest of the three: the point of shrinking this
+   * is the upload, never the legibility of the numbers the owner has to read.
+   */
+  const accept = async (file: File | null | undefined) => {
     if (!file) return;
-    if (!file.type.startsWith('image/')) {
+    if (!isImage(file)) {
       setLocalError(t('file.notImage'));
       return;
     }
-    if (file.size > MAX_BYTES) {
+
+    setWorking(true);
+    const result = await optimizeImage(file, PRESETS.document);
+    setWorking(false);
+
+    // Judged on what leaves the device, not on what came off the camera.
+    if (result.file.size > MAX_BYTES) {
       setLocalError(t('file.tooLarge'));
       return;
     }
+
     setLocalError(null);
-    onChange(file);
+    setOriginalBytes(result.optimized ? result.originalBytes : null);
+    onChange(result.file);
   };
 
   const shown = error ?? localError;
@@ -107,7 +133,7 @@ export function FileField({
         onDrop={(event) => {
           event.preventDefault();
           setDragging(false);
-          accept(event.dataTransfer.files?.[0]);
+          void accept(event.dataTransfer.files?.[0]);
         }}
         className={cn(
           'relative overflow-hidden rounded-xl border-2 border-dashed transition-colors',
@@ -137,7 +163,12 @@ export function FileField({
                 {t('file.added')}
               </p>
               <p className="truncate text-xs text-muted-foreground">{value.name}</p>
-              <p className="tabular text-xs text-muted-foreground">{humanSize(value.size)}</p>
+              <p className="tabular text-xs text-muted-foreground">
+                {originalBytes !== null && (
+                  <span className="line-through">{humanSize(originalBytes)} </span>
+                )}
+                {humanSize(value.size)}
+              </p>
             </div>
 
             <div className="flex shrink-0 flex-col gap-1">
@@ -150,7 +181,10 @@ export function FileField({
               </button>
               <button
                 type="button"
-                onClick={() => onChange(null)}
+                onClick={() => {
+                  onChange(null);
+                  setOriginalBytes(null);
+                }}
                 aria-label={t('file.remove')}
                 className="tap flex items-center justify-center rounded-lg text-muted-foreground hover:bg-danger/10 hover:text-danger"
               >
@@ -161,8 +195,9 @@ export function FileField({
         ) : (
           <div className="flex flex-col items-center gap-3 px-4 py-5 text-center">
             <ImagePlus aria-hidden className="h-7 w-7 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">
-              {dragging ? t('file.dropHere') : (hint ?? t('file.choose'))}
+            <p className="flex items-center gap-2 text-sm text-muted-foreground">
+              {working && <Spinner className="h-3.5 w-3.5" />}
+              {working ? t('file.optimizing') : dragging ? t('file.dropHere') : (hint ?? t('file.choose'))}
             </p>
 
             {/*
@@ -196,7 +231,7 @@ export function FileField({
           type="file"
           accept="image/*"
           className="sr-only"
-          onChange={(event) => accept(event.target.files?.[0])}
+          onChange={(event) => void accept(event.target.files?.[0])}
         />
         <input
           ref={cameraRef}
@@ -204,7 +239,7 @@ export function FileField({
           accept="image/*"
           capture="environment"
           className="sr-only"
-          onChange={(event) => accept(event.target.files?.[0])}
+          onChange={(event) => void accept(event.target.files?.[0])}
         />
       </div>
 

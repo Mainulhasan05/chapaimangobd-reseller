@@ -12,7 +12,11 @@ import {
   Users,
   Wallet,
 } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/lib/api';
+import { useSession } from '@/lib/session';
 import { AppShell, type NavItem } from '@/components/app-shell';
+import type { Order, Paged } from '@/lib/types';
 
 /**
  * Ten destinations, four of which reach the bottom bar on a phone.
@@ -40,8 +44,44 @@ const NAV: NavItem[] = [
 ];
 
 export default function OwnerLayout({ children }: { children: React.ReactNode }) {
+  const { data: session } = useSession();
+
+  /*
+   * Orders waiting to be accepted. A confirmed order is one the reseller has
+   * committed to and the owner has not yet touched, and mangoes do not wait, so
+   * the count rides on the tab rather than waiting to be discovered. Gated on
+   * the session because the layout renders before the redirect to /login, and an
+   * ungated query would fire a guaranteed 401 on the way out.
+   */
+  const waiting = useQuery({
+    queryKey: ['owner', 'orders', 'confirmed'],
+    queryFn: () => api.get<Paged<'orders', Order>>('/owner/orders?status=confirmed&limit=5'),
+    enabled: Boolean(session),
+    refetchInterval: 60_000,
+  });
+
+  /*
+   * Shares a cache key with the notifications page, so opening that page and
+   * marking things read updates the bell without a second request.
+   */
+  const notifications = useQuery({
+    queryKey: ['notifications'],
+    queryFn: () => api.get<{ unread: number }>('/owner/notifications'),
+    enabled: Boolean(session),
+    refetchInterval: 60_000,
+  });
+
+  const nav = NAV.map((item) =>
+    item.href === '/owner/orders' ? { ...item, badge: waiting.data?.total ?? 0 } : item
+  );
+
   return (
-    <AppShell role="owner" nav={NAV}>
+    <AppShell
+      role="owner"
+      nav={nav}
+      notificationsHref="/owner/notifications"
+      notificationCount={notifications.data?.unread ?? 0}
+    >
       {children}
     </AppShell>
   );

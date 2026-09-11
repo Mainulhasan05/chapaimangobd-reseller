@@ -9,6 +9,27 @@ const objectId = z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid identifier');
 const money = z.coerce.number().nonnegative().max(10000000);
 const qty = z.coerce.number().positive().max(1000000);
 
+/**
+ * A checkbox that came through a multipart form.
+ *
+ * `z.coerce.boolean()` cannot be used here and was: it is `Boolean(value)`, and
+ * `Boolean('false')` is true, so every switch in the product form saved as on no
+ * matter which way it was set. Turning stock tracking off therefore turned it
+ * on, against a quantity of zero, and the product read as out of stock on the
+ * reseller's catalog and on every public shop listing it.
+ *
+ * A real boolean passes through untouched, for JSON callers. A string is read
+ * the way a form means it, and anything else is rejected rather than guessed at.
+ */
+const boolish = z.preprocess((value) => {
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['true', '1', 'on', 'yes'].includes(normalized)) return true;
+    if (['false', '0', 'off', 'no', ''].includes(normalized)) return false;
+  }
+  return value;
+}, z.boolean());
+
 /* sources */
 const createSource = z.object({
   name: z.string().trim().min(2, 'Name is required').max(120),
@@ -27,9 +48,9 @@ const createProduct = z.object({
   minOrderQty: qty,
   costPrice: money,
   maxSellPrice: money.nullable().optional(),
-  trackStock: z.coerce.boolean().optional(),
+  trackStock: boolish.optional(),
   stockQty: z.coerce.number().nonnegative().max(10000000).optional(),
-  isAvailable: z.coerce.boolean().optional(),
+  isAvailable: boolish.optional(),
   sortOrder: z.coerce.number().int().optional(),
 });
 /*
@@ -43,7 +64,7 @@ const storageKeys = z.preprocess(
 );
 
 const updateProduct = createProduct.partial().extend({
-  isArchived: z.boolean().optional(),
+  isArchived: boolish.optional(),
   removeImages: storageKeys,
 });
 
@@ -75,7 +96,7 @@ const listOrders = z.object({
   reseller: objectId.optional(),
   from: z.string().optional(),
   to: z.string().optional(),
-  aging: z.coerce.boolean().optional(),
+  aging: boolish.optional(),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });
@@ -141,7 +162,18 @@ const updateSettings = z.object({
     .optional(),
 });
 
+/**
+ * A browser push subscription, exactly as the Push API hands it over. The same
+ * shape the reseller posts: the owner subscribes their own browser through the
+ * same endpoints, so the body cannot be allowed to drift between the two.
+ */
+const subscribePush = z.object({
+  endpoint: z.string().url(),
+  keys: z.object({ p256dh: z.string(), auth: z.string() }),
+});
+
 module.exports = {
+  subscribePush,
   objectId,
   createSource,
   updateSource,

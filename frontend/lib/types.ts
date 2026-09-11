@@ -49,12 +49,49 @@ export type ResellerProfile = {
   slug: string;
   logoUrl?: string;
   address?: string;
+  /* The shopfront: everything the reseller publishes to their own customers. */
+  about?: string;
+  publicPhone?: string;
+  whatsappNumber?: string;
+  facebookUrl?: string;
+  payment?: { bkash?: string; nagad?: string };
   kycStatus: KycStatus;
   balancePoisha: number;
   creditLimitPoisha: number;
   smsCredits: number;
   formActive: boolean;
   channelPrefs: { webPush: boolean; telegram: boolean; sms: boolean };
+};
+
+/** One value a buyer has used, with how often. */
+export type CustomerVariant = { value: string; count: number; lastUsedAt?: string };
+
+/**
+ * A buyer, recognised by phone across every order they have placed.
+ *
+ * The owner's version counts every shop; a reseller's counts only their own
+ * orders, so the same person shows different totals to each. That is on
+ * purpose: one reseller must not see another's sales.
+ */
+export type Customer = {
+  /** The owner addresses a customer by id, a reseller by phone number. */
+  id: string;
+  phone: string;
+  name: string | null;
+  /** The owner gets counts per variant; a reseller gets the plain values. */
+  names: (CustomerVariant | string)[];
+  addresses: (CustomerVariant | string)[];
+  altPhones?: string[];
+  latestAddress?: string;
+  orderCount: number;
+  deliveredCount: number;
+  cancelledCount: number;
+  returnedCount: number;
+  totalSpend: number;
+  firstOrderAt?: string;
+  lastOrderAt?: string;
+  /** Owner only: how many different shops this number has bought from. */
+  shopCount?: number;
 };
 
 export type Features = { sms: boolean; telegram: boolean; webPush: boolean };
@@ -219,7 +256,19 @@ export type Withdrawal = {
 
 /** The customer-facing shop, which never carries a cost price. */
 export type PublicShop = {
-  shop: { slug: string; name: string; logoUrl?: string; poweredBy: string };
+  shop: {
+    slug: string;
+    name: string;
+    logoUrl?: string;
+    about?: string;
+    phone?: string;
+    whatsapp?: string;
+    facebookUrl?: string;
+    address?: string;
+    payment?: { bkash?: string; nagad?: string };
+    poweredBy: string;
+    brandLogoUrl?: string;
+  };
   products: {
     id: string;
     name: string;

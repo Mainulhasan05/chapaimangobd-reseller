@@ -6,7 +6,8 @@ import { t } from '@/lib/i18n/bn';
 import { formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { Label } from '@/components/ui/form';
-import { Button } from '@/components/ui/button';
+import { Button, Spinner } from '@/components/ui/button';
+import { optimizeImage, PRESETS } from '@/lib/image-optimize';
 
 /**
  * One public picture: a shop logo, a brand mark.
@@ -27,6 +28,15 @@ const MAX_BYTES = 5 * 1024 * 1024;
 
 /** Mirrors the multer filter on the server, so a reject happens before upload. */
 const ALLOWED = ['image/jpeg', 'image/png', 'image/webp', 'image/heic'];
+
+/**
+ * Some iPhones hand over a HEIC with an empty mime type, which the list above
+ * cannot match. The name is the only thing left to go on, and the file is
+ * re-encoded to WebP a moment later anyway.
+ */
+const isImage = (file: File) =>
+  ALLOWED.includes(file.type) ||
+  (file.type === '' && /\.(heic|heif)$/i.test(file.name));
 
 export function ImageField({
   label,
@@ -55,8 +65,16 @@ export function ImageField({
   const cameraRef = useRef<HTMLInputElement>(null);
   const previewRef = useRef<HTMLImageElement>(null);
 
+  /*
+   * The optimized file, and what it weighed before. The original size is kept
+   * only to show what the shrinking bought, which is the one moment anybody
+   * cares: on a slow connection it is the difference between an upload that
+   * finishes and one that is abandoned.
+   */
   const [chosen, setChosen] = useState<File | null>(null);
+  const [originalBytes, setOriginalBytes] = useState<number | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [working, setWorking] = useState(false);
 
   /*
    * An object URL is a live handle into the page's memory, not a string. Left
@@ -74,23 +92,36 @@ export function ImageField({
     return () => URL.revokeObjectURL(url);
   }, [chosen]);
 
-  /** Rejects here rather than after an upload that was always going to fail. */
-  const accept = (file: File | null | undefined) => {
+  /**
+   * Rejects here rather than after an upload that was always going to fail.
+   *
+   * The picture is shrunk and re-encoded to WebP first, so the preview above is
+   * the file that will actually be sent and the size limit is applied to what
+   * leaves the device rather than to what came off the camera.
+   */
+  const accept = async (file: File | null | undefined) => {
     if (!file) return;
-    if (!ALLOWED.includes(file.type)) {
+    if (!isImage(file)) {
       setLocalError(t('file.notImage'));
       return;
     }
-    if (file.size > MAX_BYTES) {
+
+    setWorking(true);
+    const result = await optimizeImage(file, PRESETS.logo);
+    setWorking(false);
+
+    if (result.file.size > MAX_BYTES) {
       setLocalError(t('file.tooLarge'));
       return;
     }
+
     setLocalError(null);
-    setChosen(file);
+    setOriginalBytes(result.optimized ? result.originalBytes : null);
+    setChosen(result.file);
   };
 
   const shown = error ?? localError;
-  const busy = uploading || removing;
+  const busy = uploading || removing || working;
   const frame = cn(
     'relative h-24 w-24 shrink-0 overflow-hidden bg-muted ring-1 ring-border',
     shape === 'circle' ? 'rounded-full' : 'rounded-xl'
@@ -104,7 +135,7 @@ export function ImageField({
         onDragOver={(event) => event.preventDefault()}
         onDrop={(event) => {
           event.preventDefault();
-          accept(event.dataTransfer.files?.[0]);
+          void accept(event.dataTransfer.files?.[0]);
         }}
         className={cn(
           'rounded-xl border bg-muted/60 p-3 transition-colors',
@@ -141,12 +172,22 @@ export function ImageField({
                  */}
                 <p className="truncate text-sm font-semibold">{chosen.name}</p>
                 <p className="tabular text-xs text-muted-foreground">
+                  {originalBytes !== null && (
+                    <span className="line-through">
+                      {formatNumber(Math.round(originalBytes / 1024))} {t('file.kb')}{' '}
+                    </span>
+                  )}
                   {formatNumber(Math.round(chosen.size / 1024))} {t('file.kb')}
                 </p>
                 <p className="mt-0.5 text-xs font-semibold text-warning-ink">
                   {t('file.previewOnly')}
                 </p>
               </>
+            ) : working ? (
+              <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Spinner className="h-3.5 w-3.5" />
+                {t('file.optimizing')}
+              </p>
             ) : (
               <p className="text-sm text-muted-foreground">{hint ?? t('file.choose')}</p>
             )}
@@ -165,7 +206,10 @@ export function ImageField({
               size="sm"
               variant="outline"
               disabled={busy}
-              onClick={() => setChosen(null)}
+              onClick={() => {
+                setChosen(null);
+                setOriginalBytes(null);
+              }}
             >
               <X className="h-4 w-4" />
               {t('app.cancel')}
@@ -219,7 +263,7 @@ export function ImageField({
           accept="image/*"
           className="sr-only"
           onChange={(event) => {
-            accept(event.target.files?.[0]);
+            void accept(event.target.files?.[0]);
             // Cleared so re-picking the same file still fires a change event.
             event.target.value = '';
           }}
@@ -231,7 +275,7 @@ export function ImageField({
           capture="environment"
           className="sr-only"
           onChange={(event) => {
-            accept(event.target.files?.[0]);
+            void accept(event.target.files?.[0]);
             event.target.value = '';
           }}
         />

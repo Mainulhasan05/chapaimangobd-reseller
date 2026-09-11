@@ -200,11 +200,7 @@ async function decideKyc(req, res) {
   await notify({
     user,
     eventType: approve ? EVENT_TYPE.KYC_APPROVED : EVENT_TYPE.KYC_REJECTED,
-    title: approve ? 'KYC approved' : 'KYC needs attention',
-    body: approve
-      ? `Your shop is live at /r/${profile.slug}`
-      : req.body.reason || 'Please resubmit your documents',
-    data: { kycStatus: profile.kycStatus },
+    data: { kycStatus: profile.kycStatus, slug: profile.slug, reason: req.body.reason || undefined },
   });
 
   return ok(res, { kycStatus: profile.kycStatus });

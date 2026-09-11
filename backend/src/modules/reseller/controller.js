@@ -4,13 +4,10 @@ const ResellerProfile = require('../../models/ResellerProfile');
 const ResellerProduct = require('../../models/ResellerProduct');
 const Product = require('../../models/Product');
 const KycSubmission = require('../../models/KycSubmission');
-const Notification = require('../../models/Notification');
-const PushSubscription = require('../../models/PushSubscription');
 
 const storage = require('../../config/storage');
 const imageService = require('../../services/images');
 const telegram = require('../../channels/telegram');
-const webpush = require('../../channels/webpush');
 const pricing = require('../../services/pricing');
 const present = require('../../utils/present');
 const { ok } = require('../../middleware/error');
@@ -26,7 +23,8 @@ const getProfile = async (req, res) => ok(res, { profile: req.reseller });
 
 async function updateProfile(req, res) {
   const profile = req.reseller;
-  const { shopName, slug, address, formActive } = req.body;
+  const body = req.body;
+  const { shopName, slug, address, formActive } = body;
 
   if (slug && slug !== profile.slug) {
     assertValidSlug(slug);
@@ -49,6 +47,29 @@ async function updateProfile(req, res) {
   if (shopName !== undefined) profile.shopName = shopName;
   if (address !== undefined) profile.address = address;
   if (formActive !== undefined) profile.formActive = formActive;
+
+  /*
+   * The shopfront. An empty string is a deletion, not a value: these are all
+   * optional, and a reseller who adds a Facebook page has to be able to take it
+   * off again. Stored as undefined so the field simply stops existing rather
+   * than sitting there as an empty string the public page would have to test.
+   */
+  const shopfront = {
+    publicPhone: body.publicPhone,
+    whatsappNumber: body.whatsappNumber,
+    facebookUrl: body.facebookUrl,
+    about: body.about,
+  };
+  Object.entries(shopfront).forEach(([field, value]) => {
+    if (value !== undefined) profile[field] = value === '' ? undefined : value;
+  });
+
+  if (body.bkashNumber !== undefined) {
+    profile.payment.bkash = body.bkashNumber === '' ? undefined : body.bkashNumber;
+  }
+  if (body.nagadNumber !== undefined) {
+    profile.payment.nagad = body.nagadNumber === '' ? undefined : body.nagadNumber;
+  }
 
   await profile.save();
   return ok(res, { profile });
@@ -239,36 +260,18 @@ async function removeCatalogListing(req, res) {
 
 /* ------------------------------------------------------------- notifications */
 
-async function listNotifications(req, res) {
-  const items = await Notification.find({ user: req.user._id }).sort({ createdAt: -1 }).limit(50);
-  const unread = await Notification.countDocuments({ user: req.user._id, readAt: null });
-  return ok(res, { notifications: items, unread });
-}
-
-async function markNotificationsRead(req, res) {
-  await Notification.updateMany(
-    { user: req.user._id, readAt: null },
-    { $set: { readAt: new Date() } }
-  );
-  return ok(res, { read: true });
-}
-
-async function subscribePush(req, res) {
-  const { endpoint, keys } = req.body;
-  await PushSubscription.findOneAndUpdate(
-    { endpoint },
-    { $set: { user: req.user._id, endpoint, keys, userAgent: req.get('user-agent') } },
-    { upsert: true }
-  );
-  return ok(res, { subscribed: true });
-}
-
-async function unsubscribePush(req, res) {
-  await PushSubscription.deleteOne({ endpoint: req.body.endpoint, user: req.user._id });
-  return ok(res, { subscribed: false });
-}
-
-const pushKey = (_req, res) => ok(res, { publicKey: webpush.publicKey() });
+/*
+ * The inbox is not reseller specific and is no longer implemented here. Every
+ * handler was already scoped to `req.user` alone, and the owner needs the same
+ * five endpoints; see modules/shared/notifications.controller.js.
+ */
+const {
+  list: listNotifications,
+  markRead: markNotificationsRead,
+  subscribePush,
+  unsubscribePush,
+  pushKey,
+} = require('../shared/notifications.controller');
 
 async function telegramLink(req, res) {
   if (!telegram.isConfigured()) throw badRequest('NOT_CONFIGURED', 'Telegram is not set up yet');

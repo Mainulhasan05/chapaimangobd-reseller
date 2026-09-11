@@ -31,6 +31,7 @@ import { ListSkeleton, Skeleton } from '@/components/ui/skeleton';
 import { CountUp, Greeting, HeroCard, Meter } from '@/components/dashboard/metrics';
 import { TrendChart, type TrendPoint } from '@/components/dashboard/trend-chart';
 import { KycBanner } from '@/components/kyc-banner';
+import { ResellerOnboarding, UnpricedAlert } from '@/components/reseller-onboarding';
 import { ShareShopButton, useShopUrl } from '@/components/share-shop';
 
 type DailyStats = { days: { date: string; orders: number; margin: number }[] };
@@ -91,6 +92,15 @@ export default function ResellerDashboard() {
       </header>
 
       <KycBanner />
+
+      {/*
+       * Before the day's work, because it is about work that cannot happen: a
+       * product the reseller has not priced is not in their shop at all, and
+       * nothing else on this page would ever say so.
+       */}
+      <UnpricedAlert />
+
+      <ResellerOnboarding />
 
       {/*
        * The first thing after the greeting is the thing to do, not a number

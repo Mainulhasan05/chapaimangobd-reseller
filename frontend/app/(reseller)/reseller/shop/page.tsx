@@ -44,7 +44,16 @@ function ShopSettings({ profile }: { profile: ResellerProfile }) {
     shopName: profile.shopName ?? '',
     slug: profile.slug ?? '',
     address: profile.address ?? '',
+    about: profile.about ?? '',
+    publicPhone: profile.publicPhone ?? '',
+    whatsappNumber: profile.whatsappNumber ?? '',
+    facebookUrl: profile.facebookUrl ?? '',
+    bkashNumber: profile.payment?.bkash ?? '',
+    nagadNumber: profile.payment?.nagad ?? '',
   });
+
+  const field = (key: keyof typeof form) => (event: { target: { value: string } }) =>
+    setForm((prev) => ({ ...prev, [key]: event.target.value }));
 
   const save = useMutation({
     mutationFn: (patch: Record<string, unknown>) => api.patch('/reseller/profile', patch),
@@ -146,7 +155,7 @@ function ShopSettings({ profile }: { profile: ResellerProfile }) {
           <Input
             id="shopName"
             value={form.shopName}
-            onChange={(e) => setForm((p) => ({ ...p, shopName: e.target.value }))}
+            onChange={field('shopName')}
           />
         </Field>
 
@@ -160,16 +169,105 @@ function ShopSettings({ profile }: { profile: ResellerProfile }) {
             id="slug"
             value={form.slug}
             disabled={!approved}
-            onChange={(e) => setForm((p) => ({ ...p, slug: e.target.value }))}
+            onChange={field('slug')}
           />
         </Field>
 
         <Field label={t('order.address')} htmlFor="address" error={errors.address}>
-          <Textarea
-            id="address"
-            rows={2}
-            value={form.address}
-            onChange={(e) => setForm((p) => ({ ...p, address: e.target.value }))}
+          <Textarea id="address" rows={2} value={form.address} onChange={field('address')} />
+        </Field>
+
+        <Field
+          label={t('shop.about')}
+          htmlFor="about"
+          hint={t('shop.aboutHint')}
+          error={errors.about}
+        >
+          <Textarea id="about" rows={2} value={form.about} onChange={field('about')} />
+        </Field>
+      </Card>
+
+      {/*
+       * How a customer reaches a person.
+       *
+       * An order form carrying only a price list gives a buyer no way to ask
+       * whether the mangoes are ripe, and nothing to judge who is taking their
+       * money. Every field is optional and simply left off the public page when
+       * it is blank.
+       */}
+      <Card className="mb-4">
+        <CardHeader title={t('shop.contact')} subtitle={t('shop.contactHelp')} />
+
+        {/*
+         * Not the login phone. That one is an account credential; this one is
+         * printed on a page anyone can open, and a reseller may well want the
+         * two to be different numbers.
+         */}
+        <Field
+          label={t('shop.publicPhone')}
+          htmlFor="publicPhone"
+          error={errors.publicPhone}
+        >
+          <Input
+            id="publicPhone"
+            type="tel"
+            inputMode="numeric"
+            value={form.publicPhone}
+            onChange={field('publicPhone')}
+          />
+        </Field>
+
+        <Field label={t('shop.whatsapp')} htmlFor="whatsappNumber" error={errors.whatsappNumber}>
+          <Input
+            id="whatsappNumber"
+            type="tel"
+            inputMode="numeric"
+            value={form.whatsappNumber}
+            onChange={field('whatsappNumber')}
+          />
+        </Field>
+
+        <Field
+          label={t('shop.facebook')}
+          htmlFor="facebookUrl"
+          hint="https://facebook.com/..."
+          error={errors.facebookUrl}
+        >
+          <Input
+            id="facebookUrl"
+            type="url"
+            inputMode="url"
+            value={form.facebookUrl}
+            onChange={field('facebookUrl')}
+          />
+        </Field>
+      </Card>
+
+      {/*
+       * Where a prepaid customer sends the money. On a prepaid order the
+       * customer pays the reseller directly, and without these on the page that
+       * conversation happens over the phone every single time.
+       */}
+      <Card className="mb-4">
+        <CardHeader title={t('shop.payment')} subtitle={t('shop.paymentHelp')} />
+
+        <Field label={t('shop.bkash')} htmlFor="bkashNumber" error={errors.bkashNumber}>
+          <Input
+            id="bkashNumber"
+            type="tel"
+            inputMode="numeric"
+            value={form.bkashNumber}
+            onChange={field('bkashNumber')}
+          />
+        </Field>
+
+        <Field label={t('shop.nagad')} htmlFor="nagadNumber" error={errors.nagadNumber}>
+          <Input
+            id="nagadNumber"
+            type="tel"
+            inputMode="numeric"
+            value={form.nagadNumber}
+            onChange={field('nagadNumber')}
           />
         </Field>
 
@@ -180,6 +278,12 @@ function ShopSettings({ profile }: { profile: ResellerProfile }) {
             save.mutate({
               shopName: form.shopName,
               address: form.address,
+              about: form.about,
+              publicPhone: form.publicPhone,
+              whatsappNumber: form.whatsappNumber,
+              facebookUrl: form.facebookUrl,
+              bkashNumber: form.bkashNumber,
+              nagadNumber: form.nagadNumber,
               ...(approved && form.slug !== profile.slug ? { slug: form.slug } : {}),
             })
           }

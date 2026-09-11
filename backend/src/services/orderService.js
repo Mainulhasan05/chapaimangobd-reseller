@@ -11,6 +11,7 @@ const stock = require('./stock');
 const pricing = require('./pricing');
 const { getSettings } = require('./settings');
 const { notify } = require('./notify');
+const customers = require('./customers');
 const { withTransaction } = require('./tx');
 
 const {
@@ -67,10 +68,15 @@ async function createPendingOrder({ resellerProfile, paymentMode, customer, item
     statusHistory: [{ status: ORDER_STATUS.PENDING, at: new Date() }],
   });
 
+  /*
+   * Outside the transaction and never able to fail it. The customer record is a
+   * projection of this collection, so a missed update is recomputed by
+   * `customers.rebuild`, while a refused order is simply lost business.
+   */
+  await customers.recordOrder(order);
+
   await notifyReseller(resellerProfile, EVENT_TYPE.ORDER_PENDING, {
-    title: 'New order received',
-    body: `${order.orderCode} from ${customer.name}`,
-    data: { orderId: order._id, orderCode: order.orderCode },
+    data: { orderId: order._id, orderCode: order.orderCode, customerName: customer.name },
   });
 
   return { order, duplicate: false };
@@ -153,10 +159,17 @@ async function confirmOrder({ orderId, resellerProfile, actorUser, itemOverrides
     return claimed;
   });
 
+  /*
+   * The owner's cue to act. A confirmed order is one the reseller has committed
+   * to and the owner has not yet seen, so it names the shop it came from: the
+   * owner's next question is always whose order it is.
+   */
   await notifyOwner(EVENT_TYPE.ORDER_CONFIRMED, {
-    title: 'Order confirmed by reseller',
-    body: `${result.orderCode} is ready to accept`,
-    data: { orderId: result._id, orderCode: result.orderCode },
+    data: {
+      orderId: result._id,
+      orderCode: result.orderCode,
+      shopName: resellerProfile?.shopName,
+    },
   });
 
   return result;
@@ -233,10 +246,16 @@ async function createManualOrder({ resellerProfile, actorUser, paymentMode, cust
     return created;
   });
 
+  await customers.recordOrder(order);
+
+  // A manual order is confirmed the moment it is created, so the owner hears
+  // about it the same way and through the same event as a form order.
   await notifyOwner(EVENT_TYPE.ORDER_CONFIRMED, {
-    title: 'Manual order created',
-    body: `${order.orderCode} is ready to accept`,
-    data: { orderId: order._id, orderCode: order.orderCode },
+    data: {
+      orderId: order._id,
+      orderCode: order.orderCode,
+      shopName: resellerProfile?.shopName,
+    },
   });
 
   return order;
@@ -330,13 +349,30 @@ async function transitionOrder({ orderId, action, actorUser, role, resellerProfi
     return claimed;
   });
 
+  /*
+   * How the order ended, against the buyer rather than against the order. A
+   * number that is delivered to nine times out of ten is a different
+   * proposition from one that refuses half its parcels at the door, and on cash
+   * on delivery that difference is the owner's courier bill.
+   */
+  await customers.recordOutcome(order);
+
+  /*
+   * Every status the owner moves an order into is news the reseller is waiting
+   * for, because they are the one who told the customer it was coming. The
+   * reason travels with it: on a cancellation it is the entire message.
+   */
   const eventType = EVENT_FOR_ACTION[action];
   if (eventType) {
     const profile = await ResellerProfile.findById(order.reseller);
     await notifyReseller(profile, eventType, {
-      title: `Order ${order.orderCode} is ${order.status}`,
-      body: payload.reason || undefined,
-      data: { orderId: order._id, orderCode: order.orderCode, status: order.status },
+      data: {
+        orderId: order._id,
+        orderCode: order.orderCode,
+        status: order.status,
+        reason: payload.reason || undefined,
+        courierName: payload.courierName || undefined,
+      },
     });
   }
 

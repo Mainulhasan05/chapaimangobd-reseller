@@ -5,6 +5,7 @@ const OutboxMessage = require('../models/OutboxMessage');
 const ResellerProfile = require('../models/ResellerProfile');
 const { getSettings } = require('./settings');
 const { NOTIFICATION_CHANNEL, EVENT_TYPE, ROLES } = require('../domain/constants');
+const { textFor } = require('../domain/notificationText');
 
 /**
  * The in-app record is always written and is the source of truth. Every other
@@ -51,16 +52,26 @@ async function resolveChannels(user, eventType) {
   return channels;
 }
 
-/** Writes the record and queues the fan-out. Never throws into the caller. */
+/**
+ * Writes the record and queues the fan-out. Never throws into the caller.
+ *
+ * The wording comes from the event and its data, not from the caller. It used
+ * to be written inline at each call site, in English, and those strings are not
+ * only the in-app row: they are the push notification on the lock screen, the
+ * Telegram message and the SMS, none of which pass through an interface that
+ * could translate them. A caller may still pass `title` explicitly, for a
+ * one-off with nothing to template from.
+ */
 async function notify({ user, eventType, title, body, data = {} }) {
   if (!user) return null;
 
   try {
+    const text = textFor(eventType, data);
     const notification = await Notification.create({
       user: user._id || user,
       eventType,
-      title,
-      body,
+      title: title || text.title,
+      body: body || text.body,
       data,
     });
 
@@ -72,7 +83,9 @@ async function notify({ user, eventType, title, body, data = {} }) {
         user: user._id || user,
         eventType,
         channels: external,
-        payload: { title, body, data },
+        // The resolved wording, not the caller's arguments: what goes out on
+        // Telegram must read the same as what is in the list.
+        payload: { title: notification.title, body: notification.body, data },
       });
     }
 

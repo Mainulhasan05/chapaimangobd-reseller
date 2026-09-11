@@ -136,12 +136,18 @@ const orderSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+/*
+ * A buyer's whole history, which is a lookup by phone and nothing else. The
+ * number is the identity here: the same person orders under different names, so
+ * a name index would find some of their orders and miss the rest.
+ */
+orderSchema.index({ 'customer.phoneE164': 1, createdAt: -1 });
+
 orderSchema.index({ reseller: 1, status: 1, createdAt: -1 });
 orderSchema.index({ reseller: 1, businessDate: 1 });
 // Drives the aging report: confirmed orders going stale while mangoes rot.
 orderSchema.index({ status: 1, confirmedAt: 1 });
 orderSchema.index({ 'items.product': 1, status: 1 });
-orderSchema.index({ 'customer.phoneE164': 1 });
 orderSchema.index(
   { reseller: 1, submissionId: 1 },
   { unique: true, partialFilterExpression: { submissionId: { $type: 'string' } } }

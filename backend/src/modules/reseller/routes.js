@@ -4,6 +4,7 @@ const express = require('express');
 const controller = require('./controller');
 const orders = require('./orders.controller');
 const wallet = require('./wallet.controller');
+const customers = require('./customers.controller');
 const schema = require('./schema');
 const validate = require('../../middleware/validate');
 const asyncHandler = require('../../utils/asyncHandler');
@@ -60,6 +61,16 @@ router.put(
   asyncHandler(controller.setCatalogPrice)
 );
 router.delete('/catalog/:productId', asyncHandler(controller.removeCatalogListing));
+
+/*
+ * customers
+ *
+ * Scoped to this reseller's own orders, never read off the shared customer
+ * record: that record spans every shop a number has bought from, and one
+ * reseller must not see another's sales. See the controller.
+ */
+router.get('/customers', asyncHandler(customers.listCustomers));
+router.get('/customers/:phone', asyncHandler(customers.getCustomer));
 
 /* orders */
 router.get('/orders', validate({ query: schema.listOrders }), asyncHandler(orders.listOrders));

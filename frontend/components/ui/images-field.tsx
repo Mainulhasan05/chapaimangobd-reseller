@@ -6,6 +6,8 @@ import { t } from '@/lib/i18n/bn';
 import { formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { Label } from '@/components/ui/form';
+import { Spinner } from '@/components/ui/button';
+import { optimizeImages, PRESETS } from '@/lib/image-optimize';
 import type { ProductImage } from '@/lib/types';
 
 /**
@@ -24,8 +26,24 @@ import type { ProductImage } from '@/lib/types';
 
 const MAX_BYTES = 5 * 1024 * 1024;
 
-/** Mirrors the multer filter on the server, so a reject happens before upload. */
+/**
+ * Mirrors the multer filter on the server, so a reject happens before upload.
+ *
+ * The size check runs after optimization rather than before it. A twelve
+ * megabyte photograph straight off a phone camera is not a file anyone should
+ * be told off for choosing: it becomes a few hundred kilobytes of WebP, and the
+ * limit is there to stop what is actually uploaded from being enormous.
+ */
 const ALLOWED = ['image/jpeg', 'image/png', 'image/webp', 'image/heic'];
+
+/**
+ * Some iPhones hand over a HEIC with an empty mime type, which the list above
+ * cannot match. The name is the only thing left to go on, and the file is
+ * re-encoded to WebP a moment later anyway.
+ */
+const isImage = (file: File) =>
+  ALLOWED.includes(file.type) ||
+  (file.type === '' && /\.(heic|heif)$/i.test(file.name));
 
 /**
  * An image already stored, addressed by its handle. The handle is the ImgBB id,
@@ -65,6 +83,7 @@ export function ImagesField({
 
   const [dragging, setDragging] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [working, setWorking] = useState(false);
 
   const total = existing.length + value.length;
   const remaining = Math.max(0, max - total);
@@ -72,28 +91,34 @@ export function ImagesField({
   /**
    * Takes what fits and says why the rest did not, rather than failing a whole
    * selection because the last of six photos was oversized.
+   *
+   * Every picture is shrunk and re-encoded to WebP before it is added, so the
+   * tile below previews the file that will actually be uploaded rather than the
+   * twelve megabyte original it came from.
    */
-  const accept = (incoming: FileList | null | undefined) => {
+  const accept = async (incoming: FileList | null | undefined) => {
     if (!incoming || incoming.length === 0) return;
 
-    const picked: File[] = [];
-    let rejectedType = false;
-    let rejectedSize = false;
+    const chosen = Array.from(incoming);
+    const images = chosen.filter(isImage);
+    const rejectedType = images.length < chosen.length;
 
-    Array.from(incoming).forEach((file) => {
-      if (!ALLOWED.includes(file.type)) {
-        rejectedType = true;
-        return;
-      }
-      if (file.size > MAX_BYTES) {
-        rejectedSize = true;
-        return;
-      }
-      picked.push(file);
-    });
+    const overflowed = images.length > remaining;
+    const within = images.slice(0, remaining);
 
-    const overflowed = picked.length > remaining;
-    const kept = picked.slice(0, remaining);
+    if (within.length === 0) {
+      setLocalError(rejectedType ? t('file.notImage') : t('file.maxReached').replace('{n}', formatNumber(max)));
+      return;
+    }
+
+    setWorking(true);
+    const results = await optimizeImages(within, PRESETS.product);
+    setWorking(false);
+
+    // Judged on what leaves the device. A file still over the limit after
+    // re-encoding is one the browser could not decode at all.
+    const kept = results.map((result) => result.file).filter((file) => file.size <= MAX_BYTES);
+    const rejectedSize = kept.length < results.length;
 
     setLocalError(
       rejectedType
@@ -132,7 +157,7 @@ export function ImagesField({
         onDrop={(event) => {
           event.preventDefault();
           setDragging(false);
-          accept(event.dataTransfer.files);
+          void accept(event.dataTransfer.files);
         }}
         className={cn(
           'rounded-xl border bg-muted/60 p-3 transition-colors',
@@ -172,6 +197,13 @@ export function ImagesField({
               />
             ))}
           </div>
+        )}
+
+        {working && (
+          <p className="mb-2 flex items-center justify-center gap-2 text-xs font-semibold text-muted-foreground">
+            <Spinner className="h-3.5 w-3.5" />
+            {t('file.optimizing')}
+          </p>
         )}
 
         {remaining > 0 ? (
@@ -223,7 +255,7 @@ export function ImagesField({
           multiple
           className="sr-only"
           onChange={(event) => {
-            accept(event.target.files);
+            void accept(event.target.files);
             // Cleared so re-picking the same photo still fires a change event.
             event.target.value = '';
           }}
@@ -235,7 +267,7 @@ export function ImagesField({
           capture="environment"
           className="sr-only"
           onChange={(event) => {
-            accept(event.target.files);
+            void accept(event.target.files);
             event.target.value = '';
           }}
         />

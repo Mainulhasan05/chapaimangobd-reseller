@@ -61,11 +61,32 @@ async function getShop(req, res) {
     .filter(Boolean);
 
   return ok(res, {
+    /*
+     * The shopfront, as a customer who is not logged in may see it.
+     *
+     * Only what the reseller chose to publish: every field here is optional and
+     * omitted when blank, so the page never renders an empty "call us" with no
+     * number under it. Nothing internal leaks - no balance, no credit limit, no
+     * cost price, and not the login phone, which is an account credential and
+     * not a shopfront detail.
+     */
     shop: {
       slug: profile.slug,
       name: profile.shopName,
       logoUrl: profile.logoUrl,
+      about: profile.about || undefined,
+      phone: profile.publicPhone || undefined,
+      whatsapp: profile.whatsappNumber || undefined,
+      facebookUrl: profile.facebookUrl || undefined,
+      address: profile.address || undefined,
+      // Shown only on a prepaid order, where the customer pays the reseller
+      // directly and otherwise has to ring to ask where to send it.
+      payment: {
+        bkash: profile.payment?.bkash || undefined,
+        nagad: profile.payment?.nagad || undefined,
+      },
       poweredBy: settings.poweredByText,
+      brandLogoUrl: settings.brandLogoUrl || undefined,
     },
     products: items,
   });

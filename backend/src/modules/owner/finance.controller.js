@@ -115,10 +115,7 @@ async function decideDeposit(req, res) {
 
   await notifyReseller(deposit.reseller, {
     eventType: approve ? EVENT_TYPE.DEPOSIT_APPROVED : EVENT_TYPE.DEPOSIT_REJECTED,
-    title: approve ? 'Deposit approved' : 'Deposit rejected',
-    body: approve
-      ? `${toTaka(deposit.amountPoisha)} taka added to your balance`
-      : req.body.reason || 'Please check the details and try again',
+    data: { amountPoisha: deposit.amountPoisha, reason: req.body.reason || undefined },
   });
 
   return ok(res, { status: deposit.status });
@@ -213,10 +210,11 @@ async function decideWithdrawal(req, res) {
 
   await notifyReseller(withdrawal.reseller, {
     eventType: approve ? EVENT_TYPE.WITHDRAWAL_APPROVED : EVENT_TYPE.WITHDRAWAL_REJECTED,
-    title: approve ? 'Withdrawal sent' : 'Withdrawal rejected',
-    body: approve
-      ? `${toTaka(withdrawal.amountPoisha)} taka paid to ${withdrawal.destinationNumber}`
-      : req.body.reason || 'Please contact support',
+    data: {
+      amountPoisha: withdrawal.amountPoisha,
+      destination: withdrawal.destinationNumber,
+      reason: req.body.reason || undefined,
+    },
   });
 
   return ok(res, { status: withdrawal.status });

@@ -6,11 +6,30 @@ const { PAYMENT_MODE, DEPOSIT_METHOD, values } = require('../../domain/constants
 const objectId = z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid identifier');
 const money = z.coerce.number().nonnegative().max(10000000);
 
+/**
+ * A field the reseller may clear.
+ *
+ * Every shopfront detail is optional, so an empty string has to mean "remove
+ * this", not "reject this". Without the union a reseller could add a Facebook
+ * page and never take it off again, because the empty value would fail `url()`
+ * and the whole save with it.
+ */
+const optionalText = (max) => z.union([z.literal(''), z.string().trim().max(max)]).optional();
+
 const updateProfile = z.object({
   shopName: z.string().trim().min(2).max(120).optional(),
   slug: z.string().trim().min(3).max(32).optional(),
-  address: z.string().trim().max(500).optional(),
+  address: optionalText(500),
   formActive: z.boolean().optional(),
+
+  /* The shopfront. All optional, all shown to logged-out customers. */
+  publicPhone: optionalText(20),
+  whatsappNumber: optionalText(20),
+  // Validated as a URL only when there is one, so clearing it stays possible.
+  facebookUrl: z.union([z.literal(''), z.string().trim().url().max(300)]).optional(),
+  about: optionalText(600),
+  bkashNumber: optionalText(20),
+  nagadNumber: optionalText(20),
 });
 
 const setCatalogPrice = z.object({
