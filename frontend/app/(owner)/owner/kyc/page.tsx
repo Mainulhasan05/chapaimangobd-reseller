@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { BadgeCheck } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, errorMessage } from '@/lib/api';
 import { t } from '@/lib/i18n/bn';
@@ -51,7 +52,9 @@ export default function OwnerKycPage() {
         </Card>
       )}
 
-      {queue.data?.submissions.length === 0 && <EmptyState title={t('app.none')} />}
+      {queue.data?.submissions.length === 0 && (
+        <EmptyState icon={BadgeCheck} title={t('app.none')} />
+      )}
 
       <div className="grid gap-3 sm:grid-cols-2">
         {queue.data?.submissions.map((submission) => (
@@ -59,7 +62,11 @@ export default function OwnerKycPage() {
             <CardHeader
               title={submission.reseller?.shopName ?? '—'}
               subtitle={submission.reseller?.user?.phoneE164}
-              action={<Badge tone={statusTone(submission.status)}>{submission.status}</Badge>}
+              action={
+                <Badge tone={statusTone(submission.status)} dot>
+                  {submission.status}
+                </Badge>
+              }
             />
             <p className="mb-3 text-xs text-muted-foreground">
               {submission.documentTypes.join(', ')} · {formatDateTime(submission.createdAt)}

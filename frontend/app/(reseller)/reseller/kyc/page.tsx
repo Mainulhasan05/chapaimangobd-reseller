@@ -108,7 +108,11 @@ export default function KycPage() {
       <PageHeader
         title={t('kyc.title')}
         subtitle={t('kyc.gateHelp')}
-        action={<Badge tone={statusTone(status)}>{t(STATUS_LABEL[status])}</Badge>}
+        action={
+          <Badge tone={statusTone(status)} dot>
+            {t(STATUS_LABEL[status])}
+          </Badge>
+        }
       />
 
       {status === 'rejected' && kyc.data?.submission?.note && (
@@ -131,7 +135,7 @@ export default function KycPage() {
             title={t('kyc.viewDocuments')}
             subtitle={formatDateTime(kyc.data.submission.createdAt)}
             action={
-              <Badge tone={statusTone(kyc.data.submission.status)}>
+              <Badge tone={statusTone(kyc.data.submission.status)} dot>
                 {kyc.data.submission.status}
               </Badge>
             }

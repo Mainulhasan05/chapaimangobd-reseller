@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { ShieldAlert } from 'lucide-react';
 import { api, errorMessage, fieldErrors } from '@/lib/api';
 import { useSession, sessionKey } from '@/lib/session';
 import { t } from '@/lib/i18n/bn';
@@ -60,7 +61,7 @@ function ShopSettings({ profile }: { profile: ResellerProfile }) {
       <PageHeader title={t('nav.myShop')} subtitle={t('shop.shareHelp')} />
 
       {!approved && (
-        <Alert tone="warning" title={t('kyc.pending')}>
+        <Alert tone="warning" title={t('kyc.pending')} icon={ShieldAlert}>
           {t('kyc.gateHelp')}
         </Alert>
       )}

@@ -2,7 +2,9 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Package, Plus } from 'lucide-react';
 import { api, errorMessage, fieldErrors } from '@/lib/api';
+import { useDebounced } from '@/lib/use-debounced';
 import { t } from '@/lib/i18n/bn';
 import { formatMoney, formatMoneyPlain, formatNumber } from '@/lib/format';
 import type { OwnerProduct, Source } from '@/lib/types';
@@ -10,12 +12,19 @@ import {
   Alert,
   Badge,
   Card,
+  ColumnToggle,
   EmptyState,
   PageHeader,
+  SortTh,
   TableWrap,
   Td,
   Th,
+  Tr,
+  useColumns,
+  useSort,
+  type ColumnDef,
 } from '@/components/ui/layout';
+import { SearchInput, SortSelect, Toolbar, ToolbarSpacer } from '@/components/ui/toolbar';
 import { Button, Spinner } from '@/components/ui/button';
 import { Field, Input, MoneyInput, Select, Textarea } from '@/components/ui/form';
 import { ImagesField } from '@/components/ui/images-field';
@@ -52,21 +61,80 @@ const blank: Draft = {
   source: '',
 };
 
+type SortKey = 'name' | 'cost' | 'maxSell' | 'minQty' | 'stock' | 'status';
+
+const COLUMNS: ColumnDef<SortKey>[] = [
+  { key: 'name', label: t('nav.products'), locked: true },
+  { key: 'cost', label: t('catalog.costPrice') },
+  { key: 'maxSell', label: t('catalog.maxSellPrice') },
+  { key: 'minQty', label: t('catalog.minOrderQty') },
+  { key: 'stock', label: t('catalog.stockQty') },
+  { key: 'status', label: t('app.status') },
+];
+
 export default function OwnerProductsPage() {
   const [editing, setEditing] = useState<OwnerProduct | null>(null);
   const [creating, setCreating] = useState(false);
+  const [term, setTerm] = useState('');
+  const search = useDebounced(term);
 
   const products = useQuery({
     queryKey: ['owner', 'products'],
     queryFn: () => api.get<{ products: OwnerProduct[] }>('/owner/products'),
   });
 
+  const sourceName = (product: OwnerProduct) =>
+    typeof product.source === 'object' && product.source ? product.source.name : '';
+
+  const all = products.data?.products ?? [];
+
+  // The whole catalog arrives in one response, so the filter is a local scan.
+  const needle = search.trim().toLowerCase();
+  const matched = needle
+    ? all.filter((product) =>
+        [product.name, sourceName(product)]
+          .filter(Boolean)
+          .some((field) => field.toLowerCase().includes(needle))
+      )
+    : all;
+
+  const sorting = useSort<OwnerProduct, SortKey>(matched, {
+    name: (product) => product.name,
+    cost: (product) => product.costPrice,
+    maxSell: (product) => product.maxSellPrice ?? null,
+    minQty: (product) => product.minOrderQty,
+    stock: (product) => (product.trackStock ? (product.stockQty ?? 0) : null),
+    status: (product) => (product.isAvailable ? 1 : 0),
+  });
+
+  const rows = sorting.rows;
+  const columns = useColumns(COLUMNS, 'owner-products');
+
   return (
     <>
       <PageHeader
         title={t('nav.products')}
-        action={<Button onClick={() => setCreating(true)}>{t('nav.products')} +</Button>}
+        subtitle={`${all.length} ${t('nav.products')}`}
+        action={
+          <Button onClick={() => setCreating(true)}>
+            <Plus className="h-4 w-4" />
+            {t('nav.products')}
+          </Button>
+        }
       />
+
+      <Toolbar>
+        <ToolbarSpacer />
+        <SearchInput value={term} onChange={setTerm} placeholder={t('nav.products')} />
+        <SortSelect
+          value={sorting.sort?.key ?? ''}
+          onChange={(key) => sorting.setSort(key ? { key, direction: 'asc' } : null)}
+          options={COLUMNS.map((column) => ({ value: column.key, label: column.label }))}
+        />
+        <div className="hidden sm:block">
+          <ColumnToggle columns={COLUMNS} isVisible={columns.isVisible} onToggle={columns.toggle} />
+        </div>
+      </Toolbar>
 
       {products.isLoading && (
         <Card className="flex justify-center py-10">
@@ -74,55 +142,98 @@ export default function OwnerProductsPage() {
         </Card>
       )}
 
-      {products.data?.products.length === 0 && <EmptyState title={t('app.none')} />}
+      {products.isSuccess && rows.length === 0 && (
+        <EmptyState icon={Package} title={search ? t('app.noResults') : t('app.none')} />
+      )}
 
-      {products.data && products.data.products.length > 0 && (
+      {rows.length > 0 && (
         <TableWrap alwaysVisible>
           <thead>
             <tr>
-              <Th>{t('nav.products')}</Th>
-              <Th className="text-right">{t('catalog.costPrice')}</Th>
-              <Th className="text-right">{t('catalog.maxSellPrice')}</Th>
-              <Th className="text-right">{t('catalog.minOrderQty')}</Th>
-              <Th className="text-right">{t('catalog.stockQty')}</Th>
-              <Th>{t('app.status')}</Th>
-              <Th className="text-right">{t('app.actions')}</Th>
+              {columns.isVisible('name') && (
+                <SortTh column="name" sort={sorting.sort} onSort={sorting.toggle}>
+                  {t('nav.products')}
+                </SortTh>
+              )}
+              {columns.isVisible('cost') && (
+                <SortTh column="cost" sort={sorting.sort} onSort={sorting.toggle} align="right">
+                  {t('catalog.costPrice')}
+                </SortTh>
+              )}
+              {columns.isVisible('maxSell') && (
+                <SortTh column="maxSell" sort={sorting.sort} onSort={sorting.toggle} align="right">
+                  {t('catalog.maxSellPrice')}
+                </SortTh>
+              )}
+              {columns.isVisible('minQty') && (
+                <SortTh column="minQty" sort={sorting.sort} onSort={sorting.toggle} align="right">
+                  {t('catalog.minOrderQty')}
+                </SortTh>
+              )}
+              {columns.isVisible('stock') && (
+                <SortTh column="stock" sort={sorting.sort} onSort={sorting.toggle} align="right">
+                  {t('catalog.stockQty')}
+                </SortTh>
+              )}
+              {columns.isVisible('status') && (
+                <SortTh column="status" sort={sorting.sort} onSort={sorting.toggle}>
+                  {t('app.status')}
+                </SortTh>
+              )}
+              <Th className="w-24 text-right">{t('app.actions')}</Th>
             </tr>
           </thead>
           <tbody>
-            {products.data.products.map((product) => (
-              <tr key={product.id}>
-                <Td>
-                  <div className="font-medium">{product.name}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {typeof product.source === 'object' && product.source
-                      ? product.source.name
-                      : '—'}
-                  </div>
-                </Td>
-                <Td className="tabular text-right">
-                  {formatMoney(product.costPrice)} / {product.unit}
-                </Td>
-                <Td className="tabular text-right">
-                  {product.maxSellPrice == null ? '—' : formatMoney(product.maxSellPrice)}
-                </Td>
-                <Td className="tabular text-right">
-                  {formatNumber(product.minOrderQty)} {product.unit}
-                </Td>
-                <Td className="tabular text-right">
-                  {product.trackStock ? formatNumber(product.stockQty ?? 0) : '∞'}
-                </Td>
-                <Td>
-                  <Badge tone={product.isAvailable ? 'success' : 'neutral'}>
-                    {product.isAvailable ? t('catalog.inStock') : t('catalog.outOfStock')}
-                  </Badge>
-                </Td>
+            {rows.map((product) => (
+              <Tr key={product.id}>
+                {columns.isVisible('name') && (
+                  <Td>
+                    <div className="font-semibold">{product.name}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {sourceName(product) || '—'}
+                    </div>
+                  </Td>
+                )}
+
+                {columns.isVisible('cost') && (
+                  <Td className="tabular text-right font-semibold">
+                    {formatMoney(product.costPrice)}
+                    <span className="font-normal text-muted-foreground"> / {product.unit}</span>
+                  </Td>
+                )}
+
+                {columns.isVisible('maxSell') && (
+                  <Td className="tabular text-right">
+                    {product.maxSellPrice == null ? '—' : formatMoney(product.maxSellPrice)}
+                  </Td>
+                )}
+
+                {columns.isVisible('minQty') && (
+                  <Td className="tabular text-right">
+                    {formatNumber(product.minOrderQty)} {product.unit}
+                  </Td>
+                )}
+
+                {columns.isVisible('stock') && (
+                  <Td className="tabular text-right">
+                    {product.trackStock ? formatNumber(product.stockQty ?? 0) : '∞'}
+                  </Td>
+                )}
+
+                {columns.isVisible('status') && (
+                  <Td>
+                    <Badge tone={product.isAvailable ? 'success' : 'neutral'} dot>
+                      {product.isAvailable ? t('catalog.inStock') : t('catalog.outOfStock')}
+                    </Badge>
+                  </Td>
+                )}
+
                 <Td className="text-right">
                   <Button size="sm" variant="outline" onClick={() => setEditing(product)}>
                     {t('app.edit')}
                   </Button>
                 </Td>
-              </tr>
+              </Tr>
             ))}
           </tbody>
         </TableWrap>

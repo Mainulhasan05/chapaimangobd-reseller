@@ -1,11 +1,21 @@
 'use client';
 
 import { useState } from 'react';
+import { Plus, Store } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, errorMessage, fieldErrors } from '@/lib/api';
 import { t } from '@/lib/i18n/bn';
 import type { Source } from '@/lib/types';
-import { Alert, Card, EmptyState, PageHeader, TableWrap, Td, Th } from '@/components/ui/layout';
+import {
+  Alert,
+  Card,
+  EmptyState,
+  PageHeader,
+  TableWrap,
+  Td,
+  Th,
+  Tr,
+} from '@/components/ui/layout';
 import { Button, Spinner } from '@/components/ui/button';
 import { Field, Input, Textarea } from '@/components/ui/form';
 import { PhoneField } from '@/components/ui/phone-field';
@@ -34,7 +44,12 @@ export default function OwnerSourcesPage() {
       <PageHeader
         title={t('nav.sources')}
         subtitle="যেখান থেকে পণ্য সংগ্রহ করা হয়"
-        action={<Button onClick={() => setCreating(true)}>{t('nav.sources')} +</Button>}
+        action={
+          <Button onClick={() => setCreating(true)}>
+            <Plus className="h-4 w-4" />
+            {t('nav.sources')}
+          </Button>
+        }
       />
 
       {sources.isLoading && (
@@ -43,7 +58,9 @@ export default function OwnerSourcesPage() {
         </Card>
       )}
 
-      {sources.data?.sources.length === 0 && <EmptyState title={t('app.none')} />}
+      {sources.data?.sources.length === 0 && (
+        <EmptyState icon={Store} title={t('app.none')} />
+      )}
 
       {sources.data && sources.data.sources.length > 0 && (
         <TableWrap alwaysVisible>
@@ -57,7 +74,7 @@ export default function OwnerSourcesPage() {
           </thead>
           <tbody>
             {sources.data.sources.map((source) => (
-              <tr key={source._id}>
+              <Tr key={source._id}>
                 <Td className="font-medium">{source.name}</Td>
                 <Td className="text-sm text-muted-foreground">{source.address ?? '—'}</Td>
                 <Td className="tabular text-sm">{source.phoneE164 ?? '—'}</Td>
@@ -77,7 +94,7 @@ export default function OwnerSourcesPage() {
                     </Button>
                   </div>
                 </Td>
-              </tr>
+              </Tr>
             ))}
           </tbody>
         </TableWrap>

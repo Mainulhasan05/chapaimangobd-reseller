@@ -8,6 +8,7 @@ import { t, tStatus } from '@/lib/i18n/bn';
 import { formatMoney, formatQuantity, formatDateTime } from '@/lib/format';
 import type { PublicOrder } from '@/lib/types';
 import { Alert, Badge, Card, statusTone } from '@/components/ui/layout';
+import { Logo } from '@/components/ui/logo';
 import { Button, Spinner } from '@/components/ui/button';
 import { Field, Input } from '@/components/ui/form';
 import { PhoneField } from '@/components/ui/phone-field';
@@ -42,8 +43,13 @@ function TrackView() {
 
   return (
     <>
-      <h1 className="mb-1 text-xl font-semibold">{t('shop.trackOrder')}</h1>
-      <p className="mb-6 text-sm text-muted-foreground">{t('shop.trackHelp')}</p>
+      <div className="mb-6 flex items-center gap-3">
+        <Logo size="md" />
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold">{t('shop.trackOrder')}</h1>
+          <p className="text-sm text-muted-foreground">{t('shop.trackHelp')}</p>
+        </div>
+      </div>
 
       <Card className="mb-6">
         <form
@@ -82,7 +88,9 @@ function TrackView() {
         <Card>
           <div className="mb-4 flex items-center justify-between gap-2">
             <span className="tabular font-semibold">{order.orderCode}</span>
-            <Badge tone={statusTone(order.status)}>{tStatus(order.status)}</Badge>
+            <Badge tone={statusTone(order.status)} dot>
+              {tStatus(order.status)}
+            </Badge>
           </div>
 
           <ul className="mb-4 space-y-2 text-sm">

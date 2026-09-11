@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
+import { ClipboardList, Download, TrendingDown } from 'lucide-react';
 import { api, errorMessage } from '@/lib/api';
 import { t } from '@/lib/i18n/bn';
 import { formatMoney, formatNumber, businessDate } from '@/lib/format';
@@ -15,6 +16,7 @@ import {
   TableWrap,
   Td,
   Th,
+  Tr,
 } from '@/components/ui/layout';
 import { Button, Spinner } from '@/components/ui/button';
 import { Field, Input } from '@/components/ui/form';
@@ -77,11 +79,13 @@ export default function OwnerReportsPage() {
             {/* Plain links, because the export streams as a file download. */}
             <a href="/api/owner/exports/orders.csv" download>
               <Button variant="outline" size="sm">
+                <Download className="h-4 w-4" />
                 {t('nav.orders')} CSV
               </Button>
             </a>
             <a href="/api/owner/exports/ledger.csv" download>
               <Button variant="outline" size="sm">
+                <Download className="h-4 w-4" />
                 {t('wallet.ledger')} CSV
               </Button>
             </a>
@@ -91,11 +95,17 @@ export default function OwnerReportsPage() {
 
       <div className="mb-6 grid gap-3 sm:grid-cols-3">
         <Stat
+          icon={TrendingDown}
           label={t('owner.receivable')}
           value={formatMoney(receivables.data?.totalOwed ?? 0)}
           tone={(receivables.data?.totalOwed ?? 0) > 0 ? 'danger' : 'neutral'}
         />
-        <Stat label={t('nav.orders')} value={formatNumber(receivables.data?.openOrders ?? 0)} />
+        <Stat
+          icon={ClipboardList}
+          tone="primary"
+          label={t('nav.orders')}
+          value={formatNumber(receivables.data?.openOrders ?? 0)}
+        />
         <Card className="flex flex-col justify-center">
           <Button
             variant="outline"
@@ -125,7 +135,7 @@ export default function OwnerReportsPage() {
       <Card className="mb-6">
         <CardHeader title={t('wallet.owed')} subtitle={t('owner.receivable')} />
         {receivables.data?.resellers.length === 0 ? (
-          <EmptyState title={t('app.none')} />
+          <EmptyState icon={ClipboardList} title={t('app.none')} />
         ) : (
           <div className="scroll-x">
             <table className="w-full min-w-[32rem] text-sm">
@@ -139,7 +149,7 @@ export default function OwnerReportsPage() {
               </thead>
               <tbody>
                 {receivables.data?.resellers.map((row) => (
-                  <tr key={row.id}>
+                  <Tr key={row.id}>
                     <Td>
                       <div className="font-medium">{row.shopName}</div>
                       <div className="tabular text-xs text-muted-foreground">
@@ -151,7 +161,7 @@ export default function OwnerReportsPage() {
                     <Td className="text-right text-xs">
                       {row.atLimit && <span className="text-danger">সীমা শেষ</span>}
                     </Td>
-                  </tr>
+                  </Tr>
                 ))}
               </tbody>
             </table>
@@ -177,7 +187,7 @@ export default function OwnerReportsPage() {
           </div>
         )}
 
-        {sold.data?.products.length === 0 && <EmptyState title={t('app.none')} />}
+        {sold.data?.products.length === 0 && <EmptyState icon={ClipboardList} title={t('app.none')} />}
 
         {sold.data && sold.data.products.length > 0 && (
           <TableWrap alwaysVisible>
@@ -192,7 +202,7 @@ export default function OwnerReportsPage() {
             </thead>
             <tbody>
               {sold.data.products.map((row) => (
-                <tr key={row.product}>
+                <Tr key={row.product}>
                   <Td className="font-medium">{row.name}</Td>
                   <Td className="tabular text-right">
                     {formatNumber(row.quantity)} {row.unit}
@@ -200,7 +210,7 @@ export default function OwnerReportsPage() {
                   <Td className="tabular text-right">{formatNumber(row.orders)}</Td>
                   <Td className="tabular text-right">{formatMoney(row.cost)}</Td>
                   <Td className="tabular text-right">{formatMoney(row.revenue)}</Td>
-                </tr>
+                </Tr>
               ))}
             </tbody>
           </TableWrap>

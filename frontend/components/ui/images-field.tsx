@@ -130,7 +130,7 @@ export function ImagesField({
         }}
         className={cn(
           'rounded-xl border-2 border-dashed p-3 transition-colors',
-          dragging && 'border-primary bg-primary/10',
+          dragging && 'border-primary bg-primary-softer',
           shown ? 'border-danger' : !dragging && 'border-input',
           total > 0 && !dragging && !shown && 'border-solid border-border'
         )}

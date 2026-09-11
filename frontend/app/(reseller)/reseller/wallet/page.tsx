@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ArrowDownToLine, ArrowUpFromLine, CreditCard, Inbox, Landmark, Wallet as WalletIcon } from 'lucide-react';
 import { api, errorMessage, fieldErrors } from '@/lib/api';
 import { t } from '@/lib/i18n/bn';
 import { formatMoney, formatSignedMoney, formatDateTime } from '@/lib/format';
@@ -19,6 +20,7 @@ import {
   TableWrap,
   Td,
   Th,
+  Tr,
 } from '@/components/ui/layout';
 import { Button } from '@/components/ui/button';
 import { ListSkeleton, StatSkeleton } from '@/components/ui/skeleton';
@@ -76,12 +78,22 @@ export default function WalletPage() {
       {wallet.isSuccess && (
         <div className="mb-4 grid gap-3 sm:grid-cols-3">
           <Stat
+            icon={WalletIcon}
             label={owes ? t('wallet.owed') : t('wallet.balance')}
             value={formatMoney(Math.abs(balance))}
             tone={owes ? 'danger' : 'success'}
           />
-          <Stat label={t('wallet.creditLimit')} value={formatMoney(wallet.data.wallet.creditLimit)} />
-          <Stat label={t('wallet.available')} value={formatMoney(wallet.data.wallet.available)} />
+          <Stat
+            icon={CreditCard}
+            label={t('wallet.creditLimit')}
+            value={formatMoney(wallet.data.wallet.creditLimit)}
+          />
+          <Stat
+            icon={Landmark}
+            tone="primary"
+            label={t('wallet.available')}
+            value={formatMoney(wallet.data.wallet.available)}
+          />
         </div>
       )}
 
@@ -90,8 +102,12 @@ export default function WalletPage() {
        * phone put them in the top right corner at thirty-two pixels tall.
        */}
       <div className="mb-6 flex gap-2 [&>button]:flex-1">
-        <Button onClick={() => setDepositOpen(true)}>{t('wallet.depositRequest')}</Button>
+        <Button onClick={() => setDepositOpen(true)}>
+          <ArrowDownToLine className="h-4 w-4" />
+          {t('wallet.depositRequest')}
+        </Button>
         <Button variant="outline" onClick={() => setWithdrawOpen(true)}>
+          <ArrowUpFromLine className="h-4 w-4" />
           {t('wallet.withdrawRequest')}
         </Button>
       </div>
@@ -110,7 +126,7 @@ export default function WalletPage() {
         )}
 
         {ledger.isSuccess && ledger.data.entries.length === 0 && (
-          <EmptyState title={t('wallet.noEntries')} />
+          <EmptyState icon={WalletIcon} title={t('wallet.noEntries')} />
         )}
 
         {ledger.isSuccess && ledger.data.entries.length > 0 && (
@@ -158,7 +174,7 @@ export default function WalletPage() {
                 </thead>
                 <tbody>
                   {ledger.data.entries.map((entry) => (
-                    <tr key={entry.id}>
+                    <Tr key={entry.id}>
                       <Td className="whitespace-nowrap text-xs text-muted-foreground">
                         {formatDateTime(entry.createdAt)}
                       </Td>
@@ -174,7 +190,7 @@ export default function WalletPage() {
                         {formatSignedMoney(entry.amount)}
                       </Td>
                       <Td className="tabular text-right">{formatMoney(entry.balanceAfter)}</Td>
-                    </tr>
+                    </Tr>
                   ))}
                 </tbody>
               </table>
@@ -232,7 +248,7 @@ function RequestList({ title, rows }: { title: string; rows: RequestRow[] }) {
     return (
       <Card>
         <CardHeader title={title} />
-        <EmptyState title={t('app.none')} />
+        <EmptyState icon={Inbox} title={t('app.none')} />
       </Card>
     );
   }
@@ -250,7 +266,9 @@ function RequestList({ title, rows }: { title: string; rows: RequestRow[] }) {
                 <p className="text-xs text-muted-foreground">{formatDateTime(row.createdAt)}</p>
                 {row.note && <p className="mt-1 text-xs text-danger">{row.note}</p>}
               </div>
-              <Badge tone={statusTone(row.status)}>{row.status}</Badge>
+              <Badge tone={statusTone(row.status)} dot>
+                {row.status}
+              </Badge>
             </li>
           ))}
         </ul>
@@ -267,15 +285,17 @@ function RequestList({ title, rows }: { title: string; rows: RequestRow[] }) {
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr key={row.id}>
+            <Tr key={row.id}>
               <Td className="text-xs text-muted-foreground">{formatDateTime(row.createdAt)}</Td>
               <Td className="uppercase">{row.method}</Td>
               <Td className="tabular text-right">{formatMoney(row.amount)}</Td>
               <Td>
-                <Badge tone={statusTone(row.status)}>{row.status}</Badge>
+                <Badge tone={statusTone(row.status)} dot>
+                {row.status}
+              </Badge>
                 {row.note && <div className="mt-1 text-xs text-danger">{row.note}</div>}
               </Td>
-            </tr>
+            </Tr>
           ))}
         </tbody>
       </TableWrap>

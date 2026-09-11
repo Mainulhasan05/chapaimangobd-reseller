@@ -1,10 +1,12 @@
 'use client';
 
 import { useState, useSyncExternalStore } from 'react';
+import { BellOff, CheckCheck } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, errorMessage } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { t } from '@/lib/i18n/bn';
+import { cn } from '@/lib/utils';
 import { formatDateTime } from '@/lib/format';
 import { Alert, Badge, Card, CardHeader, EmptyState, PageHeader } from '@/components/ui/layout';
 import { Button, Spinner } from '@/components/ui/button';
@@ -42,7 +44,13 @@ export default function NotificationsPage() {
         title={t('nav.notifications')}
         action={
           (notifications.data?.unread ?? 0) > 0 ? (
-            <Button size="sm" variant="outline" loading={markRead.isPending} onClick={() => markRead.mutate()}>
+            <Button
+              size="sm"
+              variant="outline"
+              loading={markRead.isPending}
+              onClick={() => markRead.mutate()}
+            >
+              <CheckCheck className="h-4 w-4" />
               {t('app.markAllRead')}
             </Button>
           ) : undefined
@@ -61,17 +69,29 @@ export default function NotificationsPage() {
           </div>
         )}
 
-        {notifications.data?.notifications.length === 0 && <EmptyState title={t('app.none')} />}
+        {notifications.data?.notifications.length === 0 && (
+          <EmptyState icon={BellOff} title={t('app.none')} />
+        )}
 
         <ul className="divide-y divide-border">
           {notifications.data?.notifications.map((row) => (
-            <li key={row._id} className="flex items-start justify-between gap-3 py-3">
+            <li
+              key={row._id}
+              className={cn(
+                '-mx-2 flex items-start justify-between gap-3 rounded-lg px-2 py-3',
+                !row.readAt && 'bg-primary-softer'
+              )}
+            >
               <div className="min-w-0">
-                <p className={row.readAt ? 'text-muted-foreground' : 'font-medium'}>{row.title}</p>
+                <p className={row.readAt ? 'text-muted-foreground' : 'font-semibold'}>{row.title}</p>
                 {row.body && <p className="text-sm text-muted-foreground">{row.body}</p>}
                 <p className="text-xs text-muted-foreground">{formatDateTime(row.createdAt)}</p>
               </div>
-              {!row.readAt && <Badge tone="primary">{t('app.unread')}</Badge>}
+              {!row.readAt && (
+                <Badge tone="primary" dot>
+                  {t('app.unread')}
+                </Badge>
+              )}
             </li>
           ))}
         </ul>

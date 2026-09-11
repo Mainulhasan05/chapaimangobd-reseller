@@ -3,6 +3,7 @@ import Image from 'next/image';
 import type { Metadata } from 'next';
 import type { PublicShop, DeliveryZone } from '@/lib/types';
 import { OrderForm } from '@/components/order-form';
+import { Logo } from '@/components/ui/logo';
 
 /**
  * Server rendered, unlike the dashboards. This page is unauthenticated, is the
@@ -66,17 +67,24 @@ export default async function ShopPage({ params }: { params: Promise<{ slug: str
   return (
     // `pb-nav` keeps the last field clear of the order bar pinned to the bottom.
     <main className="mx-auto max-w-2xl px-4 py-6 pb-nav">
-      <header className="mb-6 flex flex-col items-center gap-3 text-center">
-        {shop.shop.logoUrl && (
+      {/*
+       * The storefront header. This is the first thing a customer sees after
+       * tapping a link in a chat, so it carries the shop's own mark where there
+       * is one and falls back to the brand rather than to an empty gap.
+       */}
+      <header className="card elev-2 mb-6 flex flex-col items-center gap-3 p-6 text-center">
+        {shop.shop.logoUrl ? (
           <Image
             src={shop.shop.logoUrl}
             alt={shop.shop.name}
-            width={64}
-            height={64}
-            className="h-16 w-16 rounded-full object-cover"
+            width={72}
+            height={72}
+            className="elev-1 h-18 w-18 rounded-2xl object-cover"
           />
+        ) : (
+          <Logo size="lg" />
         )}
-        <h1 className="text-2xl font-semibold">{shop.shop.name}</h1>
+        <h1 className="text-2xl font-bold tracking-tight">{shop.shop.name}</h1>
       </header>
 
       <OrderForm slug={slug} shop={shop} zones={zones} />

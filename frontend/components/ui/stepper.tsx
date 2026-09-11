@@ -45,13 +45,13 @@ export function QuantityStepper({
 
   return (
     <div className="flex items-center gap-2">
-      <div className="flex items-center rounded-lg border border-input">
+      <div className="flex items-center rounded-xl border-2 border-input bg-surface">
         <button
           type="button"
           onClick={decrease}
           disabled={disabled || value <= 0}
           aria-label={t('catalog.decrease')}
-          className="tap flex items-center justify-center rounded-l-lg text-muted-foreground disabled:opacity-40"
+          className="tap flex items-center justify-center rounded-l-[0.65rem] text-muted-foreground transition-colors hover:bg-muted disabled:opacity-40 disabled:hover:bg-transparent"
         >
           <Minus className="h-4 w-4" />
         </button>
@@ -60,7 +60,7 @@ export function QuantityStepper({
           id={id}
           type="number"
           inputMode="decimal"
-          className="tabular h-11 w-16 border-x border-input bg-surface text-center text-base"
+          className="tabular h-11 w-16 border-x-2 border-input bg-surface text-center text-base font-semibold focus:outline-none"
           step={step}
           min={0}
           value={value || ''}
@@ -80,7 +80,7 @@ export function QuantityStepper({
           onClick={increase}
           disabled={disabled}
           aria-label={t('catalog.increase')}
-          className="tap flex items-center justify-center rounded-r-lg text-muted-foreground disabled:opacity-40"
+          className="tap flex items-center justify-center rounded-r-[0.65rem] text-muted-foreground transition-colors hover:bg-muted disabled:opacity-40 disabled:hover:bg-transparent"
         >
           <Plus className="h-4 w-4" />
         </button>

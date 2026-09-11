@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { BadgeCheck, Bell, ClipboardList, LayoutDashboard, Package, Store, Wallet } from 'lucide-react';
+import { BadgeCheck, ClipboardList, LayoutDashboard, Package, Store, Wallet } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { AppShell, type NavItem } from '@/components/app-shell';
@@ -11,6 +11,10 @@ import type { Order, Paged } from '@/lib/types';
  * Order matters: the first four reach the bottom bar and the rest go behind
  * More. These four are the daily job. Sharing the shop link is a launch-day task
  * that lives on the dashboard as a button, so it does not need a permanent tab.
+ *
+ * Notifications used to be the seventh item here. It is now the bell in the
+ * header, which is where a reader already looks for one and which is reachable
+ * on a phone without opening the More sheet first.
  */
 const NAV: NavItem[] = [
   { href: '/reseller', labelKey: 'nav.dashboard', icon: LayoutDashboard },
@@ -19,7 +23,6 @@ const NAV: NavItem[] = [
   { href: '/reseller/wallet', labelKey: 'nav.wallet', icon: Wallet },
   { href: '/reseller/shop', labelKey: 'nav.myShop', icon: Store },
   { href: '/reseller/kyc', labelKey: 'nav.kyc', icon: BadgeCheck },
-  { href: '/reseller/notifications', labelKey: 'nav.notifications', icon: Bell },
 ];
 
 export default function ResellerLayout({ children }: { children: React.ReactNode }) {
@@ -38,12 +41,30 @@ export default function ResellerLayout({ children }: { children: React.ReactNode
     refetchInterval: 60_000,
   });
 
+  /*
+   * The bell shows a dot rather than a number, so this only needs to know
+   * whether anything is unread. It shares a cache key with the notifications
+   * page, which means opening that page and marking things read updates the bell
+   * without a second request.
+   */
+  const notifications = useQuery({
+    queryKey: ['notifications'],
+    queryFn: () => api.get<{ unread: number }>('/reseller/notifications'),
+    enabled: Boolean(session),
+    refetchInterval: 60_000,
+  });
+
   const nav = NAV.map((item) =>
     item.href === '/reseller/orders' ? { ...item, badge: pending.data?.total ?? 0 } : item
   );
 
   return (
-    <AppShell role="reseller" nav={nav}>
+    <AppShell
+      role="reseller"
+      nav={nav}
+      notificationsHref="/reseller/notifications"
+      notificationCount={notifications.data?.unread ?? 0}
+    >
       {children}
     </AppShell>
   );

@@ -47,7 +47,7 @@ export function Switch({
         aria-hidden
         className={cn(
           'relative h-6 w-11 shrink-0 rounded-full transition-colors',
-          checked ? 'bg-success' : 'bg-input'
+          checked ? 'bg-primary' : 'bg-input'
         )}
       >
         <span

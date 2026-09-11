@@ -49,7 +49,7 @@ export default function RegisterPage() {
         register.mutate();
       }}
     >
-      <h1 className="mb-1 text-xl font-semibold">{t('auth.registerTitle')}</h1>
+      <h1 className="mb-1 text-xl font-bold">{t('auth.registerTitle')}</h1>
       <p className="mb-6 text-sm text-muted-foreground">{t('kyc.gateHelp')}</p>
 
       {generalError && <Alert tone="danger">{generalError}</Alert>}
@@ -89,7 +89,7 @@ export default function RegisterPage() {
 
       <p className="mt-5 text-center text-sm text-muted-foreground">
         {t('auth.hasAccount')}{' '}
-        <Link href="/login" className="font-medium text-foreground underline">
+        <Link href="/login" className="font-semibold text-primary-ink hover:underline">
           {t('auth.login')}
         </Link>
       </p>

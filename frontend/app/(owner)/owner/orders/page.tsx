@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Search, X } from 'lucide-react';
+import { Ban, ClipboardList, Eye, Truck } from 'lucide-react';
 import { api, errorMessage } from '@/lib/api';
 import { useDebounced } from '@/lib/use-debounced';
 import { t, tStatus } from '@/lib/i18n/bn';
@@ -11,18 +11,31 @@ import type { Order, Paged } from '@/lib/types';
 import {
   Alert,
   Badge,
+  Card,
+  Checkbox,
+  ColumnToggle,
   EmptyState,
   ErrorState,
-  Card,
   PageHeader,
+  Person,
+  RowMenu,
+  SelectionBar,
+  SortTh,
   statusTone,
   TableWrap,
   Td,
   Th,
+  Tr,
+  useColumns,
+  useSelection,
+  useSort,
+  type ColumnDef,
+  type MenuItem,
 } from '@/components/ui/layout';
+import { Segmented, SearchInput, SortSelect, Toolbar, ToolbarSpacer } from '@/components/ui/toolbar';
 import { Button } from '@/components/ui/button';
-import { ListSkeleton } from '@/components/ui/skeleton';
-import { Field, Input, Select } from '@/components/ui/form';
+import { ListSkeleton, TableSkeleton } from '@/components/ui/skeleton';
+import { Field, Input } from '@/components/ui/form';
 import { Switch } from '@/components/ui/switch';
 import { Modal } from '@/components/ui/modal';
 import { useToast } from '@/components/ui/toast';
@@ -39,7 +52,7 @@ const FILTERS = [
   { value: 'shipped', label: t('order.shipped') },
   { value: 'delivered', label: t('order.delivered') },
   { value: 'returned', label: t('order.returned') },
-];
+] as const;
 
 /** Only actions the API will accept appear, driven by the server transition table. */
 const ACTION_LABELS: Record<string, string> = {
@@ -49,11 +62,21 @@ const ACTION_LABELS: Record<string, string> = {
   return: t('order.return'),
 };
 
+type SortKey = 'code' | 'reseller' | 'customer' | 'amount' | 'status';
+
+const COLUMNS: ColumnDef<SortKey>[] = [
+  { key: 'code', label: t('order.code'), locked: true },
+  { key: 'reseller', label: t('nav.resellers') },
+  { key: 'customer', label: t('order.customer') },
+  { key: 'amount', label: t('order.walletDebit') },
+  { key: 'status', label: t('app.status') },
+];
+
 export default function OwnerOrdersPage() {
   const queryClient = useQueryClient();
   const toast = useToast();
 
-  const [status, setStatus] = useState('confirmed');
+  const [status, setStatus] = useState<string>('confirmed');
   const [aging, setAging] = useState(false);
   const [term, setTerm] = useState('');
   const [viewing, setViewing] = useState<Order | null>(null);
@@ -79,8 +102,28 @@ export default function OwnerOrdersPage() {
     refetchInterval: 60_000,
   });
 
-  const rows = orders.data?.pages.flatMap((page) => page.orders) ?? [];
+  const loaded = orders.data?.pages.flatMap((page) => page.orders) ?? [];
   const total = orders.data?.pages[0]?.total ?? 0;
+
+  const shopName = (order: Order) =>
+    typeof order.reseller === 'object' ? order.reseller.shopName : '';
+
+  /*
+   * Sorting reorders what is loaded, not what exists. Every list here is paged,
+   * and the alternative, asking the API to sort, would mean the "load more"
+   * button could insert rows above the ones already read.
+   */
+  const sorting = useSort<Order, SortKey>(loaded, {
+    code: (order) => order.orderCode,
+    reseller: shopName,
+    customer: (order) => order.customer.name,
+    amount: (order) => order.totals.walletDebit,
+    status: (order) => tStatus(order.status),
+  });
+
+  const rows = sorting.rows;
+  const selection = useSelection(rows.map((order) => order.id));
+  const columns = useColumns(COLUMNS, 'owner-orders');
 
   const transition = useMutation({
     mutationFn: ({ id, action }: { id: string; action: string }) =>
@@ -92,57 +135,117 @@ export default function OwnerOrdersPage() {
     },
   });
 
-  const actionsFor = (order: Order) => order.actions.filter((a) => a in ACTION_LABELS);
+  /*
+   * A bulk transition, one request at a time rather than in parallel.
+   *
+   * Each of these posts to the ledger, so they are serialised deliberately: a
+   * burst of concurrent writes against the same reseller's balance is exactly
+   * the contention the ledger's atomic update is there to survive, and there is
+   * no reason to generate it from the client. Stopping on the first failure
+   * leaves a partial result, which the toast reports honestly rather than
+   * claiming the whole batch went through.
+   */
+  const bulk = useMutation({
+    mutationFn: async ({ ids, action }: { ids: string[]; action: string }) => {
+      let done = 0;
+      for (const id of ids) {
+        await api.post(`/owner/orders/${id}/${action}`, {});
+        done += 1;
+      }
+      return done;
+    },
+    onSuccess: async (done) => {
+      selection.clear();
+      await queryClient.invalidateQueries({ queryKey: ['owner'] });
+      toast(`${done} ${t('order.statusUpdated')}`);
+    },
+  });
+
+  const actionsFor = (order: Order) => order.actions.filter((action) => action in ACTION_LABELS);
+
+  /*
+   * Only offer a bulk button for a transition every selected order can actually
+   * make. Orders in different stages are routinely selected together, and a
+   * button that half-works is worse than one that is not there.
+   */
+  const selectedOrders = rows.filter((order) => selection.isSelected(order.id));
+  const commonActions =
+    selectedOrders.length > 0
+      ? selectedOrders
+          .map(actionsFor)
+          .reduce((shared, next) => shared.filter((action) => next.includes(action)))
+      : [];
+
+  /** The row overflow menu. Everything in it is also a button on the phone card. */
+  const menuFor = (order: Order): MenuItem[] => [
+    { label: t('order.viewDetail'), icon: Eye, onSelect: () => setViewing(order) },
+    ...actionsFor(order).map((action) => ({
+      label: ACTION_LABELS[action],
+      onSelect: () => transition.mutate({ id: order.id, action }),
+    })),
+    ...(order.actions.includes('ship')
+      ? [{ label: t('order.ship'), icon: Truck, onSelect: () => setShipping(order) }]
+      : []),
+    ...(order.actions.includes('cancel')
+      ? [
+          {
+            label: t('app.cancel'),
+            icon: Ban,
+            tone: 'danger' as const,
+            onSelect: () => setCancelling(order),
+          },
+        ]
+      : []),
+  ];
+
+  const visibleCols = 2 + COLUMNS.filter((column) => columns.isVisible(column.key)).length;
 
   return (
     <>
-      <PageHeader title={t('nav.orders')} />
+      <PageHeader title={t('nav.orders')} subtitle={`${total} ${t('nav.orders')}`} />
 
-      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center">
-        <div className="relative flex-1">
-          <Search
-            aria-hidden
-            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-          />
-          <Input
-            type="search"
-            value={term}
-            onChange={(event) => setTerm(event.target.value)}
-            placeholder={t('app.searchOrders')}
-            aria-label={t('order.searchHelp')}
-            className="pl-9 pr-9"
-          />
-          {term && (
-            <button
-              type="button"
-              onClick={() => setTerm('')}
-              aria-label={t('app.clear')}
-              className="absolute right-1 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          )}
-        </div>
-
-        <Select
+      <Toolbar>
+        <Segmented
+          label={t('app.status')}
           value={status}
-          onChange={(e) => setStatus(e.target.value)}
-          className="sm:w-40"
-          aria-label={t('app.status')}
-        >
-          {FILTERS.map((f) => (
-            <option key={f.value} value={f.value}>
-              {f.label}
-            </option>
-          ))}
-        </Select>
-      </div>
+          onChange={setStatus}
+          options={FILTERS.map((filter) => ({ value: filter.value, label: filter.label }))}
+        />
+        <ToolbarSpacer />
+        <SearchInput value={term} onChange={setTerm} placeholder={t('app.searchOrders')} />
+        <SortSelect
+          value={sorting.sort?.key ?? ''}
+          onChange={(key) => sorting.setSort(key ? { key, direction: 'asc' } : null)}
+          options={COLUMNS.map((column) => ({ value: column.key, label: column.label }))}
+        />
+        <div className="hidden sm:block">
+          <ColumnToggle
+            columns={COLUMNS}
+            isVisible={columns.isVisible}
+            onToggle={columns.toggle}
+          />
+        </div>
+      </Toolbar>
 
       <div className="mb-4 sm:max-w-xs">
         <Switch checked={aging} onChange={setAging} label={t('order.aging')} />
       </div>
 
       {transition.error && <Alert tone="danger">{errorMessage(transition.error)}</Alert>}
+      {bulk.error && <Alert tone="danger">{errorMessage(bulk.error)}</Alert>}
+
+      <SelectionBar count={selection.count} onClear={selection.clear}>
+        {commonActions.map((action) => (
+          <Button
+            key={action}
+            size="sm"
+            loading={bulk.isPending && bulk.variables?.action === action}
+            onClick={() => bulk.mutate({ ids: [...selection.selected], action })}
+          >
+            {ACTION_LABELS[action]}
+          </Button>
+        ))}
+      </SelectionBar>
 
       {orders.isLoading && <ListSkeleton />}
 
@@ -155,11 +258,15 @@ export default function OwnerOrdersPage() {
       )}
 
       {orders.isSuccess && rows.length === 0 && (
-        <EmptyState title={search ? t('app.noResults') : t('order.noOrders')} />
+        <EmptyState
+          icon={ClipboardList}
+          title={search ? t('app.noResults') : t('order.noOrders')}
+        />
       )}
 
       {rows.length > 0 && (
         <>
+          {/* Phones get cards. The table below is hidden there entirely. */}
           <ul className="space-y-3 sm:hidden">
             {rows.map((order) => (
               <li key={order.id}>
@@ -171,14 +278,16 @@ export default function OwnerOrdersPage() {
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="truncate font-medium">{order.customer.name}</p>
+                        <p className="truncate font-semibold">{order.customer.name}</p>
                         <p className="tabular text-xs text-muted-foreground">
                           {order.customer.phoneE164}
                         </p>
                         <p className="text-xs text-muted-foreground">{order.customer.district}</p>
                       </div>
                       <div className="shrink-0 text-right">
-                        <Badge tone={statusTone(order.status)}>{tStatus(order.status)}</Badge>
+                        <Badge tone={statusTone(order.status)} dot>
+                          {tStatus(order.status)}
+                        </Badge>
                         <p className="mt-1 text-xs text-muted-foreground">
                           {order.paymentMode === 'cod' ? t('order.cod') : t('order.prepaid')}
                         </p>
@@ -187,11 +296,11 @@ export default function OwnerOrdersPage() {
 
                     <div className="mt-3 flex items-end justify-between gap-3 border-t border-border pt-3">
                       <div>
-                        <p className="tabular text-lg font-semibold">
+                        <p className="tabular text-lg font-bold">
                           {formatMoney(order.totals.walletDebit)}
                         </p>
                         <p className="truncate text-xs text-muted-foreground">
-                          {typeof order.reseller === 'object' ? order.reseller.shopName : '—'}
+                          {shopName(order) || '—'}
                         </p>
                       </div>
                       <p className="tabular shrink-0 text-right text-xs text-muted-foreground">
@@ -231,74 +340,113 @@ export default function OwnerOrdersPage() {
           <TableWrap>
             <thead>
               <tr>
-                <Th>{t('order.code')}</Th>
-                <Th>{t('nav.resellers')}</Th>
-                <Th>{t('order.customer')}</Th>
-                <Th className="text-right">{t('order.walletDebit')}</Th>
-                <Th>{t('app.status')}</Th>
-                <Th className="text-right">{t('app.actions')}</Th>
+                <Th className="w-10 pr-0">
+                  <Checkbox
+                    label={t('app.selectAll')}
+                    checked={selection.allSelected}
+                    indeterminate={selection.someSelected}
+                    onChange={selection.toggleAll}
+                  />
+                </Th>
+                {columns.isVisible('code') && (
+                  <SortTh column="code" sort={sorting.sort} onSort={sorting.toggle}>
+                    {t('order.code')}
+                  </SortTh>
+                )}
+                {columns.isVisible('reseller') && (
+                  <SortTh column="reseller" sort={sorting.sort} onSort={sorting.toggle}>
+                    {t('nav.resellers')}
+                  </SortTh>
+                )}
+                {columns.isVisible('customer') && (
+                  <SortTh column="customer" sort={sorting.sort} onSort={sorting.toggle}>
+                    {t('order.customer')}
+                  </SortTh>
+                )}
+                {columns.isVisible('amount') && (
+                  <SortTh column="amount" sort={sorting.sort} onSort={sorting.toggle} align="right">
+                    {t('order.walletDebit')}
+                  </SortTh>
+                )}
+                {columns.isVisible('status') && (
+                  <SortTh column="status" sort={sorting.sort} onSort={sorting.toggle}>
+                    {t('app.status')}
+                  </SortTh>
+                )}
+                <Th className="w-12 text-right">
+                  <span className="sr-only">{t('app.actions')}</span>
+                </Th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((order) => (
-                <tr key={order.id} className="hover:bg-muted/50">
-                  <Td>
-                    <button
-                      type="button"
-                      onClick={() => setViewing(order)}
-                      className="tabular font-medium underline-offset-2 hover:underline"
-                    >
-                      {order.orderCode}
-                    </button>
-                    <div className="text-xs text-muted-foreground">
-                      {formatAge(order.confirmedAt ?? order.createdAt)}
-                    </div>
-                  </Td>
-                  <Td className="text-sm">
-                    {typeof order.reseller === 'object' ? order.reseller.shopName : '—'}
-                  </Td>
-                  <Td>
-                    <div className="text-sm">{order.customer.name}</div>
-                    <div className="tabular text-xs text-muted-foreground">
-                      {order.customer.phoneE164}
-                    </div>
-                    <div className="text-xs text-muted-foreground">{order.customer.district}</div>
-                  </Td>
-                  <Td className="tabular text-right">{formatMoney(order.totals.walletDebit)}</Td>
-                  <Td>
-                    <Badge tone={statusTone(order.status)}>{tStatus(order.status)}</Badge>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      {order.paymentMode === 'cod' ? t('order.cod') : t('order.prepaid')}
-                    </div>
-                  </Td>
-                  <Td className="text-right">
-                    <div className="flex flex-wrap justify-end gap-1">
-                      {actionsFor(order).map((action) => (
-                        <Button
-                          key={action}
-                          size="sm"
-                          variant={action === 'return' ? 'outline' : 'primary'}
-                          loading={transition.isPending && transition.variables?.id === order.id}
-                          onClick={() => transition.mutate({ id: order.id, action })}
-                        >
-                          {ACTION_LABELS[action]}
-                        </Button>
-                      ))}
+              {orders.isFetching && rows.length === 0 && <TableSkeleton cols={visibleCols} />}
 
-                      {/* Shipping needs a courier name, so it gets a form. */}
-                      {order.actions.includes('ship') && (
-                        <Button size="sm" onClick={() => setShipping(order)}>
-                          {t('order.ship')}
-                        </Button>
-                      )}
-                      {order.actions.includes('cancel') && (
-                        <Button size="sm" variant="ghost" onClick={() => setCancelling(order)}>
-                          {t('app.cancel')}
-                        </Button>
-                      )}
-                    </div>
+              {rows.map((order) => (
+                <Tr key={order.id} selected={selection.isSelected(order.id)}>
+                  <Td className="pr-0">
+                    <Checkbox
+                      label={`${t('app.selectRow')} ${order.orderCode}`}
+                      checked={selection.isSelected(order.id)}
+                      onChange={() => selection.toggle(order.id)}
+                    />
                   </Td>
-                </tr>
+
+                  {columns.isVisible('code') && (
+                    <Td>
+                      <button
+                        type="button"
+                        onClick={() => setViewing(order)}
+                        className="tabular font-semibold text-primary-ink underline-offset-2 hover:underline"
+                      >
+                        {order.orderCode}
+                      </button>
+                      <div className="text-xs text-muted-foreground">
+                        {formatAge(order.confirmedAt ?? order.createdAt)}
+                      </div>
+                    </Td>
+                  )}
+
+                  {columns.isVisible('reseller') && (
+                    <Td>
+                      {shopName(order) ? (
+                        <Person name={shopName(order)} size="sm" />
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </Td>
+                  )}
+
+                  {columns.isVisible('customer') && (
+                    <Td>
+                      <div className="text-sm font-medium">{order.customer.name}</div>
+                      <div className="tabular text-xs text-muted-foreground">
+                        {order.customer.phoneE164}
+                      </div>
+                      <div className="text-xs text-muted-foreground">{order.customer.district}</div>
+                    </Td>
+                  )}
+
+                  {columns.isVisible('amount') && (
+                    <Td className="tabular text-right font-semibold">
+                      {formatMoney(order.totals.walletDebit)}
+                    </Td>
+                  )}
+
+                  {columns.isVisible('status') && (
+                    <Td>
+                      <Badge tone={statusTone(order.status)} dot>
+                        {tStatus(order.status)}
+                      </Badge>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {order.paymentMode === 'cod' ? t('order.cod') : t('order.prepaid')}
+                      </div>
+                    </Td>
+                  )}
+
+                  <Td className="text-right">
+                    <RowMenu label={`${t('app.actions')} ${order.orderCode}`} items={menuFor(order)} />
+                  </Td>
+                </Tr>
               ))}
             </tbody>
           </TableWrap>

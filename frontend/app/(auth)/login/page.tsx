@@ -44,8 +44,8 @@ export default function LoginPage() {
         login.mutate();
       }}
     >
-      <h1 className="mb-1 text-xl font-semibold">{t('auth.loginTitle')}</h1>
-      <p className="mb-6 text-sm text-muted-foreground">{t('app.name')}</p>
+      <h1 className="mb-1 text-xl font-bold">{t('auth.loginTitle')}</h1>
+      <p className="mb-6 text-sm text-muted-foreground">{t('auth.loginHelp')}</p>
 
       {generalError && <Alert tone="danger">{generalError}</Alert>}
 
@@ -73,7 +73,7 @@ export default function LoginPage() {
 
       <p className="mt-5 text-center text-sm text-muted-foreground">
         {t('auth.noAccount')}{' '}
-        <Link href="/register" className="font-medium text-foreground underline">
+        <Link href="/register" className="font-semibold text-primary-ink hover:underline">
           {t('auth.register')}
         </Link>
       </p>

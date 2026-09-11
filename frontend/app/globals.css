@@ -17,16 +17,26 @@
   --color-foreground: var(--foreground);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
+  --color-subtle: var(--subtle);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
 
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-primary-soft: var(--primary-soft);
+  --color-primary-softer: var(--primary-softer);
+  --color-primary-ink: var(--primary-ink);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
+
+  /* Mango. Kept for money, the brand mark and the chart ramp. See --brand. */
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-ink: var(--brand-ink);
 
   --color-card: var(--surface);
   --color-card-foreground: var(--foreground);
@@ -35,64 +45,128 @@
 
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
+  --color-success-soft: var(--success-soft);
+  --color-success-ink: var(--success-ink);
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-foreground);
+  --color-warning-soft: var(--warning-soft);
+  --color-warning-ink: var(--warning-ink);
   --color-danger: var(--danger);
   --color-danger-foreground: var(--danger-foreground);
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-ink: var(--danger-ink);
   --color-destructive: var(--danger);
 
   --font-sans: var(--font-bengali), ui-sans-serif, system-ui, sans-serif;
 
-  --radius-card: 0.75rem;
+  --radius-card: 0.875rem;
+  --radius-panel: 1.25rem;
 }
 
 /*
  * Every pair below is measured, not judged by eye. Ratios are WCAG 2.1 against
- * the surface they actually sit on. The palette this replaced looked airy on a
- * designer's monitor and washed out on a phone in daylight, which is where this
- * app is used: the primary button was a 2.5:1 label on its own fill, well under
- * the 4.5:1 floor, and the borders at 1.35:1 were effectively invisible.
+ * the surface the colour actually sits on, and they were read off the compiled
+ * stylesheet rather than off the oklch written here, because the two stop
+ * agreeing once a colour is clamped into sRGB. Contrast is symmetric, so each
+ * number holds in both directions: a `--danger` label on white and a white label
+ * on `--danger` are the same 6.1:1.
+ *
+ * The palette this replaced looked airy on a designer's monitor and washed out
+ * on a phone in daylight, which is where this app is used: the primary button
+ * was a 2.5:1 label on its own fill, well under the 4.5:1 floor, and the borders
+ * at 1.35:1 were effectively invisible. Changing a value here means re-measuring
+ * it, not adjusting it until it looks right.
+ *
+ * The hue moved from mango to blue when the chrome was redesigned. The measured
+ * *lightness* values survived that move unchanged, because they are what the
+ * ratios depend on; only the hue angle and chroma were retuned. Mango did not
+ * leave, it narrowed: it now means money and brand rather than "interactive",
+ * which is the job blue does everywhere else in the app.
  */
 :root {
-  --background: oklch(0.985 0.005 95);
+  --background: oklch(0.978 0.004 265);
   --surface: oklch(1 0 0);
-  --foreground: oklch(0.2 0.02 60); /* 18.4:1 on background */
-  --muted: oklch(0.965 0.01 95);
-  --muted-foreground: oklch(0.45 0.02 70); /* 7.4:1 on surface, was 5.5:1 */
+  --foreground: oklch(0.2 0.02 265); /* 17.0:1 on background, 18.1:1 on surface */
+  --muted: oklch(0.968 0.005 265);
+  --subtle: oklch(0.945 0.007 265); /* table header fill, chip ground */
+  --muted-foreground: oklch(0.48 0.02 265); /* 6.5:1 on surface, 5.6:1 on subtle */
 
   /*
    * Two weights of line. Structural borders separate blocks and stay quiet;
    * input outlines are interactive, so they meet the 3:1 that WCAG 1.4.11 asks
    * of a control boundary. One shared value could not do both jobs.
    */
-  --border: oklch(0.84 0.014 90); /* 1.6:1, structural */
-  --input: oklch(0.66 0.014 90); /* 3.1:1, interactive outline */
-  --ring: oklch(0.58 0.17 62); /* 4.5:1, focus */
+  --border: oklch(0.84 0.008 265); /* 1.6:1, structural */
+  --input: oklch(0.66 0.01 265); /* 3.1:1, interactive outline */
+  --ring: oklch(0.546 0.244 263); /* 5.3:1, focus */
 
   /*
-   * Mango. The product is the brand.
-   *
-   * The fill is more saturated than before and the label on it is near-black
-   * rather than white. White on amber cannot reach 4.5:1 without darkening the
-   * amber into brown and losing the fruit; dark on amber reaches 8.4:1 and keeps
-   * the colour, so the button reads as a solid block of mango.
+   * Blue is the interactive colour: buttons, active navigation, links, selection.
+   * White on this fill measures 5.3:1, so unlike mango it can carry a white
+   * label, which is what makes the chrome read as the reference design does.
    */
-  --primary: oklch(0.78 0.17 75);
-  --primary-foreground: oklch(0.24 0.045 60); /* 8.4:1 on primary */
-  --secondary: oklch(0.965 0.01 95);
-  --secondary-foreground: oklch(0.2 0.02 60);
+  --primary: oklch(0.546 0.244 263);
+  --primary-foreground: oklch(1 0 0); /* 5.3:1 on primary */
+  --primary-soft: oklch(0.93 0.04 263); /* selected row, active pill */
+  --primary-softer: oklch(0.97 0.018 263); /* icon chip ground */
+  --primary-ink: oklch(0.45 0.21 263); /* 7.2:1 on primary-softer, 6.4:1 on primary-soft */
+
+  --secondary: oklch(0.968 0.005 265);
+  --secondary-foreground: oklch(0.2 0.02 265);
   --accent: oklch(0.5 0.12 145);
   --accent-foreground: oklch(0.99 0.01 145);
 
-  /* Each of these is both a text colour and a button fill, so both directions pass. */
-  --success: oklch(0.52 0.14 150); /* 5.2:1 as text, 5.0:1 behind white */
+  /*
+   * Mango. The product is the brand, so it stays, but it now has one job.
+   *
+   * The fill is more saturated than a pastel and the label on it is near-black
+   * rather than white. White on amber cannot reach 4.5:1 without darkening the
+   * amber into brown and losing the fruit; dark on amber reaches 8.0:1 and keeps
+   * the colour. That is why mango is a surface for money figures and never a
+   * button label colour.
+   */
+  --brand: oklch(0.78 0.17 75);
+  --brand-foreground: oklch(0.24 0.045 60); /* 8.0:1 on brand */
+  --brand-soft: oklch(0.96 0.04 80);
+  --brand-ink: oklch(0.45 0.13 70); /* 6.8:1 on brand-soft */
+
+  /*
+   * Each of these is a text colour, a button fill and a pill. The `-soft` ground
+   * with the `-ink` label is the pill pair, measured against each other rather
+   * than against white, because that is the combination that actually renders.
+   */
+  --success: oklch(0.52 0.14 150); /* 5.2:1 against white, either direction */
   --success-foreground: oklch(0.99 0.01 150);
+  --success-soft: oklch(0.955 0.035 150);
+  --success-ink: oklch(0.43 0.12 150); /* 6.8:1 on success-soft */
+
   --warning: oklch(0.78 0.15 80);
   --warning-foreground: oklch(0.24 0.05 70);
-  --danger: oklch(0.52 0.19 27); /* 6.1:1 as text, 5.9:1 behind white */
+  --warning-soft: oklch(0.96 0.05 85);
+  --warning-ink: oklch(0.46 0.11 70); /* 6.5:1 on warning-soft */
+
+  --danger: oklch(0.52 0.19 27); /* 6.1:1 against white, either direction */
   --danger-foreground: oklch(0.99 0.01 27);
+  --danger-soft: oklch(0.955 0.025 27);
+  --danger-ink: oklch(0.47 0.19 27); /* 6.6:1 on danger-soft */
 
   --radius: 0.625rem;
+
+  /*
+   * Elevation, as three named steps rather than a shadow written inline at each
+   * call site. A card is barely lifted, a hovered card a little more, and
+   * anything that floats over the page (a sheet, a menu, a toast) is lifted
+   * enough to read as detached from it rather than drawn onto it.
+   */
+  --elev-1:
+    0 1px 2px oklch(0.2 0.02 265 / 0.05),
+    0 1px 3px oklch(0.2 0.02 265 / 0.04);
+  --elev-2:
+    0 4px 12px oklch(0.2 0.02 265 / 0.07),
+    0 2px 4px oklch(0.2 0.02 265 / 0.04);
+  --elev-3:
+    0 16px 40px oklch(0.2 0.02 265 / 0.14),
+    0 4px 10px oklch(0.2 0.02 265 / 0.06);
 }
 
 @layer base {
@@ -119,6 +193,7 @@
   h3 {
     line-height: 1.35;
     font-weight: 600;
+    letter-spacing: -0.01em;
   }
 
   /* Tabular Latin digits, so a Bengali numeral never reaches parseFloat. */
@@ -140,15 +215,56 @@
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius-card);
-    box-shadow:
-      0 1px 2px oklch(0.2 0.02 60 / 0.06),
-      0 1px 3px oklch(0.2 0.02 60 / 0.04);
+    box-shadow: var(--elev-1);
+  }
+
+  /*
+   * A card that is also a link. The lift on hover is the affordance; on a phone
+   * there is no hover, which is why every such card also carries a visible
+   * chevron rather than relying on this alone.
+   */
+  .card-interactive {
+    transition:
+      box-shadow 160ms ease,
+      border-color 160ms ease,
+      transform 160ms ease;
+  }
+
+  @media (hover: hover) {
+    .card-interactive:hover {
+      box-shadow: var(--elev-2);
+      border-color: var(--input);
+      transform: translateY(-1px);
+    }
+  }
+
+  .elev-1 {
+    box-shadow: var(--elev-1);
+  }
+
+  .elev-2 {
+    box-shadow: var(--elev-2);
+  }
+
+  .elev-3 {
+    box-shadow: var(--elev-3);
   }
 
   /* Wide content scrolls inside its own box; the page body never does. */
   .scroll-x {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
+  }
+
+  /* Hides the scrollbar on the nav strip without disabling the scroll itself. */
+  .scroll-x-bare {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .scroll-x-bare::-webkit-scrollbar {
+    display: none;
   }
 }
 
@@ -171,7 +287,7 @@
 
   @media (min-width: 640px) {
     .pb-nav {
-      padding-bottom: 1.5rem;
+      padding-bottom: 2rem;
     }
   }
 
@@ -196,14 +312,14 @@
     animation: toast-in 220ms cubic-bezier(0.32, 0.72, 0, 1);
   }
 
+  .menu-in {
+    animation: menu-in 120ms cubic-bezier(0.32, 0.72, 0, 1);
+    transform-origin: top right;
+  }
+
   /* A skeleton that breathes rather than blinks. */
   .shimmer {
-    background: linear-gradient(
-      90deg,
-      var(--muted) 25%,
-      var(--input) 37%,
-      var(--muted) 63%
-    );
+    background: linear-gradient(90deg, var(--muted) 25%, var(--subtle) 37%, var(--muted) 63%);
     background-size: 400% 100%;
     animation: shimmer 1.4s ease-in-out infinite;
   }
@@ -238,6 +354,17 @@
   }
 }
 
+@keyframes menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-0.25rem);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
 @keyframes shimmer {
   from {
     background-position: 100% 50%;
@@ -256,8 +383,17 @@
   .sheet-in,
   .fade-in,
   .toast-in,
+  .menu-in,
   .shimmer {
     animation: none;
+  }
+
+  .card-interactive {
+    transition: none;
+  }
+
+  .card-interactive:hover {
+    transform: none;
   }
 
   .shimmer {

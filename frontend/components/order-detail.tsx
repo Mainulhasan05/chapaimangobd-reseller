@@ -24,7 +24,9 @@ export function OrderDetail({
   return (
     <Modal open wide onClose={onClose} title={order.orderCode}>
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <Badge tone={statusTone(order.status)}>{tStatus(order.status)}</Badge>
+        <Badge tone={statusTone(order.status)} dot>
+          {tStatus(order.status)}
+        </Badge>
         <Badge>{order.paymentMode === 'cod' ? t('order.cod') : t('order.prepaid')}</Badge>
         <span className="text-xs text-muted-foreground">{formatDateTime(order.createdAt)}</span>
       </div>

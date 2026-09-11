@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { MapPin, Plus } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, errorMessage, fieldErrors } from '@/lib/api';
 import { t } from '@/lib/i18n/bn';
@@ -15,6 +16,7 @@ import {
   TableWrap,
   Td,
   Th,
+  Tr,
 } from '@/components/ui/layout';
 import { Button, Spinner } from '@/components/ui/button';
 import { Field, Input, MoneyInput, Textarea } from '@/components/ui/form';
@@ -35,7 +37,12 @@ export default function OwnerZonesPage() {
       <PageHeader
         title={t('nav.zones')}
         subtitle="ক্রেতা জেলা বাছাই করলে এই চার্জ যোগ হবে"
-        action={<Button onClick={() => setCreating(true)}>{t('nav.zones')} +</Button>}
+        action={
+          <Button onClick={() => setCreating(true)}>
+            <Plus className="h-4 w-4" />
+            {t('nav.zones')}
+          </Button>
+        }
       />
 
       {zones.isLoading && (
@@ -44,7 +51,9 @@ export default function OwnerZonesPage() {
         </Card>
       )}
 
-      {zones.data?.zones.length === 0 && <EmptyState title={t('app.none')} />}
+      {zones.data?.zones.length === 0 && (
+        <EmptyState icon={MapPin} title={t('app.none')} />
+      )}
 
       {zones.data && zones.data.zones.length > 0 && (
         <TableWrap alwaysVisible>
@@ -59,7 +68,7 @@ export default function OwnerZonesPage() {
           </thead>
           <tbody>
             {zones.data.zones.map((zone) => (
-              <tr key={zone.id}>
+              <Tr key={zone.id}>
                 <Td className="font-medium">{zone.name}</Td>
                 <Td className="text-sm text-muted-foreground">{zone.districts.join(', ')}</Td>
                 <Td className="tabular text-right">{formatMoney(zone.charge)}</Td>
@@ -73,7 +82,7 @@ export default function OwnerZonesPage() {
                     {t('app.edit')}
                   </Button>
                 </Td>
-              </tr>
+              </Tr>
             ))}
           </tbody>
         </TableWrap>

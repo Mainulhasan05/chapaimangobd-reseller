@@ -2,7 +2,9 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Store, TrendingDown, Users } from 'lucide-react';
 import { api, errorMessage } from '@/lib/api';
+import { useDebounced } from '@/lib/use-debounced';
 import { t } from '@/lib/i18n/bn';
 import { formatMoney, formatMoneyPlain, formatSignedMoney, formatDateTime } from '@/lib/format';
 import type { LedgerEntry, ResellerSummary } from '@/lib/types';
@@ -10,28 +12,109 @@ import {
   Alert,
   Badge,
   Card,
+  ColumnToggle,
   EmptyState,
   PageHeader,
+  Person,
+  SortTh,
+  Stat,
   statusTone,
   TableWrap,
   Td,
   Th,
+  Tr,
+  useColumns,
+  useSort,
+  type ColumnDef,
 } from '@/components/ui/layout';
+import { SearchInput, SortSelect, Toolbar, ToolbarSpacer } from '@/components/ui/toolbar';
 import { Button, Spinner } from '@/components/ui/button';
 import { Field, MoneyInput, Select, Textarea } from '@/components/ui/form';
 import { Modal } from '@/components/ui/modal';
 
+type SortKey = 'shop' | 'person' | 'kyc' | 'balance' | 'limit';
+
+const COLUMNS: ColumnDef<SortKey>[] = [
+  { key: 'shop', label: t('auth.shopName'), locked: true },
+  { key: 'person', label: t('auth.phone') },
+  { key: 'kyc', label: t('kyc.title') },
+  { key: 'balance', label: t('wallet.balance') },
+  { key: 'limit', label: t('wallet.creditLimit') },
+];
+
 export default function OwnerResellersPage() {
   const [managing, setManaging] = useState<ResellerSummary | null>(null);
+  const [term, setTerm] = useState('');
+  const search = useDebounced(term);
 
   const resellers = useQuery({
     queryKey: ['owner', 'resellers'],
     queryFn: () => api.get<{ resellers: ResellerSummary[] }>('/owner/resellers'),
   });
 
+  const all = resellers.data?.resellers ?? [];
+
+  /*
+   * Filtered here rather than at the API, because this endpoint returns every
+   * reseller in one response: there is one mango business and it has tens of
+   * these, not thousands. A round trip per keystroke would be slower than the
+   * scan and would need a debounce to be usable at all.
+   */
+  const needle = search.trim().toLowerCase();
+  const matched = needle
+    ? all.filter((reseller) =>
+        [reseller.shopName, reseller.slug, reseller.user?.name, reseller.user?.phoneE164]
+          .filter(Boolean)
+          .some((field) => String(field).toLowerCase().includes(needle))
+      )
+    : all;
+
+  const sorting = useSort<ResellerSummary, SortKey>(matched, {
+    shop: (reseller) => reseller.shopName,
+    person: (reseller) => reseller.user?.name ?? '',
+    kyc: (reseller) => reseller.kycStatus,
+    balance: (reseller) => reseller.balance,
+    limit: (reseller) => reseller.creditLimit,
+  });
+
+  const rows = sorting.rows;
+  const columns = useColumns(COLUMNS, 'owner-resellers');
+
+  const debtors = all.filter((reseller) => reseller.balance < 0);
+  const owed = debtors.reduce((sum, reseller) => sum + Math.abs(reseller.balance), 0);
+
   return (
     <>
       <PageHeader title={t('nav.resellers')} subtitle={t('wallet.negativeHelp')} />
+
+      <div className="mb-4 grid gap-3 sm:grid-cols-3">
+        <Stat icon={Users} tone="primary" label={t('nav.resellers')} value={all.length} />
+        <Stat
+          icon={TrendingDown}
+          label={t('dash.topDebtors')}
+          value={debtors.length}
+          tone={debtors.length > 0 ? 'warning' : 'neutral'}
+        />
+        <Stat
+          icon={Store}
+          label={t('owner.receivable')}
+          value={formatMoney(owed)}
+          tone={owed > 0 ? 'danger' : 'neutral'}
+        />
+      </div>
+
+      <Toolbar>
+        <ToolbarSpacer />
+        <SearchInput value={term} onChange={setTerm} placeholder={t('auth.shopName')} />
+        <SortSelect
+          value={sorting.sort?.key ?? ''}
+          onChange={(key) => sorting.setSort(key ? { key, direction: 'asc' } : null)}
+          options={COLUMNS.map((column) => ({ value: column.key, label: column.label }))}
+        />
+        <div className="hidden sm:block">
+          <ColumnToggle columns={COLUMNS} isVisible={columns.isVisible} onToggle={columns.toggle} />
+        </div>
+      </Toolbar>
 
       {resellers.isLoading && (
         <Card className="flex justify-center py-10">
@@ -39,50 +122,88 @@ export default function OwnerResellersPage() {
         </Card>
       )}
 
-      {resellers.data?.resellers.length === 0 && <EmptyState title={t('app.none')} />}
+      {resellers.isSuccess && rows.length === 0 && (
+        <EmptyState icon={Users} title={search ? t('app.noResults') : t('app.none')} />
+      )}
 
-      {resellers.data && resellers.data.resellers.length > 0 && (
+      {rows.length > 0 && (
         <TableWrap alwaysVisible>
           <thead>
             <tr>
-              <Th>{t('auth.shopName')}</Th>
-              <Th>{t('auth.phone')}</Th>
-              <Th>{t('kyc.title')}</Th>
-              <Th className="text-right">{t('wallet.balance')}</Th>
-              <Th className="text-right">{t('wallet.creditLimit')}</Th>
-              <Th className="text-right">{t('app.actions')}</Th>
+              {columns.isVisible('shop') && (
+                <SortTh column="shop" sort={sorting.sort} onSort={sorting.toggle}>
+                  {t('auth.shopName')}
+                </SortTh>
+              )}
+              {columns.isVisible('person') && (
+                <SortTh column="person" sort={sorting.sort} onSort={sorting.toggle}>
+                  {t('auth.phone')}
+                </SortTh>
+              )}
+              {columns.isVisible('kyc') && (
+                <SortTh column="kyc" sort={sorting.sort} onSort={sorting.toggle}>
+                  {t('kyc.title')}
+                </SortTh>
+              )}
+              {columns.isVisible('balance') && (
+                <SortTh column="balance" sort={sorting.sort} onSort={sorting.toggle} align="right">
+                  {t('wallet.balance')}
+                </SortTh>
+              )}
+              {columns.isVisible('limit') && (
+                <SortTh column="limit" sort={sorting.sort} onSort={sorting.toggle} align="right">
+                  {t('wallet.creditLimit')}
+                </SortTh>
+              )}
+              <Th className="w-28 text-right">{t('app.actions')}</Th>
             </tr>
           </thead>
           <tbody>
-            {resellers.data.resellers.map((reseller) => (
-              <tr key={reseller.id}>
-                <Td>
-                  <div className="font-medium">{reseller.shopName}</div>
-                  <div className="text-xs text-muted-foreground">/r/{reseller.slug}</div>
-                </Td>
-                <Td>
-                  <div className="text-sm">{reseller.user?.name}</div>
-                  <div className="tabular text-xs text-muted-foreground">
-                    {reseller.user?.phoneE164}
-                  </div>
-                </Td>
-                <Td>
-                  <Badge tone={statusTone(reseller.kycStatus)}>{reseller.kycStatus}</Badge>
-                </Td>
-                <Td
-                  className={`tabular text-right ${
-                    reseller.balance < 0 ? 'text-danger' : 'text-success'
-                  }`}
-                >
-                  {formatSignedMoney(reseller.balance)}
-                </Td>
-                <Td className="tabular text-right">{formatMoney(reseller.creditLimit)}</Td>
+            {rows.map((reseller) => (
+              <Tr key={reseller.id}>
+                {columns.isVisible('shop') && (
+                  <Td>
+                    <Person name={reseller.shopName} caption={`/r/${reseller.slug}`} size="sm" />
+                  </Td>
+                )}
+
+                {columns.isVisible('person') && (
+                  <Td>
+                    <div className="text-sm font-medium">{reseller.user?.name}</div>
+                    <div className="tabular text-xs text-muted-foreground">
+                      {reseller.user?.phoneE164}
+                    </div>
+                  </Td>
+                )}
+
+                {columns.isVisible('kyc') && (
+                  <Td>
+                    <Badge tone={statusTone(reseller.kycStatus)} dot>
+                      {reseller.kycStatus}
+                    </Badge>
+                  </Td>
+                )}
+
+                {columns.isVisible('balance') && (
+                  <Td
+                    className={`tabular text-right font-semibold ${
+                      reseller.balance < 0 ? 'text-danger' : 'text-success'
+                    }`}
+                  >
+                    {formatSignedMoney(reseller.balance)}
+                  </Td>
+                )}
+
+                {columns.isVisible('limit') && (
+                  <Td className="tabular text-right">{formatMoney(reseller.creditLimit)}</Td>
+                )}
+
                 <Td className="text-right">
                   <Button size="sm" variant="outline" onClick={() => setManaging(reseller)}>
                     {t('app.actions')}
                   </Button>
                 </Td>
-              </tr>
+              </Tr>
             ))}
           </tbody>
         </TableWrap>

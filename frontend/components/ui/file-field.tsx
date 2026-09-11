@@ -111,7 +111,7 @@ export function FileField({
         }}
         className={cn(
           'relative overflow-hidden rounded-xl border-2 border-dashed transition-colors',
-          dragging && 'border-primary bg-primary/10',
+          dragging && 'border-primary bg-primary-softer',
           shown ? 'border-danger' : !dragging && 'border-input',
           value && !dragging && 'border-solid border-success'
         )}

@@ -2,19 +2,30 @@
 
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronRight } from 'lucide-react';
+import {
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  ClipboardCheck,
+  ClipboardList,
+  Clock,
+  ShoppingBag,
+  Wallet,
+} from 'lucide-react';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { t } from '@/lib/i18n/bn';
 import { formatMoney, formatNumber, formatAge } from '@/lib/format';
-import type { Order, OwnerDashboard, Paged } from '@/lib/types';
+import type { Order, OwnerDashboard, Paged, ResellerSummary } from '@/lib/types';
 import {
   Badge,
   Card,
   CardHeader,
+  DashboardGrid,
   EmptyState,
   ErrorState,
   PageHeader,
+  Panel,
+  Rail,
   Stat,
   statusTone,
 } from '@/components/ui/layout';
@@ -22,6 +33,7 @@ import { Button } from '@/components/ui/button';
 import { ListSkeleton, Skeleton, StatSkeleton } from '@/components/ui/skeleton';
 import { CountUp, Greeting, HeroCard } from '@/components/dashboard/metrics';
 import { PipelineBar } from '@/components/dashboard/pipeline-bar';
+import { QueuePanel, QueueTile, RailList, RailRow } from '@/components/dashboard/rail';
 
 export default function OwnerDashboardPage() {
   const { data: session } = useSession();
@@ -39,7 +51,18 @@ export default function OwnerDashboardPage() {
    */
   const aging = useQuery({
     queryKey: ['owner', 'aging'],
-    queryFn: () => api.get<Paged<'orders', Order>>('/owner/orders?aging=true&limit=10'),
+    queryFn: () => api.get<Paged<'orders', Order>>('/owner/orders?aging=true&limit=8'),
+  });
+
+  /*
+   * Who owes the most, for the rail. The receivable figure at the top of the
+   * page says how much is outstanding; this says who to ring about it, which is
+   * the question the figure immediately raises.
+   */
+  const resellers = useQuery({
+    queryKey: ['owner', 'resellers', 'debtors'],
+    queryFn: () => api.get<Paged<'resellers', ResellerSummary>>('/owner/resellers?limit=50'),
+    staleTime: 5 * 60_000,
   });
 
   const data = dashboard.data;
@@ -48,7 +71,7 @@ export default function OwnerDashboardPage() {
     return (
       <>
         <PageHeader title={t('nav.dashboard')} />
-        <Skeleton className="mb-4 h-32 w-full rounded-2xl" />
+        <Skeleton className="mb-4 h-36 w-full rounded-2xl" />
         <StatSkeleton count={4} />
         <ListSkeleton rows={3} />
       </>
@@ -69,7 +92,16 @@ export default function OwnerDashboardPage() {
   }
 
   const receivable = data?.totalReceivable ?? 0;
-  const decisions = (data?.pendingDeposits ?? 0) + (data?.pendingWithdrawals ?? 0);
+
+  /*
+   * Everyone in the red, deepest first. The balance is the reseller's net
+   * position, so a negative number is what they owe; sorting ascending puts the
+   * largest debt at the top.
+   */
+  const debtors = (resellers.data?.resellers ?? [])
+    .filter((reseller) => reseller.balance < 0)
+    .sort((left, right) => left.balance - right.balance)
+    .slice(0, 5);
 
   return (
     <>
@@ -80,102 +112,201 @@ export default function OwnerDashboardPage() {
       </header>
 
       {/*
-       * Money owed leads, but it does not wear the brand fill. A receivable is
-       * not good news, and painting it in the same mango as a reseller's earnings
-       * would say it is.
+       * The four figures lead, as a row of cards. The receivable used to be a
+       * full-width block above them; it is now the first card in the row and the
+       * hero has moved into the rail, because on a wide screen a single number
+       * stretched across twelve hundred pixels is mostly empty space.
        */}
-      <div className="mb-4">
-        <HeroCard
-          tone="alert"
-          label={t('owner.receivable')}
-          value={<CountUp value={receivable} format={formatMoney} />}
-          caption={`${t('owner.ordersToday')} ${formatNumber(data?.ordersToday ?? 0)}`}
-        />
-      </div>
-
-      {/* Anything waiting on the owner personally, as one line to act on. */}
-      {decisions > 0 && (
-        <Link href="/owner/finance" className="mb-4 block">
-          <div className="flex items-center gap-3 rounded-xl bg-primary/25 px-4 py-3 ring-1 ring-primary/50 transition-colors hover:bg-primary/35">
-            <span className="tabular text-2xl font-bold">{formatNumber(decisions)}</span>
-            <span className="min-w-0 flex-1 text-sm font-bold">
-              {t('nav.deposits')} · {t('nav.withdrawals')}
-              <span className="block text-xs font-normal text-muted-foreground">
-                {t('owner.approve')}
-              </span>
-            </span>
-            <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" />
-          </div>
-        </Link>
-      )}
-
-      {/*
-       * Where the orders in flight are sitting. This is the owner's actual job
-       * in one bar, and it replaces four separate counts that had to be added up
-       * in the reader's head.
-       */}
-      <Card className="mb-4">
-        <CardHeader title={t('dash.pipeline')} subtitle={data?.today} />
-        <PipelineBar byStatus={data?.byStatus ?? {}} />
-      </Card>
-
       <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat label={t('owner.ordersToday')} value={formatNumber(data?.ordersToday ?? 0)} />
         <Stat
+          icon={ShoppingBag}
+          tone="primary"
+          label={t('owner.ordersToday')}
+          value={formatNumber(data?.ordersToday ?? 0)}
+          href="/owner/orders"
+        />
+        <Stat
+          icon={ClipboardCheck}
           label={t('owner.awaitingAcceptance')}
           value={formatNumber(data?.awaitingAcceptance ?? 0)}
           tone={(data?.awaitingAcceptance ?? 0) > 0 ? 'warning' : 'neutral'}
+          href="/owner/orders"
         />
         <Stat
+          icon={Clock}
           label={t('owner.agingOrders')}
           value={formatNumber(data?.agingOrders ?? 0)}
           hint={`${formatNumber(data?.agingThresholdHours ?? 24)}+ ঘণ্টা`}
           tone={(data?.agingOrders ?? 0) > 0 ? 'danger' : 'neutral'}
+          href="/owner/orders"
         />
-        <Stat label={t('owner.pendingDeposits')} value={formatNumber(data?.pendingDeposits ?? 0)} />
+        <Stat
+          icon={Wallet}
+          label={t('owner.pendingDeposits')}
+          value={formatNumber(data?.pendingDeposits ?? 0)}
+          tone={(data?.pendingDeposits ?? 0) > 0 ? 'warning' : 'neutral'}
+          href="/owner/finance"
+        />
       </div>
 
-      <Card>
-        <CardHeader
-          title={t('owner.agingOrders')}
-          subtitle={t('order.aging')}
-          action={
-            <Link href="/owner/orders">
-              <Button variant="outline" size="sm">
-                {t('nav.orders')}
-              </Button>
-            </Link>
-          }
-        />
+      <DashboardGrid>
+        <div className="flex flex-col gap-4">
+          {/*
+           * Where the orders in flight are sitting. This is the owner's actual
+           * job in one bar, and it replaces four separate counts that had to be
+           * added up in the reader's head.
+           */}
+          <Card>
+            <CardHeader
+              title={t('dash.pipeline')}
+              subtitle={data?.today}
+              href="/owner/orders"
+              hrefLabel={t('nav.orders')}
+            />
+            <PipelineBar byStatus={data?.byStatus ?? {}} />
+          </Card>
 
-        {aging.isLoading && <ListSkeleton rows={3} />}
+          <Card>
+            <CardHeader
+              title={t('owner.agingOrders')}
+              subtitle={t('order.aging')}
+              action={
+                <Link href="/owner/orders">
+                  <Button variant="outline" size="sm">
+                    {t('nav.orders')}
+                  </Button>
+                </Link>
+              }
+            />
 
-        {aging.isError && (
-          <ErrorState
-            onRetry={() => aging.refetch()}
-            isRetrying={aging.isFetching}
-            error={aging.error}
+            {aging.isLoading && <ListSkeleton rows={3} />}
+
+            {aging.isError && (
+              <ErrorState
+                onRetry={() => aging.refetch()}
+                isRetrying={aging.isFetching}
+                error={aging.error}
+              />
+            )}
+
+            {aging.isSuccess && aging.data.orders.length === 0 && (
+              <EmptyState icon={ClipboardList} title={t('app.none')} />
+            )}
+
+            {aging.isSuccess && aging.data.orders.length > 0 && (
+              <ul className="-my-1 divide-y divide-border">
+                {aging.data.orders.map((order) => (
+                  <li key={order.id}>
+                    <Link
+                      href="/owner/orders"
+                      className="-mx-2 flex items-center justify-between gap-3 rounded-lg px-2 py-2.5 transition-colors hover:bg-muted"
+                    >
+                      <div className="min-w-0">
+                        <p className="tabular truncate font-semibold">{order.orderCode}</p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {typeof order.reseller === 'object' ? order.reseller.shopName : ''}
+                        </p>
+                      </div>
+                      <Badge tone={statusTone(order.status)} dot>
+                        {formatAge(order.confirmedAt)}
+                      </Badge>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        </div>
+
+        <Rail>
+          {/*
+           * Money owed leads the rail, but it does not wear the brand fill. A
+           * receivable is not good news, and painting it in the same mango as a
+           * reseller's earnings would say it is.
+           */}
+          <HeroCard
+            tone="alert"
+            label={t('owner.receivable')}
+            value={<CountUp value={receivable} format={formatMoney} />}
+            caption={`${t('owner.ordersToday')} ${formatNumber(data?.ordersToday ?? 0)}`}
           />
-        )}
 
-        {aging.isSuccess && aging.data.orders.length === 0 && <EmptyState title={t('app.none')} />}
+          <Panel title={t('dash.topDebtors')} href="/owner/resellers" hrefLabel={t('nav.resellers')}>
+            {resellers.isLoading && (
+              <div className="space-y-3 py-1">
+                {Array.from({ length: 3 }, (_, index) => (
+                  <Skeleton key={index} className="h-9 w-full" />
+                ))}
+              </div>
+            )}
 
-        {aging.isSuccess && aging.data.orders.length > 0 && (
-          <ul className="divide-y divide-border">
-            {aging.data.orders.map((order) => (
-              <li key={order.id} className="flex items-center justify-between gap-3 py-3">
-                <div className="min-w-0">
-                  <p className="tabular truncate font-semibold">{order.orderCode}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {typeof order.reseller === 'object' ? order.reseller.shopName : ''}
-                  </p>
-                </div>
-                <Badge tone={statusTone(order.status)}>{formatAge(order.confirmedAt)}</Badge>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
+            {resellers.isSuccess && debtors.length === 0 && (
+              <p className="py-4 text-center text-sm text-muted-foreground">{t('app.none')}</p>
+            )}
+
+            {debtors.length > 0 && (
+              <RailList>
+                {debtors.map((reseller) => (
+                  <RailRow
+                    key={reseller.id}
+                    name={reseller.shopName}
+                    caption={reseller.user?.name}
+                    href="/owner/resellers"
+                    trailing={
+                      <Badge tone="danger">{formatMoney(Math.abs(reseller.balance))}</Badge>
+                    }
+                  />
+                ))}
+              </RailList>
+            )}
+          </Panel>
+
+          {/*
+           * Everything waiting on the owner personally, as one block. These four
+           * counts were previously scattered across the page and a banner; a
+           * queue is what they actually are.
+           */}
+          <QueuePanel
+            title={t('dash.queue')}
+            subtitle={t('dash.queueHelp')}
+            href="/owner/finance"
+            footer={
+              (data?.pendingDeposits ?? 0) +
+                (data?.pendingWithdrawals ?? 0) +
+                (data?.awaitingAcceptance ?? 0) +
+                (data?.agingOrders ?? 0) ===
+              0
+                ? t('dash.queueEmpty')
+                : undefined
+            }
+          >
+            <QueueTile
+              icon={ArrowDownToLine}
+              label={t('nav.deposits')}
+              count={formatNumber(data?.pendingDeposits ?? 0)}
+              href="/owner/finance"
+            />
+            <QueueTile
+              icon={ArrowUpFromLine}
+              label={t('nav.withdrawals')}
+              count={formatNumber(data?.pendingWithdrawals ?? 0)}
+              href="/owner/finance"
+            />
+            <QueueTile
+              icon={ClipboardCheck}
+              label={t('owner.awaitingAcceptance')}
+              count={formatNumber(data?.awaitingAcceptance ?? 0)}
+              href="/owner/orders"
+            />
+            <QueueTile
+              icon={Clock}
+              label={t('owner.agingOrders')}
+              count={formatNumber(data?.agingOrders ?? 0)}
+              href="/owner/orders"
+            />
+          </QueuePanel>
+        </Rail>
+      </DashboardGrid>
     </>
   );
 }

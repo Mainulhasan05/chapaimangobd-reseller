@@ -144,12 +144,12 @@ export function Modal({
         tabIndex={-1}
         style={dragY ? { transform: `translateY(${dragY}px)` } : undefined}
         className={cn(
-          'sheet-in card relative flex max-h-[92vh] w-full flex-col overflow-hidden rounded-b-none p-0 outline-none sm:max-h-[85vh] sm:rounded-b-xl',
+          'sheet-in card elev-3 relative flex max-h-[92vh] w-full flex-col overflow-hidden rounded-b-none rounded-t-2xl p-0 outline-none sm:max-h-[85vh] sm:rounded-2xl',
           wide ? 'sm:max-w-2xl' : 'sm:max-w-md'
         )}
       >
         <header
-          className="shrink-0 border-b-2 border-border bg-muted/40"
+          className="shrink-0 border-b border-border bg-surface"
           onTouchStart={(event) => {
             dragStart.current = event.touches[0].clientY;
           }}
@@ -177,7 +177,7 @@ export function Modal({
               type="button"
               onClick={onClose}
               aria-label={t('app.close')}
-              className="tap -mr-2 flex items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+              className="tap -mr-2 flex items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
             >
               <X className="h-5 w-5" />
             </button>
@@ -187,7 +187,7 @@ export function Modal({
         <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-4">{children}</div>
 
         {(footer || footerLead) && (
-          <div className="shrink-0 border-t-2 border-border bg-muted/40 px-4 py-3 pb-safe">
+          <div className="shrink-0 border-t border-border bg-muted/50 px-4 py-3 pb-safe">
             {footerLead && <div className="mb-3">{footerLead}</div>}
             {/* Full width and side by side on a phone, where a corner button is a stretch. */}
             {footer && (
@@ -200,7 +200,7 @@ export function Modal({
 
         {confirmingClose && (
           <div className="fade-in absolute inset-0 z-10 flex flex-col justify-end bg-black/40 sm:justify-center sm:p-6">
-            <div className="card m-0 rounded-b-none p-4 sm:rounded-b-xl">
+            <div className="card elev-3 m-0 rounded-b-none rounded-t-2xl p-4 sm:rounded-2xl">
               <p className="font-medium">{t('app.unsavedTitle')}</p>
               <p className="mt-1 text-sm text-muted-foreground">{t('app.unsavedHelp')}</p>
               <div className="mt-4 flex gap-2 [&>button]:flex-1">

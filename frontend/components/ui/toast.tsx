@@ -84,7 +84,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             type="button"
             onClick={() => dismiss(toast.id)}
             className={cn(
-              'toast-in pointer-events-auto w-full max-w-sm rounded-xl px-4 py-3 text-left text-sm font-medium shadow-lg',
+              'toast-in elev-3 pointer-events-auto w-full max-w-sm rounded-xl px-4 py-3 text-left text-sm font-medium',
               toast.tone === 'danger'
                 ? 'bg-danger text-danger-foreground'
                 : toast.tone === 'success'

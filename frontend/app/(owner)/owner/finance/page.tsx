@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ArrowDownToLine, ArrowUpFromLine } from 'lucide-react';
 import { api, errorMessage } from '@/lib/api';
 import { t } from '@/lib/i18n/bn';
 import { formatMoney, formatDateTime } from '@/lib/format';
@@ -11,13 +12,16 @@ import {
   Card,
   EmptyState,
   PageHeader,
+  Person,
   statusTone,
   TableWrap,
   Td,
   Th,
+  Tr,
 } from '@/components/ui/layout';
+import { Segmented, Toolbar, ToolbarSpacer } from '@/components/ui/toolbar';
 import { Button, Spinner } from '@/components/ui/button';
-import { Field, Input, Select, Textarea } from '@/components/ui/form';
+import { Field, Input, Textarea } from '@/components/ui/form';
 import { Modal } from '@/components/ui/modal';
 
 type ResellerRef = { shopName: string; slug: string; user?: { name: string; phoneE164: string } };
@@ -45,32 +49,39 @@ type WithdrawalRow = {
   createdAt: string;
 };
 
+const KINDS = [
+  { value: 'deposits' as const, label: t('nav.deposits') },
+  { value: 'withdrawals' as const, label: t('nav.withdrawals') },
+];
+
+const STATUSES = [
+  { value: 'pending', label: t('kyc.pending') },
+  { value: 'approved', label: t('kyc.approved') },
+  { value: 'rejected', label: t('kyc.rejected') },
+];
+
 export default function OwnerFinancePage() {
   const [tab, setTab] = useState<'deposits' | 'withdrawals'>('deposits');
   const [status, setStatus] = useState('pending');
 
+  /*
+   * Two segmented controls rather than two dropdowns in the page header. Both of
+   * these are read as often as they are changed: which queue am I in, and am I
+   * looking at what is waiting or what is settled. A dropdown answers that only
+   * after it is opened.
+   */
   return (
     <>
       <PageHeader
         title={tab === 'deposits' ? t('nav.deposits') : t('nav.withdrawals')}
-        action={
-          <div className="flex gap-2">
-            <Select
-              value={tab}
-              onChange={(e) => setTab(e.target.value as 'deposits' | 'withdrawals')}
-              className="w-36"
-            >
-              <option value="deposits">{t('nav.deposits')}</option>
-              <option value="withdrawals">{t('nav.withdrawals')}</option>
-            </Select>
-            <Select value={status} onChange={(e) => setStatus(e.target.value)} className="w-32">
-              <option value="pending">{t('kyc.pending')}</option>
-              <option value="approved">{t('kyc.approved')}</option>
-              <option value="rejected">{t('kyc.rejected')}</option>
-            </Select>
-          </div>
-        }
+        subtitle={t('owner.approve')}
       />
+
+      <Toolbar>
+        <Segmented label={t('app.menu')} value={tab} onChange={setTab} options={KINDS} />
+        <ToolbarSpacer />
+        <Segmented label={t('app.status')} value={status} onChange={setStatus} options={STATUSES} />
+      </Toolbar>
 
       {tab === 'deposits' ? <Deposits status={status} /> : <Withdrawals status={status} />}
     </>
@@ -125,7 +136,7 @@ function Deposits({ status }: { status: string }) {
   }
 
   if (!deposits.data || deposits.data.deposits.length === 0) {
-    return <EmptyState title={t('app.none')} />;
+    return <EmptyState icon={ArrowDownToLine} title={t('app.none')} />;
   }
 
   return (
@@ -144,7 +155,9 @@ function Deposits({ status }: { status: string }) {
                   </p>
                 </div>
                 <div className="shrink-0 text-right">
-                  <Badge tone={statusTone(row.status)}>{row.status}</Badge>
+                  <Badge tone={statusTone(row.status)} dot>
+                  {row.status}
+                </Badge>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {formatDateTime(row.createdAt)}
                   </p>
@@ -152,7 +165,7 @@ function Deposits({ status }: { status: string }) {
               </div>
 
               <div className="mt-3 flex items-end justify-between gap-3 border-t border-border pt-3">
-                <p className="tabular text-xl font-semibold">{formatMoney(row.amount)}</p>
+                <p className="tabular text-xl font-bold">{formatMoney(row.amount)}</p>
                 <div className="text-right text-xs text-muted-foreground">
                   <p className="uppercase">{row.method}</p>
                   {row.senderNumber && <p className="tabular">{row.senderNumber}</p>}
@@ -203,12 +216,13 @@ function Deposits({ status }: { status: string }) {
         </thead>
         <tbody>
           {deposits.data.deposits.map((row) => (
-            <tr key={row.id}>
+            <Tr key={row.id}>
               <Td>
-                <div className="font-medium">{row.reseller?.shopName}</div>
-                <div className="tabular text-xs text-muted-foreground">
-                  {row.reseller?.user?.phoneE164}
-                </div>
+                <Person
+                  name={row.reseller?.shopName}
+                  caption={row.reseller?.user?.phoneE164}
+                  size="sm"
+                />
               </Td>
               <Td className="uppercase">
                 {row.method}
@@ -219,7 +233,9 @@ function Deposits({ status }: { status: string }) {
               <Td className="tabular text-right font-medium">{formatMoney(row.amount)}</Td>
               <Td className="tabular text-xs">{row.transactionId ?? '—'}</Td>
               <Td>
-                <Badge tone={statusTone(row.status)}>{row.status}</Badge>
+                <Badge tone={statusTone(row.status)} dot>
+                  {row.status}
+                </Badge>
                 <div className="text-xs text-muted-foreground">{formatDateTime(row.createdAt)}</div>
               </Td>
               <Td className="text-right">
@@ -251,7 +267,7 @@ function Deposits({ status }: { status: string }) {
                   )}
                 </div>
               </Td>
-            </tr>
+            </Tr>
           ))}
         </tbody>
       </TableWrap>
@@ -295,7 +311,7 @@ function Withdrawals({ status }: { status: string }) {
   }
 
   if (!withdrawals.data || withdrawals.data.withdrawals.length === 0) {
-    return <EmptyState title={t('app.none')} />;
+    return <EmptyState icon={ArrowUpFromLine} title={t('app.none')} />;
   }
 
   return (
@@ -314,7 +330,9 @@ function Withdrawals({ status }: { status: string }) {
                   </p>
                 </div>
                 <div className="shrink-0 text-right">
-                  <Badge tone={statusTone(row.status)}>{row.status}</Badge>
+                  <Badge tone={statusTone(row.status)} dot>
+                  {row.status}
+                </Badge>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {formatDateTime(row.createdAt)}
                   </p>
@@ -356,12 +374,13 @@ function Withdrawals({ status }: { status: string }) {
         </thead>
         <tbody>
           {withdrawals.data.withdrawals.map((row) => (
-            <tr key={row.id}>
+            <Tr key={row.id}>
               <Td>
-                <div className="font-medium">{row.reseller?.shopName}</div>
-                <div className="tabular text-xs text-muted-foreground">
-                  {row.reseller?.user?.phoneE164}
-                </div>
+                <Person
+                  name={row.reseller?.shopName}
+                  caption={row.reseller?.user?.phoneE164}
+                  size="sm"
+                />
               </Td>
               <Td>
                 <div className="tabular">{row.destinationNumber}</div>
@@ -369,7 +388,9 @@ function Withdrawals({ status }: { status: string }) {
               </Td>
               <Td className="tabular text-right font-medium">{formatMoney(row.amount)}</Td>
               <Td>
-                <Badge tone={statusTone(row.status)}>{row.status}</Badge>
+                <Badge tone={statusTone(row.status)} dot>
+                  {row.status}
+                </Badge>
                 <div className="text-xs text-muted-foreground">{formatDateTime(row.createdAt)}</div>
               </Td>
               <Td className="text-right">
@@ -384,7 +405,7 @@ function Withdrawals({ status }: { status: string }) {
                   </div>
                 )}
               </Td>
-            </tr>
+            </Tr>
           ))}
         </tbody>
       </TableWrap>

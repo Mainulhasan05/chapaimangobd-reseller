@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { Package } from 'lucide-react';
 import Image from 'next/image';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, errorMessage, fieldErrors } from '@/lib/api';
@@ -35,10 +36,10 @@ export default function CatalogPage() {
       )}
 
       {catalog.isSuccess && catalog.data.products.length === 0 && (
-        <EmptyState title={t('app.none')} />
+        <EmptyState icon={Package} title={t('app.none')} />
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {catalog.data?.products.map((product) => (
           <CatalogRow key={product.id} product={product} />
         ))}
@@ -85,18 +86,26 @@ function CatalogRow({ product }: { product: CatalogItem }) {
   return (
     <Card>
       <div className="mb-3 flex items-start gap-3">
-        {image && (
+        {image ? (
           <Image
             src={image}
             alt={product.name}
             width={56}
             height={56}
-            className="h-14 w-14 shrink-0 rounded-lg object-cover"
+            className="h-14 w-14 shrink-0 rounded-xl object-cover"
           />
+        ) : (
+          /* A placeholder rather than nothing, so the column keeps one left edge. */
+          <span
+            aria-hidden
+            className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-subtle text-muted-foreground"
+          >
+            <Package className="h-5 w-5" />
+          </span>
         )}
 
         <div className="min-w-0 flex-1">
-          <h3 className="truncate font-medium">{product.name}</h3>
+          <h3 className="truncate font-semibold">{product.name}</h3>
           <p className="text-xs text-muted-foreground">
             {t('catalog.costPrice')} {formatMoney(product.costPrice)} / {product.unit} ·{' '}
             {t('catalog.minOrderQty')} {formatNumber(product.minOrderQty)} {product.unit}
@@ -110,13 +119,15 @@ function CatalogRow({ product }: { product: CatalogItem }) {
 
         <div className="flex shrink-0 flex-col items-end gap-1">
           {product.activated ? (
-            <Badge tone={isListed ? 'success' : 'neutral'}>
+            <Badge tone={isListed ? 'success' : 'neutral'} dot>
               {isListed ? t('catalog.listed') : t('catalog.notActivated')}
             </Badge>
           ) : (
-            <Badge tone="warning">{t('catalog.notActivated')}</Badge>
+            <Badge tone="warning" dot>
+              {t('catalog.notActivated')}
+            </Badge>
           )}
-          <Badge tone={product.inStock ? 'neutral' : 'danger'}>
+          <Badge tone={product.inStock ? 'neutral' : 'danger'} dot>
             {product.inStock ? t('catalog.inStock') : t('catalog.outOfStock')}
           </Badge>
         </div>

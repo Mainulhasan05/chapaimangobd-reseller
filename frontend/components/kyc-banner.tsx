@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useSession } from '@/lib/session';
 import { t } from '@/lib/i18n/bn';
+import { ShieldAlert } from 'lucide-react';
 import { Alert } from '@/components/ui/layout';
 
 /**
@@ -19,9 +20,9 @@ export function KycBanner() {
   const title = status === 'rejected' ? t('kyc.rejected') : t('kyc.pending');
 
   return (
-    <Alert tone={tone} title={title}>
+    <Alert tone={tone} title={title} icon={ShieldAlert}>
       <p className="mt-1">{t('kyc.gateHelp')}</p>
-      <Link href="/reseller/kyc" className="mt-2 inline-block font-medium underline">
+      <Link href="/reseller/kyc" className="mt-2 inline-block font-semibold underline underline-offset-2">
         {t('kyc.submit')}
       </Link>
     </Alert>
