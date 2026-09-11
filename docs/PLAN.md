@@ -146,9 +146,10 @@ chapaimango-reseller/
 
 **KycSubmission** — `reseller`, `documents[]` (`type`, `storageKey`), `status`, `reviewedBy`, `reviewedAt`, `note`. One document per attempt, preserving rejection history. Images live in a **private** R2 bucket and are served only through short-lived signed URLs generated for the owner role, so a stored key is not a usable link. The raw national ID number is never stored.
 
-**Source** — `name`, `address`, `phone`, `note`, `isActive`.
+**Source** — `name`, `address`, `phone`, `note`, `isArchived`. Chosen per order line at
+accept, never held on a Product. See `docs/adr/0006`.
 
-**Product** — `nameBn`, `description`, `images[]`, `unit`, `qtyStepMilli`, `costPricePoisha`, `maxSellPricePoisha`, `minOrderQtyMilli`, `trackStock`, `stockQtyMilli`, `isAvailable`, `source`, `isArchived`, `sortOrder`.
+**Product** — `nameBn`, `description`, `images[]`, `unit`, `qtyStepMilli`, `costPricePoisha`, `maxSellPricePoisha`, `minOrderQtyMilli`, `trackStock`, `stockQtyMilli`, `isAvailable`, `isArchived`, `sortOrder`. No `source`: a product is fixed and the place it is collected from is not.
 
 **ResellerProduct** — `reseller`, `product`, `sellPricePoisha`, `hidePrice`, `isListed`, `sortOrder`. Separate collection, never embedded in Product.
 
@@ -156,7 +157,7 @@ chapaimango-reseller/
 
 **Order** — `orderCode`, `reseller`, `origin`, `paymentMode`, `submissionId`, `businessDate`, `customer`, `items[]`, `deliveryChargePoisha`, `totals`, `status`, `statusHistory[]`, `courier`, timestamps per transition, `cancelReason`, `cancelledBy`.
 
-Each item snapshots `productNameBn`, `unit`, `costPricePoisha`, `minOrderQtyMilli`, alongside the live `qtyMilli` and `sellPricePoisha`. Totals are computed server-side only. The client never sends a price or a total; the public form posts product ids and quantities and nothing more.
+Each item snapshots `productNameBn`, `unit`, `costPricePoisha`, `minOrderQtyMilli`, alongside the live `qtyMilli` and `sellPricePoisha`. Accepting adds `source` and its `sourceNameBn` snapshot, so a retired or renamed orchard cannot rewrite an old packing list. Totals are computed server-side only. The client never sends a price or a total; the public form posts product ids and quantities and nothing more.
 
 **LedgerEntry** — append-only. `reseller`, `seq`, `kind` (`ORDER_COST_DEBIT`, `DELIVERY_DEBIT`, `COD_COLLECTION_CREDIT`, `DEPOSIT_CREDIT`, `WITHDRAWAL_DEBIT`, `SMS_PURCHASE_DEBIT`, `MANUAL_CREDIT`, `MANUAL_DEBIT`, `REVERSAL`), `amountPoisha` (signed), `balanceAfterPoisha`, `idempotencyKey`, `refType`, `refId`, `reversalOf`, `reversedLineItemId`, `note`, `createdBy`. Mongoose pre-hooks on every update and delete operation throw.
 

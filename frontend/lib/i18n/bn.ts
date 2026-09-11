@@ -160,6 +160,13 @@ export const bn = {
     'নিশ্চিত করার সময় আপনার বিক্রয়মূল্য ঠিক করুন। আপনার ওয়ালেট থেকে শুধু ক্রয়মূল্য ও ডেলিভারি চার্জ কাটা হবে।',
   'order.aging': 'পুরনো হয়ে যাচ্ছে',
   'order.accept': 'গ্রহণ করুন',
+  'order.acceptTitle': 'অর্ডার গ্রহণ করুন',
+  'order.sourceHelp': 'প্রতিটি পণ্য কোন উৎস থেকে যাবে তা বেছে নিন',
+  'order.chooseSource': 'উৎস বেছে নিন',
+  'order.sameSourceAll': 'সবগুলোর জন্য একই উৎস',
+  'order.sourceMissing': 'প্রতিটি পণ্যের জন্য উৎস বেছে নিন',
+  'order.noSources': 'আগে একটি সংগ্রহের উৎস যোগ করুন',
+  'order.acceptedToast': 'অর্ডার গ্রহণ করা হয়েছে',
   'order.pack': 'প্যাক করুন',
   'order.ship': 'পাঠান',
   'order.deliver': 'ডেলিভারি সম্পন্ন',
@@ -287,6 +294,87 @@ export const bn = {
   'owner.creditLimit': 'ক্রেডিট সীমা নির্ধারণ',
   'owner.approve': 'অনুমোদন',
   'owner.reject': 'বাতিল',
+
+  /*
+   * The public landing page. The only marketing copy in the app, and the only
+   * place that speaks to someone who is not a user yet.
+   *
+   * Every number quoted here is the worked example from the README, unchanged:
+   * cost 55 a kilo, sold at 62, ten kilos, 80 delivery. Marketing that invents a
+   * better-looking margin than the software actually produces is the fastest way
+   * to lose the first reseller who checks.
+   */
+  'landing.navJoin': 'রিসেলার হিসেবে যোগ দিন',
+  'landing.navLogin': 'লগইন',
+
+  'landing.eyebrow': 'চাঁপাইনবাবগঞ্জের বাগান থেকে সরাসরি',
+  'landing.title': 'চাকরির পাশাপাশি বাড়তি আয়',
+  'landing.titleAccent': 'রিসেলার হিসেবে',
+  'landing.subtitle':
+    'নিজের দাম আপনি ঠিক করবেন, শুধু লিংকটা শেয়ার করবেন। অর্ডার এলে আম আমরা বাগান থেকে সংগ্রহ করে ক্রেতার ঠিকানায় পাঠিয়ে দেব। আপনার লাভ ওয়ালেটে জমা হবে।',
+  'landing.ctaPrimary': 'ফ্রি রেজিস্ট্রেশন করুন',
+  'landing.ctaSecondary': 'আগে থেকেই অ্যাকাউন্ট আছে?',
+
+  'landing.proofCapital': 'পুঁজি লাগে না',
+  'landing.proofCapitalHelp': 'আগে টাকা দিতে হয় না',
+  'landing.proofStock': 'স্টক রাখতে হয় না',
+  'landing.proofStockHelp': 'আম আমাদের কাছেই থাকে',
+  'landing.proofLedger': 'প্রতিটি টাকার হিসাব',
+  'landing.proofLedgerHelp': 'কেউ বদলাতে পারে না',
+
+  'landing.stepsTitle': 'শুরু করবেন যেভাবে',
+  'landing.stepsSubtitle': 'চারটি ধাপ, একদিনেই শেষ',
+  'landing.step1': 'রেজিস্ট্রেশন করুন',
+  'landing.step1Help': 'নাম, মোবাইল নম্বর আর পাসওয়ার্ড। এরপর এনআইডি দিয়ে কেওয়াইসি জমা দিন।',
+  'landing.step2': 'নিজের দাম ঠিক করুন',
+  'landing.step2Help': 'কোন আম বিক্রি করবেন আর কত দামে, সেটা আপনার সিদ্ধান্ত। ক্রয়মূল্যের নিচে নামানো যাবে না।',
+  'landing.step3': 'লিংক শেয়ার করুন',
+  'landing.step3Help': 'আপনার নামে একটি অর্ডার ফরম পাবেন। হোয়াটসঅ্যাপ বা ফেসবুকে শেয়ার করুন।',
+  'landing.step4': 'অর্ডার নিশ্চিত করুন',
+  'landing.step4Help': 'ক্রেতা অর্ডার দিলে আপনি নিশ্চিত করবেন। প্যাক করা আর পাঠানো আমাদের কাজ।',
+
+  'landing.mathTitle': 'আয় কীভাবে হয়',
+  'landing.mathSubtitle': 'একটি সত্যিকারের অর্ডারের হিসাব',
+  'landing.mathCost': 'আমাদের ক্রয়মূল্য',
+  'landing.mathYourPrice': 'আপনার বিক্রয়মূল্য',
+  'landing.mathQty': 'ক্রেতার অর্ডার',
+  'landing.mathProfit': 'আপনার লাভ',
+  'landing.mathPerKg': 'প্রতি কেজি',
+  'landing.mathNote':
+    'ডেলিভারি চার্জ আলাদা, সেটি ক্রেতা দেয়। ক্যাশ অন ডেলিভারিতে কুরিয়ার টাকা তুলে আমাদের দেয়, আর আপনার লাভ ওয়ালেটে জমা হয়। দিনে দশটি অর্ডার মানে সাতশো টাকা।',
+
+  'landing.whyTitle': 'কেন চাঁপাই ম্যাঙ্গো',
+  'landing.why1': 'আম আমরা সংগ্রহ করি',
+  'landing.why1Help':
+    'কানসাট, ভোলাহাট আর আশপাশের বাগান থেকে প্রতিদিন সংগ্রহ করা হয়। কোন অর্ডার কোন বাগান থেকে গেছে, তার হিসাব থাকে।',
+  'landing.why2': 'প্যাকিং ও ডেলিভারি আমাদের',
+  'landing.why2Help':
+    'আপনাকে আম ধরতে হবে না, কুরিয়ারে যেতে হবে না। প্রতিটি পার্সেল আমরা ক্রেতার ঠিকানায় পাঠাই।',
+  'landing.why3': 'হিসাব নিয়ে ঝামেলা নেই',
+  'landing.why3Help':
+    'প্রতিটি লেনদেন ওয়ালেটে লেখা থাকে এবং কখনো মোছা বা বদলানো যায় না। কে কত পাবে, কে কত দেবে, স্ক্রিনেই দেখা যায়।',
+  'landing.why4': 'টাকা তুলে নিন যখন খুশি',
+  'landing.why4Help':
+    'ক্যাশ অন ডেলিভারির লাভ ওয়ালেটে জমে। উত্তোলনের অনুরোধ দিলে আমরা পাঠিয়ে দিই।',
+
+  'landing.faqTitle': 'সাধারণ প্রশ্ন',
+  'landing.faq1': 'শুরু করতে কত টাকা লাগে?',
+  'landing.faq1Help':
+    'কিছু লাগে না। রেজিস্ট্রেশন ফ্রি, আর আম কেনার জন্য আগে টাকা দিতে হয় না। অর্ডার নিশ্চিত করার সময় ক্রয়মূল্য আপনার ওয়ালেট থেকে হিসাব হয়।',
+  'landing.faq2': 'আমার নিজের ক্রেতা না থাকলে?',
+  'landing.faq2Help':
+    'নিজের ফেসবুক, হোয়াটসঅ্যাপ বা পরিচিতদের মধ্যেই শুরু করা যায়। আপনার অর্ডার ফরমের লিংক যে কেউ খুলে অর্ডার দিতে পারে।',
+  'landing.faq3': 'দাম কি আমি ঠিক করতে পারব?',
+  'landing.faq3Help':
+    'হ্যাঁ। ক্রয়মূল্যের নিচে নামানো যাবে না, আর কিছু পণ্যে সর্বোচ্চ দাম বেঁধে দেওয়া থাকতে পারে। এর মাঝে দাম আপনার।',
+  'landing.faq4': 'কেওয়াইসি কেন লাগে?',
+  'landing.faq4Help':
+    'টাকার লেনদেন হয় বলে পরিচয় নিশ্চিত করা দরকার। কেওয়াইসি অনুমোদনের আগেও আপনি দাম ঠিক করে রাখতে পারবেন, শুধু অর্ডার নেওয়া চালু হবে অনুমোদনের পর।',
+
+  'landing.finalTitle': 'আজই শুরু করুন',
+  'landing.finalHelp': 'রেজিস্ট্রেশনে দুই মিনিট লাগে। আমের মৌসুম অপেক্ষা করে না।',
+  'landing.footerNote': 'রিসেলারদের জন্য অর্ডার ব্যবস্থাপনা',
+  'landing.track': 'অর্ডার ট্র্যাক করুন',
 } as const;
 
 export type DictKey = keyof typeof bn;

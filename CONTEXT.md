@@ -16,10 +16,13 @@ name, phone and address.
 
 ## Catalog
 
-**Source** — a place products are collected from. Name, address, optional phone.
+**Source** — a place products are collected from. Name, address, optional phone. A source
+is attached to a **line item** when the owner accepts an order, never to a Product: the
+product is fixed, and which orchard today's crate comes from is not.
 
 **Product** — something the owner sells. Carries a cost price, a unit, a minimum order
 quantity, an optional maximum sell price, and optional stock tracking. Owned by the owner.
+Has no source; see **Source**.
 
 **Reseller product** — one reseller's activation of one product: their sell price, whether
 the price is hidden on their form, and whether it is listed. A product reaches a public
@@ -33,10 +36,14 @@ form only through this. Never embedded in Product.
 and holds one or more line items.
 
 **Line item** — one product within an order, with quantity, sell price, and snapshots of
-the cost price, unit and minimum quantity taken at confirm.
+the cost price, unit and minimum quantity taken at confirm. From accept onwards it also
+carries the **source** it is collected from, and a snapshot of that source's name.
 
-**Snapshot** — a value copied onto an order at confirm so that later catalog edits cannot
-change history. Never `populate()` a product to render a historical order.
+**Snapshot** — a value copied onto an order so that later catalog edits cannot change
+history. Prices, names, units and minimums are taken at confirm; the source name is taken
+at accept, because that is when it is decided. Never `populate()` a product or a source to
+render a historical order: read the snapshot. This is what lets the owner archive a product
+or retire an orchard without touching a single past order.
 
 **Payment mode** — `prepaid` or `cod`, fixed per order at creation.
 - `prepaid`: the customer pays the reseller before dispatch.

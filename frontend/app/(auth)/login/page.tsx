@@ -1,11 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError, fieldErrors } from '@/lib/api';
-import { sessionKey, homeFor } from '@/lib/session';
+import { sessionKey, homeFor, useSession } from '@/lib/session';
 import type { Session } from '@/lib/types';
 import { t } from '@/lib/i18n/bn';
 import { Button } from '@/components/ui/button';
@@ -20,6 +20,18 @@ export default function LoginPage() {
 
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
+
+  /*
+   * Somebody who is already signed in has no business looking at this form. It
+   * was unreachable while `/` redirected here; now that `/` is a public landing
+   * page with a Login link in its header, a signed-in visitor can tap through to
+   * it and be asked to do something they have already done.
+   */
+  const { data: session } = useSession();
+
+  useEffect(() => {
+    if (session) router.replace(homeFor(session) as never);
+  }, [session, router]);
 
   const login = useMutation({
     mutationFn: () => api.post<Session>('/auth/login', { phone, password }),

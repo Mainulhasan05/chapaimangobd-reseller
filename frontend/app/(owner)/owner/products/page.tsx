@@ -7,7 +7,7 @@ import { api, errorMessage, fieldErrors } from '@/lib/api';
 import { useDebounced } from '@/lib/use-debounced';
 import { t } from '@/lib/i18n/bn';
 import { formatMoney, formatMoneyPlain, formatNumber } from '@/lib/format';
-import type { OwnerProduct, Source } from '@/lib/types';
+import type { OwnerProduct } from '@/lib/types';
 import {
   Alert,
   Badge,
@@ -44,7 +44,6 @@ type Draft = {
   trackStock: boolean;
   stockQty: string;
   isAvailable: boolean;
-  source: string;
 };
 
 const blank: Draft = {
@@ -58,7 +57,6 @@ const blank: Draft = {
   trackStock: false,
   stockQty: '0',
   isAvailable: true,
-  source: '',
 };
 
 type SortKey = 'name' | 'cost' | 'maxSell' | 'minQty' | 'stock' | 'status';
@@ -83,18 +81,13 @@ export default function OwnerProductsPage() {
     queryFn: () => api.get<{ products: OwnerProduct[] }>('/owner/products'),
   });
 
-  const sourceName = (product: OwnerProduct) =>
-    typeof product.source === 'object' && product.source ? product.source.name : '';
-
   const all = products.data?.products ?? [];
 
   // The whole catalog arrives in one response, so the filter is a local scan.
   const needle = search.trim().toLowerCase();
   const matched = needle
     ? all.filter((product) =>
-        [product.name, sourceName(product)]
-          .filter(Boolean)
-          .some((field) => field.toLowerCase().includes(needle))
+        [product.name].some((field) => field.toLowerCase().includes(needle))
       )
     : all;
 
@@ -190,7 +183,7 @@ export default function OwnerProductsPage() {
                   <Td>
                     <div className="font-semibold">{product.name}</div>
                     <div className="text-xs text-muted-foreground">
-                      {sourceName(product) || '—'}
+                      {formatNumber(product.minOrderQty)} {product.unit} {t('catalog.minOrderQty')}
                     </div>
                   </Td>
                 )}
@@ -263,11 +256,6 @@ function ProductModal({ product, onClose }: { product: OwnerProduct | null; onCl
   // immediately, so closing the sheet without saving changes nothing.
   const [removedKeys, setRemovedKeys] = useState<string[]>([]);
 
-  const sources = useQuery({
-    queryKey: ['owner', 'sources'],
-    queryFn: () => api.get<{ sources: Source[] }>('/owner/sources'),
-  });
-
   const [draft, setDraft] = useState<Draft>(() =>
     product
       ? {
@@ -282,10 +270,6 @@ function ProductModal({ product, onClose }: { product: OwnerProduct | null; onCl
           trackStock: product.trackStock,
           stockQty: String(product.stockQty ?? 0),
           isAvailable: product.isAvailable,
-          source:
-            typeof product.source === 'object' && product.source
-              ? product.source._id
-              : (product.source as string) ?? '',
         }
       : blank
   );
@@ -304,7 +288,6 @@ function ProductModal({ product, onClose }: { product: OwnerProduct | null; onCl
       data.set('trackStock', String(draft.trackStock));
       if (draft.trackStock) data.set('stockQty', draft.stockQty);
       data.set('isAvailable', String(draft.isAvailable));
-      if (draft.source) data.set('source', draft.source);
       files.forEach((file) => data.append('images', file));
       removedKeys.forEach((key) => data.append('removeImages', key));
 
@@ -417,16 +400,6 @@ function ProductModal({ product, onClose }: { product: OwnerProduct | null; onCl
           />
         </Field>
 
-        <Field label={t('nav.sources')} htmlFor="source">
-          <Select id="source" value={draft.source} onChange={(e) => set('source', e.target.value)}>
-            <option value="">—</option>
-            {sources.data?.sources.map((s) => (
-              <option key={s._id} value={s._id}>
-                {s.name}
-              </option>
-            ))}
-          </Select>
-        </Field>
       </div>
 
       {/*

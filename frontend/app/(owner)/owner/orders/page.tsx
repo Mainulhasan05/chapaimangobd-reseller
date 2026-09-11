@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Ban, ClipboardList, Eye, Truck } from 'lucide-react';
+import { Ban, ClipboardList, Eye, PackageCheck, Truck } from 'lucide-react';
 import { api, errorMessage } from '@/lib/api';
 import { useDebounced } from '@/lib/use-debounced';
 import { t, tStatus } from '@/lib/i18n/bn';
@@ -39,6 +39,7 @@ import { Field, Input } from '@/components/ui/form';
 import { Switch } from '@/components/ui/switch';
 import { Modal } from '@/components/ui/modal';
 import { useToast } from '@/components/ui/toast';
+import { AcceptOrderModal } from '@/components/accept-order-modal';
 import { CancelOrderModal } from '@/components/cancel-order-modal';
 import { OrderDetail } from '@/components/order-detail';
 
@@ -54,9 +55,13 @@ const FILTERS = [
   { value: 'returned', label: t('order.returned') },
 ] as const;
 
-/** Only actions the API will accept appear, driven by the server transition table. */
+/**
+ * Only actions the API will accept appear, driven by the server transition table.
+ *
+ * These are the ones that need nothing but a click. Accept, ship and cancel each
+ * ask a question first, so they open a form instead and are listed separately.
+ */
 const ACTION_LABELS: Record<string, string> = {
-  accept: t('order.accept'),
   pack: t('order.pack'),
   deliver: t('order.deliver'),
   return: t('order.return'),
@@ -80,6 +85,7 @@ export default function OwnerOrdersPage() {
   const [aging, setAging] = useState(false);
   const [term, setTerm] = useState('');
   const [viewing, setViewing] = useState<Order | null>(null);
+  const [accepting, setAccepting] = useState<Order | null>(null);
   const [cancelling, setCancelling] = useState<Order | null>(null);
   const [shipping, setShipping] = useState<Order | null>(null);
 
@@ -167,6 +173,10 @@ export default function OwnerOrdersPage() {
    * Only offer a bulk button for a transition every selected order can actually
    * make. Orders in different stages are routinely selected together, and a
    * button that half-works is worse than one that is not there.
+   *
+   * Accept is absent by construction: it is not in ACTION_LABELS, because it now
+   * asks which orchard each line comes from and that is a decision per order,
+   * not something to apply to twenty of them at once.
    */
   const selectedOrders = rows.filter((order) => selection.isSelected(order.id));
   const commonActions =
@@ -179,6 +189,9 @@ export default function OwnerOrdersPage() {
   /** The row overflow menu. Everything in it is also a button on the phone card. */
   const menuFor = (order: Order): MenuItem[] => [
     { label: t('order.viewDetail'), icon: Eye, onSelect: () => setViewing(order) },
+    ...(order.actions.includes('accept')
+      ? [{ label: t('order.accept'), icon: PackageCheck, onSelect: () => setAccepting(order) }]
+      : []),
     ...actionsFor(order).map((action) => ({
       label: ACTION_LABELS[action],
       onSelect: () => transition.mutate({ id: order.id, action }),
@@ -313,6 +326,9 @@ export default function OwnerOrdersPage() {
                   </button>
 
                   <div className="mt-3 flex flex-wrap gap-2 [&>button]:flex-1">
+                    {order.actions.includes('accept') && (
+                      <Button onClick={() => setAccepting(order)}>{t('order.accept')}</Button>
+                    )}
                     {actionsFor(order).map((action) => (
                       <Button
                         key={action}
@@ -473,6 +489,7 @@ export default function OwnerOrdersPage() {
       )}
 
       <OrderDetail order={viewing} onClose={() => setViewing(null)} showCost />
+      <AcceptOrderModal order={accepting} onClose={() => setAccepting(null)} />
       <CancelOrderModal order={cancelling} scope="owner" onClose={() => setCancelling(null)} />
       <ShipModal order={shipping} onClose={() => setShipping(null)} />
     </>

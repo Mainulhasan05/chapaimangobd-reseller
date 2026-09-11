@@ -1,4 +1,5 @@
 'use client';
+import { MapPin } from 'lucide-react';
 
 import { t, tStatus } from '@/lib/i18n/bn';
 import { formatMoney, formatQuantity, formatDateTime } from '@/lib/format';
@@ -55,6 +56,17 @@ export function OrderDetail({
                       {formatMoney(item.sellPrice)}
                       {showCost && ` · ${t('catalog.costPrice')} ${formatMoney(item.costPrice)}`}
                     </div>
+                    {/*
+                     * The orchard this line is collected from, named from the
+                     * order's own snapshot. It appears once the owner has
+                     * accepted; before that nobody has decided.
+                     */}
+                    {showCost && item.sourceName && (
+                      <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+                        <MapPin aria-hidden className="h-3 w-3 shrink-0" />
+                        {item.sourceName}
+                      </div>
+                    )}
                   </td>
                   <td className="tabular py-2 text-right">{formatMoney(item.lineSell)}</td>
                 </tr>

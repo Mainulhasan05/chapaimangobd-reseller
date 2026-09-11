@@ -61,6 +61,13 @@ export type OrderItem = {
   sellPrice: number;
   lineCost: number;
   lineSell: number;
+  /**
+   * Where this line is collected from, decided when the owner accepts and null
+   * before that. `sourceName` is the snapshot and is what every screen renders:
+   * the id only survives as a link to a source that may since have been retired.
+   */
+  source: string | null;
+  sourceName: string | null;
 };
 
 export type OrderTotals = {
@@ -133,7 +140,6 @@ export type OwnerProduct = {
   trackStock: boolean;
   stockQty: number | null;
   isAvailable: boolean;
-  source?: { _id: string; name: string } | string;
   sortOrder: number;
 };
 

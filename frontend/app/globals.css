@@ -102,8 +102,8 @@
    * `--input` is the control boundary, and it is a deliberate, documented step
    * down. It used to be a 2px line at 3.1:1, which is what WCAG 1.4.11 asks of a
    * boundary that is the only thing identifying a control. It is now a 1px line
-   * at roughly 2.2:1, because the soft look was asked for specifically. Two
-   * things carry the loss:
+   * at 1.9:1, because the soft look was asked for specifically. Two things carry
+   * the loss:
    *
    *   - focus is unmistakable, a 2px ring at 5.3:1 with an offset, so a keyboard
    *     user always knows exactly where they are;
@@ -114,8 +114,8 @@
    * back towards oklch(0.66) and put `border-2` back on `control` in form.tsx.
    * Nothing else depends on it.
    */
-  --border: oklch(0.90 0.005 265); /* structural hairline */
-  --input: oklch(0.80 0.008 265); /* interactive outline, 1px */
+  --border: oklch(0.90 0.005 265); /* 1.35:1, structural hairline */
+  --input: oklch(0.80 0.008 265); /* 1.9:1, interactive outline, 1px */
   --ring: oklch(0.546 0.244 263); /* 5.3:1, focus */
 
   /*
