@@ -280,7 +280,7 @@ export function Checkbox({
       <span
         aria-hidden
         className={cn(
-          'flex h-[1.125rem] w-[1.125rem] items-center justify-center rounded-[0.3rem] border-2 transition-colors',
+          'flex h-[1.125rem] w-[1.125rem] items-center justify-center rounded-[0.35rem] border transition-colors',
           'peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring',
           checked || indeterminate
             ? 'border-primary bg-primary text-primary-foreground'

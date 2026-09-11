@@ -62,9 +62,7 @@ async function archiveSource(req, res) {
 
 async function listProducts(req, res) {
   const filter = req.query.includeArchived === 'true' ? {} : { isArchived: false };
-  const products = await Product.find(filter)
-    .sort({ sortOrder: 1, createdAt: -1 })
-    .populate('source', 'name');
+  const products = await Product.find(filter).sort({ sortOrder: 1, createdAt: -1 });
   return ok(res, { products: products.map(present.product) });
 }
 
@@ -84,7 +82,6 @@ function buildProductPatch(body) {
   if (body.trackStock !== undefined) patch.trackStock = body.trackStock;
   if (body.stockQty !== undefined) patch.stockQtyMilli = toMilli(body.stockQty, 'stockQty');
   if (body.isAvailable !== undefined) patch.isAvailable = body.isAvailable;
-  if (body.source !== undefined) patch.source = body.source;
   if (body.sortOrder !== undefined) patch.sortOrder = body.sortOrder;
   if (body.isArchived !== undefined) patch.isArchived = body.isArchived;
 

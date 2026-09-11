@@ -14,6 +14,7 @@ const { updateSettings } = require('../src/services/settings');
 const LedgerEntry = require('../src/models/LedgerEntry');
 const ResellerProfile = require('../src/models/ResellerProfile');
 const Product = require('../src/models/Product');
+const Source = require('../src/models/Source');
 const Order = require('../src/models/Order');
 
 const { toPoisha, toTaka } = require('../src/utils/money');
@@ -23,6 +24,28 @@ const { LEDGER_KIND, PAYMENT_MODE, ROLES, ORDER_STATUS } = require('../src/domai
 test.before(startDb);
 test.after(stopDb);
 test.beforeEach(resetDb);
+
+/**
+ * One lifecycle step as the owner.
+ *
+ * Accept has to name a source for every line, and the ids it names are the
+ * confirmed ones, so the order is read back here rather than taken from the
+ * pending copy whose items confirm has already replaced.
+ */
+async function walk(orderId, action, owner, source, extra = {}) {
+  const payload = { courierName: 'Sundarban', ...extra };
+  if (action === 'accept') {
+    const current = await Order.findById(orderId);
+    payload.sources = f.sourcesFor(current, source);
+  }
+  return orderService.transitionOrder({
+    orderId,
+    action,
+    actorUser: owner,
+    role: ROLES.OWNER,
+    payload,
+  });
+}
 
 /** Places a pending order and returns it. */
 async function placeOrder({ profile, product, quantity = 10, paymentMode = PAYMENT_MODE.PREPAID }) {
@@ -221,6 +244,7 @@ test('a cash on delivery order leaves the reseller up by exactly the margin', as
   const { user: owner } = await f.makeOwner();
   await f.makeZone({ districts: ['Dhaka'], charge: 80 });
   const product = await f.makeProduct({ cost: 55, minOrderQty: 5 });
+  const source = await f.makeSource();
   await f.listProduct(profile, product, 62);
 
   const order = await placeOrder({
@@ -238,13 +262,7 @@ test('a cash on delivery order leaves the reseller up by exactly the margin', as
 
   for (const action of ['accept', 'pack', 'ship', 'deliver']) {
     // eslint-disable-next-line no-await-in-loop
-    await orderService.transitionOrder({
-      orderId: order._id,
-      action,
-      actorUser: owner,
-      role: ROLES.OWNER,
-      payload: { courierName: 'Sundarban' },
-    });
+    await walk(order._id, action, owner, source);
   }
 
   const after = await ResellerProfile.findById(profile._id);
@@ -264,6 +282,7 @@ test('a prepaid order posts nothing extra on delivery', async () => {
   const { user: owner } = await f.makeOwner();
   await f.makeZone({ districts: ['Dhaka'], charge: 80 });
   const product = await f.makeProduct({ cost: 55, minOrderQty: 5 });
+  const source = await f.makeSource();
   await f.listProduct(profile, product, 62);
 
   const order = await placeOrder({ profile, product, quantity: 10 });
@@ -275,13 +294,7 @@ test('a prepaid order posts nothing extra on delivery', async () => {
 
   for (const action of ['accept', 'pack', 'ship', 'deliver']) {
     // eslint-disable-next-line no-await-in-loop
-    await orderService.transitionOrder({
-      orderId: order._id,
-      action,
-      actorUser: owner,
-      role: ROLES.OWNER,
-      payload: { courierName: 'Sundarban' },
-    });
+    await walk(order._id, action, owner, source);
   }
 
   const after = await ResellerProfile.findById(profile._id);
@@ -299,6 +312,7 @@ test('a returned order reverses the goods but keeps the courier fee by default',
   const { user: owner } = await f.makeOwner();
   await f.makeZone({ districts: ['Dhaka'], charge: 80 });
   const product = await f.makeProduct({ cost: 55, minOrderQty: 5, trackStock: true, stockQty: 100 });
+  const source = await f.makeSource();
   await f.listProduct(profile, product, 62);
 
   const order = await placeOrder({ profile, product, quantity: 10, paymentMode: PAYMENT_MODE.COD });
@@ -310,13 +324,7 @@ test('a returned order reverses the goods but keeps the courier fee by default',
 
   for (const action of ['accept', 'pack', 'ship']) {
     // eslint-disable-next-line no-await-in-loop
-    await orderService.transitionOrder({
-      orderId: order._id,
-      action,
-      actorUser: owner,
-      role: ROLES.OWNER,
-      payload: { courierName: 'Sundarban' },
-    });
+    await walk(order._id, action, owner, source);
   }
 
   await orderService.transitionOrder({
@@ -349,6 +357,7 @@ test('the owner can choose to refund the delivery charge on a return', async () 
   const { user: owner } = await f.makeOwner();
   await f.makeZone({ districts: ['Dhaka'], charge: 80 });
   const product = await f.makeProduct({ cost: 55, minOrderQty: 5 });
+  const source = await f.makeSource();
   await f.listProduct(profile, product, 62);
 
   const order = await placeOrder({ profile, product, quantity: 10 });
@@ -360,13 +369,7 @@ test('the owner can choose to refund the delivery charge on a return', async () 
 
   for (const action of ['accept', 'pack', 'ship', 'return']) {
     // eslint-disable-next-line no-await-in-loop
-    await orderService.transitionOrder({
-      orderId: order._id,
-      action,
-      actorUser: owner,
-      role: ROLES.OWNER,
-      payload: { courierName: 'Sundarban', reason: 'damaged' },
-    });
+    await walk(order._id, action, owner, source, { reason: 'damaged' });
   }
 
   const after = await ResellerProfile.findById(profile._id);
@@ -475,4 +478,136 @@ test('the ledger refuses to be edited or deleted', async () => {
 
   entry.amountPoisha = 999;
   await assert.rejects(entry.save(), /append-only/);
+});
+
+/* ------------------------------------------------------- sources and history */
+
+/**
+ * The source is decided when the owner accepts, not when the product is created,
+ * because a product is fixed and the orchard it comes from is not. These tests
+ * pin that down, and pin down the promise that matters more: retiring a source
+ * or a product must never change what an old order says happened.
+ */
+
+test('accepting records which source each line is collected from', async () => {
+  const { user: reseller, profile } = await f.makeReseller({ creditLimit: 100000 });
+  const { user: owner } = await f.makeOwner();
+  await f.makeZone({ districts: ['Dhaka'], charge: 80 });
+  const product = await f.makeProduct({ cost: 55, minOrderQty: 5 });
+  const source = await f.makeSource({ name: 'কানসাট আম বাজার' });
+  await f.listProduct(profile, product, 62);
+
+  const order = await placeOrder({ profile, product, quantity: 10 });
+  const confirmed = await orderService.confirmOrder({
+    orderId: order._id,
+    resellerProfile: profile,
+    actorUser: reseller,
+  });
+
+  // Nothing is decided before the owner accepts.
+  assert.equal(confirmed.items[0].source, null);
+  assert.equal(confirmed.items[0].sourceNameBn, null);
+
+  const accepted = await walk(order._id, 'accept', owner, source);
+
+  assert.equal(String(accepted.items[0].source), String(source._id));
+  assert.equal(accepted.items[0].sourceNameBn, 'কানসাট আম বাজার');
+});
+
+test('an order cannot be accepted until every line has a source', async () => {
+  const { user: reseller, profile } = await f.makeReseller({ creditLimit: 100000 });
+  const { user: owner } = await f.makeOwner();
+  await f.makeZone({ districts: ['Dhaka'], charge: 80 });
+  const product = await f.makeProduct({ cost: 55, minOrderQty: 5 });
+  await f.listProduct(profile, product, 62);
+
+  const order = await placeOrder({ profile, product, quantity: 10 });
+  await orderService.confirmOrder({
+    orderId: order._id,
+    resellerProfile: profile,
+    actorUser: reseller,
+  });
+
+  await assert.rejects(
+    orderService.transitionOrder({
+      orderId: order._id,
+      action: 'accept',
+      actorUser: owner,
+      role: ROLES.OWNER,
+      payload: { sources: [] },
+    }),
+    /source for every item/i
+  );
+
+  // The order did not move. A refused accept must leave nothing behind.
+  const after = await Order.findById(order._id);
+  assert.equal(after.status, ORDER_STATUS.CONFIRMED);
+  assert.equal(after.acceptedAt, undefined);
+});
+
+test('an archived source cannot be chosen for a new order', async () => {
+  const { user: reseller, profile } = await f.makeReseller({ creditLimit: 100000 });
+  const { user: owner } = await f.makeOwner();
+  await f.makeZone({ districts: ['Dhaka'], charge: 80 });
+  const product = await f.makeProduct({ cost: 55, minOrderQty: 5 });
+  const source = await f.makeSource({ name: 'Closed orchard' });
+  await f.listProduct(profile, product, 62);
+
+  const order = await placeOrder({ profile, product, quantity: 10 });
+  await orderService.confirmOrder({
+    orderId: order._id,
+    resellerProfile: profile,
+    actorUser: reseller,
+  });
+
+  await Source.updateOne({ _id: source._id }, { $set: { isArchived: true } });
+
+  await assert.rejects(walk(order._id, 'accept', owner, source), /no longer exists/i);
+
+  const after = await Order.findById(order._id);
+  assert.equal(after.status, ORDER_STATUS.CONFIRMED, 'a refused accept still moved the order');
+});
+
+test('retiring a product and a source leaves an accepted order intact', async () => {
+  const { user: reseller, profile } = await f.makeReseller({ creditLimit: 100000 });
+  const { user: owner } = await f.makeOwner();
+  await f.makeZone({ districts: ['Dhaka'], charge: 80 });
+  const product = await f.makeProduct({ cost: 55, minOrderQty: 5 });
+  const source = await f.makeSource({ name: 'কানসাট আম বাজার' });
+  await f.listProduct(profile, product, 62);
+
+  const order = await placeOrder({ profile, product, quantity: 10 });
+  await orderService.confirmOrder({
+    orderId: order._id,
+    resellerProfile: profile,
+    actorUser: reseller,
+  });
+  await walk(order._id, 'accept', owner, source);
+
+  /*
+   * The season ends: the orchard is retired, the variety is dropped, and both
+   * are renamed on the way out. Everything an old order shows comes from its own
+   * snapshots, so none of this may reach it.
+   */
+  await Source.updateOne(
+    { _id: source._id },
+    { $set: { isArchived: true, name: 'RENAMED AFTER THE FACT' } }
+  );
+  await Product.updateOne(
+    { _id: product._id },
+    { $set: { isArchived: true, nameBn: 'RENAMED AFTER THE FACT', costPricePoisha: toPoisha(999) } }
+  );
+
+  const after = await Order.findById(order._id);
+
+  assert.equal(after.items[0].sourceNameBn, 'কানসাট আম বাজার');
+  assert.equal(after.items[0].productNameBn, 'হিমসাগর আম');
+  assert.equal(toTaka(after.items[0].costPricePoisha), 55);
+  assert.equal(toTaka(after.totals.walletDebitPoisha), 630);
+
+  // And the ledger still reconciles against the balance it produced.
+  const entries = await LedgerEntry.find({ reseller: profile._id }).sort({ seq: 1 });
+  const sum = entries.reduce((total, entry) => total + entry.amountPoisha, 0);
+  const settled = await ResellerProfile.findById(profile._id);
+  assert.equal(sum, settled.balancePoisha);
 });

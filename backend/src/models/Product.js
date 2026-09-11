@@ -40,7 +40,11 @@ const productSchema = new mongoose.Schema(
     stockQtyMilli: { type: Number, default: 0, min: 0 },
 
     isAvailable: { type: Boolean, default: true },
-    source: { type: mongoose.Schema.Types.ObjectId, ref: 'Source' },
+    /*
+     * A product has no source. Which orchard a crate is collected from is
+     * decided per order, at accept, and lives on the order line: the product is
+     * fixed and the source is not. See the `source` field on Order's line item.
+     */
     isArchived: { type: Boolean, default: false, index: true },
     sortOrder: { type: Number, default: 0 },
   },

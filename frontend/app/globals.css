@@ -59,8 +59,9 @@
 
   --font-sans: var(--font-bengali), ui-sans-serif, system-ui, sans-serif;
 
-  --radius-card: 0.875rem;
+  --radius-card: 1rem;
   --radius-panel: 1.25rem;
+  --radius-control: 0.625rem;
 }
 
 /*
@@ -92,12 +93,29 @@
   --muted-foreground: oklch(0.48 0.02 265); /* 6.5:1 on surface, 5.6:1 on subtle */
 
   /*
-   * Two weights of line. Structural borders separate blocks and stay quiet;
-   * input outlines are interactive, so they meet the 3:1 that WCAG 1.4.11 asks
-   * of a control boundary. One shared value could not do both jobs.
+   * Two weights of line, both hairlines now.
+   *
+   * Structural borders separate blocks and stay almost silent: a card edge is
+   * read from the shadow and the fill, and a dark rule around it only makes the
+   * page look boxed in.
+   *
+   * `--input` is the control boundary, and it is a deliberate, documented step
+   * down. It used to be a 2px line at 3.1:1, which is what WCAG 1.4.11 asks of a
+   * boundary that is the only thing identifying a control. It is now a 1px line
+   * at roughly 2.2:1, because the soft look was asked for specifically. Two
+   * things carry the loss:
+   *
+   *   - focus is unmistakable, a 2px ring at 5.3:1 with an offset, so a keyboard
+   *     user always knows exactly where they are;
+   *   - an invalid field switches its border to `--danger` at 6.1:1 rather than
+   *     saying so in help text alone.
+   *
+   * If the resting boundary ever has to meet 1.4.11 again, raise this one value
+   * back towards oklch(0.66) and put `border-2` back on `control` in form.tsx.
+   * Nothing else depends on it.
    */
-  --border: oklch(0.84 0.008 265); /* 1.6:1, structural */
-  --input: oklch(0.66 0.01 265); /* 3.1:1, interactive outline */
+  --border: oklch(0.90 0.005 265); /* structural hairline */
+  --input: oklch(0.80 0.008 265); /* interactive outline, 1px */
   --ring: oklch(0.546 0.244 263); /* 5.3:1, focus */
 
   /*
@@ -157,16 +175,21 @@
    * call site. A card is barely lifted, a hovered card a little more, and
    * anything that floats over the page (a sheet, a menu, a toast) is lifted
    * enough to read as detached from it rather than drawn onto it.
+   *
+   * Each step is a wide, faint spread over a tight contact shadow. A single
+   * tight shadow is what makes a card look stuck onto the page rather than
+   * resting above it, and it is the difference between this and the harder
+   * cards this replaced.
    */
   --elev-1:
-    0 1px 2px oklch(0.2 0.02 265 / 0.05),
-    0 1px 3px oklch(0.2 0.02 265 / 0.04);
+    0 1px 2px oklch(0.2 0.02 265 / 0.04),
+    0 1px 3px oklch(0.2 0.02 265 / 0.03);
   --elev-2:
-    0 4px 12px oklch(0.2 0.02 265 / 0.07),
-    0 2px 4px oklch(0.2 0.02 265 / 0.04);
+    0 8px 24px oklch(0.2 0.02 265 / 0.06),
+    0 2px 6px oklch(0.2 0.02 265 / 0.035);
   --elev-3:
-    0 16px 40px oklch(0.2 0.02 265 / 0.14),
-    0 4px 10px oklch(0.2 0.02 265 / 0.06);
+    0 24px 56px oklch(0.2 0.02 265 / 0.12),
+    0 8px 16px oklch(0.2 0.02 265 / 0.05);
 }
 
 @layer base {
@@ -193,7 +216,7 @@
   h3 {
     line-height: 1.35;
     font-weight: 600;
-    letter-spacing: -0.01em;
+    letter-spacing: -0.015em;
   }
 
   /* Tabular Latin digits, so a Bengali numeral never reaches parseFloat. */
@@ -216,6 +239,39 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-card);
     box-shadow: var(--elev-1);
+  }
+
+  /*
+   * The field shell: one hairline box with a radius, which every text input,
+   * select, date box and composite field shares so they line up to the pixel.
+   * Written here rather than repeated as a Tailwind string, because the moment
+   * two of them drift the whole form looks assembled from parts.
+   */
+  .control {
+    background: var(--surface);
+    border: 1px solid var(--input);
+    border-radius: var(--radius-control);
+    transition:
+      border-color 140ms ease,
+      box-shadow 140ms ease;
+  }
+
+  /*
+   * Focus is drawn on the shell, not on the input inside it, so a field with a
+   * button sitting in its right edge lights up as one object. The ring is a
+   * shadow rather than an outline so it follows the radius exactly.
+   */
+  .control:focus-within {
+    border-color: var(--ring);
+    box-shadow: 0 0 0 3px oklch(0.546 0.244 263 / 0.16);
+  }
+
+  .control[data-invalid='true'] {
+    border-color: var(--danger);
+  }
+
+  .control[data-invalid='true']:focus-within {
+    box-shadow: 0 0 0 3px oklch(0.52 0.19 27 / 0.16);
   }
 
   /*

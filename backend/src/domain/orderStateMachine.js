@@ -26,10 +26,17 @@ const TRANSITIONS = {
     requiresKyc: true,
     timestampField: 'confirmedAt',
   },
+  /*
+   * Accepting is where the owner commits to filling the order, which is the
+   * moment they know which orchard each line is coming from. The requirement
+   * lives here rather than in the controller for the same reason every other
+   * rule does: the table is the only place that decides what a transition needs.
+   */
   accept: {
     to: S.ACCEPTED,
     from: { [ROLES.OWNER]: [S.CONFIRMED] },
     timestampField: 'acceptedAt',
+    requiresSources: true,
   },
   pack: {
     to: S.PACKED,

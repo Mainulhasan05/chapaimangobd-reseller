@@ -17,11 +17,11 @@ const button = cva(
   {
     variants: {
       variant: {
-        primary: 'bg-primary text-primary-foreground elev-1 hover:brightness-110',
+        primary: 'bg-primary text-primary-foreground shadow-[0_1px_2px_oklch(0.2_0.02_265/0.08)] hover:brightness-110',
         secondary: 'bg-muted text-foreground border border-border hover:bg-subtle',
-        // A two pixel outline, because one pixel of a quiet border reads as a
-        // disabled control rather than a secondary action.
-        outline: 'border-2 border-input bg-surface text-foreground hover:bg-muted',
+        // A hairline, matching the field boxes. It used to be two pixels to stay
+        // visible against a heavier palette; against this one it read as a slab.
+        outline: 'border border-input bg-surface text-foreground hover:bg-muted',
         danger: 'bg-danger text-danger-foreground elev-1 hover:brightness-110',
         success: 'bg-success text-success-foreground elev-1 hover:brightness-110',
         brand: 'bg-brand text-brand-foreground elev-1 hover:brightness-105',

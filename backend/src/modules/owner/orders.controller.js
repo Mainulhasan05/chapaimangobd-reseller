@@ -83,6 +83,9 @@ function transition(action) {
         note: req.body.note,
         courierName: req.body.courierName,
         trackingNumber: req.body.trackingNumber,
+        // Which orchard each line comes from. Only `accept` asks for these, and
+        // the transition table is what says so.
+        sources: req.body.sources,
       },
     });
 

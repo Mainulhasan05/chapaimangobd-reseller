@@ -30,7 +30,6 @@ const createProduct = z.object({
   trackStock: z.coerce.boolean().optional(),
   stockQty: z.coerce.number().nonnegative().max(10000000).optional(),
   isAvailable: z.coerce.boolean().optional(),
-  source: objectId.optional(),
   sortOrder: z.coerce.number().int().optional(),
 });
 /*
@@ -91,6 +90,19 @@ const transitionBody = z.object({
   note: z.string().trim().max(500).optional(),
 });
 
+/*
+ * Accepting says where every line is collected from. One entry per line rather
+ * than one source for the order, because a single order routinely spans two
+ * orchards and flattening that would lose exactly the fact this records.
+ * Twenty matches the ceiling on items an order may hold.
+ */
+const acceptBody = z.object({
+  sources: z
+    .array(z.object({ itemId: objectId, sourceId: objectId }))
+    .min(1, 'Choose a source for every item')
+    .max(20),
+});
+
 const overrideDeliveryCharge = z.object({ deliveryCharge: money });
 
 /* finance */
@@ -142,6 +154,7 @@ module.exports = {
   listOrders,
   shipOrder,
   transitionBody,
+  acceptBody,
   overrideDeliveryCharge,
   manualEntry,
   approveWithdrawal,

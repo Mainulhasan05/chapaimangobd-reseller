@@ -79,43 +79,38 @@ export function PhoneField({
       required={required}
       className={className}
     >
-      <div className="relative">
-        <Input
-          id={fieldId}
-          name={fieldId}
-          type="tel"
-          inputMode="numeric"
-          autoComplete={autoComplete}
-          // Digits only, so the browser's own validation agrees with ours rather
-          // than fighting it on submit.
-          pattern="01[3-9][0-9]{8}"
-          value={digits}
-          required={required}
-          onChange={(event) => onChange(normalizeBdPhoneInput(event.target.value))}
-          onBlur={() => setTouched(true)}
-          aria-invalid={touched && !valid && digits.length > 0 ? true : undefined}
-          className={cn(
-            'tabular pr-20 tracking-wide',
-            valid && 'border-success',
-            touched && localError && 'border-danger'
-          )}
-        />
-
-        {/* The counter, which becomes the confirmation. */}
-        <span
-          aria-hidden
-          className={cn(
-            'pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium',
-            valid ? 'text-success' : 'text-muted-foreground'
-          )}
-        >
-          {valid ? (
-            <Check className="h-5 w-5" />
-          ) : (
-            t('auth.phoneCounter').replace('{n}', formatNumber(digits.length))
-          )}
-        </span>
-      </div>
+      <Input
+        id={fieldId}
+        name={fieldId}
+        type="tel"
+        inputMode="numeric"
+        autoComplete={autoComplete}
+        // Digits only, so the browser's own validation agrees with ours rather
+        // than fighting it on submit.
+        pattern="01[3-9][0-9]{8}"
+        value={digits}
+        required={required}
+        onChange={(event) => onChange(normalizeBdPhoneInput(event.target.value))}
+        onBlur={() => setTouched(true)}
+        aria-invalid={touched && !valid && digits.length > 0 ? true : undefined}
+        invalid={Boolean(touched && localError)}
+        className={cn('tabular tracking-wide', valid && 'border-success')}
+        // The counter, which becomes the confirmation.
+        trailing={
+          <span
+            className={cn(
+              'text-xs font-medium',
+              valid ? 'text-success' : 'text-muted-foreground'
+            )}
+          >
+            {valid ? (
+              <Check className="h-4 w-4" />
+            ) : (
+              t('auth.phoneCounter').replace('{n}', formatNumber(digits.length))
+            )}
+          </span>
+        }
+      />
     </Field>
   );
 }

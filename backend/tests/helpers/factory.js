@@ -69,8 +69,6 @@ async function makeProduct({
   stockQty = 0,
   unit = 'kg',
 } = {}) {
-  const source = await Source.create({ name: 'Test Source' });
-
   return Product.create({
     nameBn: name,
     unit,
@@ -81,9 +79,21 @@ async function makeProduct({
     trackStock,
     stockQtyMilli: trackStock ? toMilli(stockQty) : 0,
     isAvailable: true,
-    source: source._id,
   });
 }
+
+/** A collection point. Chosen per order line at accept, never on the product. */
+const makeSource = ({ name = 'Test Source', ...rest } = {}) => Source.create({ name, ...rest });
+
+/**
+ * The accept payload: one source for every line on the order.
+ *
+ * Pass the order as it exists *after* confirm. Confirming rebuilds the items
+ * array from live catalog data, so the line ids on the pending order are not the
+ * ids the accept has to name.
+ */
+const sourcesFor = (order, source) =>
+  order.items.map((item) => ({ itemId: String(item._id), sourceId: String(source._id) }));
 
 const listProduct = (profile, product, sellPrice, extra = {}) =>
   ResellerProduct.create({
@@ -111,6 +121,8 @@ module.exports = {
   makeOwner,
   makeReseller,
   makeProduct,
+  makeSource,
+  sourcesFor,
   listProduct,
   makeZone,
   customer,

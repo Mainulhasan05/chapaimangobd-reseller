@@ -35,6 +35,10 @@ const line = (l) => ({
   sellPrice: toTaka(l.sellPricePoisha),
   lineCost: toTaka(l.lineCostPoisha),
   lineSell: toTaka(l.lineSellPoisha),
+  // Both the snapshot and the reference. The name is what any screen renders;
+  // the id is only for linking through to a source that still exists.
+  source: l.source || null,
+  sourceName: l.sourceNameBn || null,
 });
 
 const totals = (t) => ({
@@ -118,7 +122,6 @@ const product = (p) => ({
   trackStock: p.trackStock,
   stockQty: p.trackStock ? fromMilli(p.stockQtyMilli) : null,
   isAvailable: p.isAvailable,
-  source: p.source,
   sortOrder: p.sortOrder,
 });
 

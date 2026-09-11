@@ -4,6 +4,7 @@ const Order = require('../models/Order');
 const ResellerProfile = require('../models/ResellerProfile');
 const User = require('../models/User');
 const LedgerEntry = require('../models/LedgerEntry');
+const Source = require('../models/Source');
 
 const ledger = require('./ledger');
 const stock = require('./stock');
@@ -273,6 +274,15 @@ async function transitionOrder({ orderId, action, actorUser, role, resellerProfi
       });
     }
 
+    /*
+     * Resolved before the claim, so a bad source aborts without having moved the
+     * order. It reads Source inside the transaction because an archive racing an
+     * accept should be seen consistently with the write that follows it.
+     */
+    const sourceAssignments = transition.requiresSources
+      ? await resolveSources(session, current, payload.sources)
+      : null;
+
     // Claim with a status guard so two owners clicking at once cannot both win.
     const claimed = await Order.findOneAndUpdate(
       { ...scope, status: current.status },
@@ -285,6 +295,19 @@ async function transitionOrder({ orderId, action, actorUser, role, resellerProfi
 
     if (transition.stock === 'restore' && claimed.confirmedAt) {
       await stock.restore(session, claimed.items);
+    }
+
+    /*
+     * The name is copied onto the line, not just the id. From here on the order
+     * renders its own history even if the source is renamed or archived, which
+     * is the same promise the price snapshot already makes.
+     */
+    if (sourceAssignments) {
+      claimed.items.forEach((item) => {
+        const assigned = sourceAssignments.get(String(item._id));
+        item.source = assigned._id;
+        item.sourceNameBn = assigned.name;
+      });
     }
 
     const now = new Date();
@@ -318,6 +341,45 @@ async function transitionOrder({ orderId, action, actorUser, role, resellerProfi
   }
 
   return order;
+}
+
+/**
+ * Turns the owner's chosen sources into one source document per line.
+ *
+ * Every line needs one. A half-assigned order is worse than an unassigned one:
+ * the packing list would look complete while quietly omitting where two of the
+ * crates are meant to come from, and nothing downstream would notice.
+ *
+ * Archived sources are refused. Archiving is how the owner retires an orchard,
+ * and a retired orchard is not somewhere today's order can be collected from,
+ * even though every order that already names it keeps rendering perfectly.
+ */
+async function resolveSources(session, order, assignments) {
+  const chosen = new Map(
+    (assignments || []).map((entry) => [String(entry.itemId), String(entry.sourceId)])
+  );
+
+  const missing = order.items.filter((item) => !chosen.has(String(item._id)));
+  if (missing.length > 0) {
+    throw badRequest('SOURCE_REQUIRED', 'Choose a source for every item before accepting', {
+      sources: `Missing for ${missing.length} item(s)`,
+    });
+  }
+
+  const wanted = [...new Set(chosen.values())];
+  const sources = await Source.find({ _id: { $in: wanted }, isArchived: false }).session(session);
+  const byId = new Map(sources.map((source) => [String(source._id), source]));
+
+  const unknown = wanted.filter((id) => !byId.has(id));
+  if (unknown.length > 0) {
+    throw badRequest('SOURCE_UNKNOWN', 'One of those sources no longer exists', {
+      sources: 'Unknown or archived source',
+    });
+  }
+
+  return new Map(
+    order.items.map((item) => [String(item._id), byId.get(chosen.get(String(item._id)))])
+  );
 }
 
 /** Applies whatever the transition table says this change does to the ledger. */

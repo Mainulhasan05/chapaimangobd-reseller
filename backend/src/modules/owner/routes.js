@@ -84,7 +84,7 @@ router.post(
 /* orders */
 router.get('/orders', validate({ query: schema.listOrders }), asyncHandler(orders.listOrders));
 router.get('/orders/:id', asyncHandler(orders.getOrder));
-router.post('/orders/:id/accept', validate({ body: schema.transitionBody }), asyncHandler(orders.accept));
+router.post('/orders/:id/accept', validate({ body: schema.acceptBody }), asyncHandler(orders.accept));
 router.post('/orders/:id/pack', validate({ body: schema.transitionBody }), asyncHandler(orders.pack));
 router.post('/orders/:id/ship', validate({ body: schema.shipOrder }), asyncHandler(orders.ship));
 router.post('/orders/:id/deliver', validate({ body: schema.transitionBody }), asyncHandler(orders.deliver));

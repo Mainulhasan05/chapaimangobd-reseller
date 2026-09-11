@@ -45,7 +45,7 @@ export function QuantityStepper({
 
   return (
     <div className="flex items-center gap-2">
-      <div className="flex items-center rounded-xl border-2 border-input bg-surface">
+      <div className="control flex items-center">
         <button
           type="button"
           onClick={decrease}
@@ -60,7 +60,7 @@ export function QuantityStepper({
           id={id}
           type="number"
           inputMode="decimal"
-          className="tabular h-11 w-16 border-x-2 border-input bg-surface text-center text-base font-semibold focus:outline-none"
+          className="tabular h-11 w-16 border-x border-input bg-transparent text-center text-base font-semibold outline-none"
           step={step}
           min={0}
           value={value || ''}

@@ -346,8 +346,19 @@ test('an owner walks an order from confirmed to delivered', async () => {
 
   const ownerAgent = await signIn({ phone: owner.phone, password: owner.password });
 
-  const accepted = await ownerAgent.post(`/api/owner/orders/${order._id}/accept`).send({});
+  // Accepting says where each line is collected from. Without that it is refused,
+  // because a packing list that does not name an orchard is not a packing list.
+  const source = await f.makeSource({ name: 'কানসাট আম বাজার' });
+  const toAccept = await Order.findById(order._id);
+
+  const noSource = await ownerAgent.post(`/api/owner/orders/${order._id}/accept`).send({});
+  assert.equal(noSource.status, 400, 'accepting without a source was allowed');
+
+  const accepted = await ownerAgent
+    .post(`/api/owner/orders/${order._id}/accept`)
+    .send({ sources: f.sourcesFor(toAccept, source) });
   assert.equal(accepted.status, 200);
+  assert.equal(accepted.body.data.order.items[0].sourceName, 'কানসাট আম বাজার');
 
   await ownerAgent.post(`/api/owner/orders/${order._id}/pack`).send({});
 

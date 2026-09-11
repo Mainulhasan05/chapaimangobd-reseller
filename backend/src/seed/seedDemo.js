@@ -49,17 +49,30 @@ async function seedDemo() {
     );
   }
 
-  const source = await Source.findOneAndUpdate(
-    { name: 'কানসাট আম বাজার' },
-    {
-      $setOnInsert: {
-        name: 'কানসাট আম বাজার',
-        address: 'Kansat, Shibganj, Chapainawabganj',
-        phoneE164: normalizeBdPhone('01711111111'),
+  /*
+   * Two sources, not one. A source is chosen per order line at accept, so a
+   * demo with a single orchard would never exercise the case the field exists
+   * for: one order collected from two different places.
+   */
+  const sourceSeeds = [
+    { name: 'কানসাট আম বাজার', address: 'Kansat, Shibganj, Chapainawabganj', phone: '01711111111' },
+    { name: 'ভোলাহাট বাগান', address: 'Bholahat, Chapainawabganj', phone: '01711111112' },
+  ];
+
+  for (const seed of sourceSeeds) {
+    // eslint-disable-next-line no-await-in-loop
+    await Source.findOneAndUpdate(
+      { name: seed.name },
+      {
+        $setOnInsert: {
+          name: seed.name,
+          address: seed.address,
+          phoneE164: normalizeBdPhone(seed.phone),
+        },
       },
-    },
-    { upsert: true, new: true }
-  );
+      { upsert: true, new: true }
+    );
+  }
 
   const products = [
     { name: 'হিমসাগর আম', cost: 55, min: 5, max: 90, stock: 500 },
@@ -83,7 +96,6 @@ async function seedDemo() {
           trackStock: p.stock != null,
           stockQtyMilli: p.stock == null ? 0 : toMilli(p.stock),
           isAvailable: true,
-          source: source._id,
         },
       },
       { upsert: true, new: true }

@@ -62,7 +62,7 @@ export function CardHeader({
   return (
     <div className={cn('mb-4 flex items-start justify-between gap-3', className)}>
       <div className="min-w-0">
-        <h2 className="truncate text-base font-bold">{title}</h2>
+        <h2 className="truncate text-[0.9375rem] font-semibold tracking-tight">{title}</h2>
         {subtitle && <p className="mt-0.5 text-sm text-muted-foreground">{subtitle}</p>}
       </div>
 
@@ -148,7 +148,7 @@ export function Badge({
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold',
+        'inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium',
         TONES[tone],
         className
       )}
@@ -325,6 +325,72 @@ export function Avatar({
   );
 }
 
+/**
+ * A row of people, overlapped, with a count for the ones that did not fit.
+ *
+ * The overlap is what makes this read as a group rather than a list, and the
+ * ring around each avatar is what keeps the one behind from looking like a
+ * smudge. `onRemove` puts a small cross on each, which is the only way to drop
+ * one person from a set without a separate management screen.
+ *
+ * Ten is the cap rather than a scroll: past that the faces stop being
+ * recognisable and the count is the more useful fact.
+ */
+export function AvatarStack({
+  people,
+  max = 6,
+  onRemove,
+  removeLabel,
+  size = 'md',
+  className,
+}: {
+  people: { id: string; name: string }[];
+  max?: number;
+  onRemove?: (id: string) => void;
+  /** Built per person, e.g. `(name) => `Remove ${name}``. */
+  removeLabel?: (name: string) => string;
+  size?: keyof typeof AVATAR_SIZES;
+  className?: string;
+}) {
+  if (people.length === 0) return null;
+
+  const shown = people.slice(0, max);
+  const rest = people.length - shown.length;
+
+  return (
+    <div className={cn('flex flex-wrap items-center gap-y-2', className)}>
+      {shown.map((person) => (
+        <span key={person.id} className="relative -mr-2 last:mr-0">
+          <Avatar name={person.name} size={size} className="ring-2 ring-surface" />
+          {onRemove && (
+            <button
+              type="button"
+              onClick={() => onRemove(person.id)}
+              aria-label={removeLabel ? removeLabel(person.name) : person.name}
+              className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-surface text-muted-foreground ring-1 ring-border transition-colors hover:bg-danger hover:text-danger-foreground hover:ring-danger"
+            >
+              <svg viewBox="0 0 10 10" className="h-2 w-2" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M2 2l6 6M8 2L2 8" strokeLinecap="round" />
+              </svg>
+            </button>
+          )}
+        </span>
+      ))}
+
+      {rest > 0 && (
+        <span
+          className={cn(
+            'tabular ml-3 flex items-center justify-center rounded-full bg-subtle font-semibold text-muted-foreground',
+            AVATAR_SIZES[size]
+          )}
+        >
+          +{rest}
+        </span>
+      )}
+    </div>
+  );
+}
+
 /** A name with its avatar, as one unit. Used in tables and rail lists. */
 export function Person({
   name,
@@ -376,7 +442,7 @@ export function PageHeader({
   return (
     <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
       <div className="min-w-0">
-        <h1 className="text-xl font-bold sm:text-2xl">{title}</h1>
+        <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">{title}</h1>
         {subtitle && <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>}
       </div>
       {action}

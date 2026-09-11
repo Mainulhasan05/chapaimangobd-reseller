@@ -129,10 +129,10 @@ export function ImagesField({
           accept(event.dataTransfer.files);
         }}
         className={cn(
-          'rounded-xl border-2 border-dashed p-3 transition-colors',
+          'rounded-xl border bg-muted/60 p-3 transition-colors',
           dragging && 'border-primary bg-primary-softer',
-          shown ? 'border-danger' : !dragging && 'border-input',
-          total > 0 && !dragging && !shown && 'border-solid border-border'
+          shown && !dragging && 'border-danger',
+          !dragging && !shown && 'border-border'
         )}
       >
         {/*
@@ -195,7 +195,7 @@ export function ImagesField({
                 type="button"
                 id={fieldId}
                 onClick={() => galleryRef.current?.click()}
-                className="tap flex items-center justify-center gap-1.5 rounded-lg border-2 border-input px-3 text-sm font-semibold hover:bg-muted"
+                className="tap flex items-center justify-center gap-1.5 rounded-lg border border-border bg-surface px-3 text-sm font-semibold transition-colors hover:bg-muted"
               >
                 <ImagePlus className="h-4 w-4" />
                 {total === 0 ? t('file.gallery') : t('file.addMore')}

@@ -30,6 +30,23 @@ const lineItemSchema = new mongoose.Schema(
 
     lineCostPoisha: money({ required: true, min: 0 }),
     lineSellPoisha: money({ required: true, min: 0 }),
+
+    /*
+     * Where this line is actually being collected from, decided at accept.
+     *
+     * A product is a thing the owner sells; the orchard it comes from is chosen
+     * per order, when the owner looks at what is ripe and who has it today. That
+     * is why this lives on the line and not on Product: the product is fixed and
+     * the source is not.
+     *
+     * `sourceNameBn` is the snapshot and the ref is a convenience. Rendering a
+     * historical order must read the name from here, never populate the Source,
+     * for the same reason a line already carries its own price: a source that is
+     * later renamed or archived must not rewrite what happened. Null until the
+     * order is accepted, because before that nobody has decided.
+     */
+    source: { type: mongoose.Schema.Types.ObjectId, ref: 'Source', default: null },
+    sourceNameBn: { type: String, default: null },
   },
   { _id: true }
 );

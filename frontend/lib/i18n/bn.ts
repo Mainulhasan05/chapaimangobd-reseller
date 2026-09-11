@@ -246,6 +246,7 @@ export const bn = {
   'file.notImage': 'শুধু ছবি দেওয়া যাবে',
   'file.kb': 'কেবি',
   'file.mb': 'এমবি',
+  'file.seconds': 'সেকেন্ড',
   'file.addMore': 'আরও ছবি',
   'file.cover': 'দোকানে দেখাবে',
   'file.new': 'নতুন',
