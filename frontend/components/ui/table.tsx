@@ -23,24 +23,55 @@ import { cn } from '@/lib/utils';
 
 /* ---------------------------------------------------------------- shell -- */
 
+/**
+ * The width at which the table takes over from the card list beside it.
+ *
+ * `sm` suits a table of four or five columns. A wider one - the order list, with
+ * a code, a shop, a buyer, what they bought, two figures and a row of actions -
+ * does not fit in 640px and never did: it sat in a sideways scroller, truncated
+ * the product name to a single letter, and put the action button off the right
+ * edge where it had to be scrolled to. Those pass `from="lg"` and keep the cards
+ * until there is genuinely room.
+ */
+const VISIBLE_FROM = {
+  sm: 'hidden sm:block',
+  lg: 'hidden lg:block',
+  xl: 'hidden xl:block',
+} as const;
+
+/*
+ * A reminder when choosing one: from `lg` the sidebar is on screen and takes
+ * 17rem, and the content column pays for the page padding on top of that. At a
+ * 1024px viewport a table has roughly 688px to live in, not 1024. A table whose
+ * columns need more than that belongs at `xl`, where there is about 944px.
+ */
+
 export function TableWrap({
   children,
   alwaysVisible,
+  from = 'sm',
+  minWidth = '42rem',
   className,
 }: {
   children: React.ReactNode;
   alwaysVisible?: boolean;
+  /** The breakpoint this table appears at. The card list below it does the inverse. */
+  from?: keyof typeof VISIBLE_FROM;
+  /** The width below which the table would rather scroll than crush its columns. */
+  minWidth?: string;
   className?: string;
 }) {
   return (
     <div
       className={cn(
         'card scroll-x overflow-hidden p-0',
-        alwaysVisible ? undefined : 'hidden sm:block',
+        alwaysVisible ? undefined : VISIBLE_FROM[from],
         className
       )}
     >
-      <table className="w-full min-w-[42rem] border-collapse text-sm">{children}</table>
+      <table className="w-full border-collapse text-sm" style={{ minWidth }}>
+        {children}
+      </table>
     </div>
   );
 }

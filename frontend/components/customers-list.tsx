@@ -80,7 +80,8 @@ export function CustomersList({
 
       {rows.length > 0 && (
         <>
-          {/* On a phone, cards. A five column table at 360px is unreadable. */}
+          {/* Cards below `lg`. A seven column table has no business being
+            * squeezed into a tablet. */}
           <div className="grid gap-3 lg:hidden">
             {rows.map((customer) => (
               <Link key={customer.id} href={detailHref(customer)}>
@@ -100,7 +101,7 @@ export function CustomersList({
             ))}
           </div>
 
-          <TableWrap className="hidden lg:block">
+          <TableWrap from="lg">
             <thead>
               <tr>
                 <Th>{t('cust.title')}</Th>

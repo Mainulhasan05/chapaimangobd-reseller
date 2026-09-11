@@ -363,8 +363,17 @@ export default function OwnerOrdersPage() {
 
       {rows.length > 0 && (
         <>
-          {/* Phones get cards. The table below is hidden there entirely. */}
-          <ul className="space-y-3 sm:hidden">
+          {/*
+           * Cards everywhere below `xl`, two across once there is room.
+           *
+           * This table carries eight columns and wants about 930px. From `lg`
+           * the sidebar takes 17rem of the window, so a 1024px screen leaves the
+           * content column under 700px: the table would still have been a
+           * sideways scroller there, truncating the product name to one letter
+           * and pushing the action button off the right edge. It only genuinely
+           * fits from `xl`.
+           */}
+          <ul className="grid gap-3 sm:grid-cols-2 xl:hidden">
             {rows.map((order) => (
               <li key={order.id}>
                 <Card className="p-4">
@@ -449,7 +458,7 @@ export default function OwnerOrdersPage() {
             ))}
           </ul>
 
-          <TableWrap>
+          <TableWrap from="xl" minWidth="58rem">
             <thead>
               <tr>
                 <Th className="w-10 pr-0">

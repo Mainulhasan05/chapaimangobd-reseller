@@ -209,7 +209,12 @@ function OrdersView() {
       {rows.length > 0 && (
         <>
           {/* Phones get cards. A 42rem table put Confirm off the right edge. */}
-          <ul className="space-y-3 sm:hidden">
+          {/*
+           * Cards below `xl`, two across once there is room. Seven columns want
+           * more width than a 1024px screen has left after the sidebar takes its
+           * 17rem; see TableWrap.
+           */}
+          <ul className="grid gap-3 sm:grid-cols-2 xl:hidden">
             {rows.map((order) => (
               <li key={order.id}>
                 <OrderCard
@@ -222,7 +227,7 @@ function OrdersView() {
             ))}
           </ul>
 
-          <TableWrap>
+          <TableWrap from="xl" minWidth="52rem">
             <thead>
               <tr>
                 {columns.isVisible('code') && (
