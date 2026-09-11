@@ -8,6 +8,7 @@ const Notification = require('../../models/Notification');
 const PushSubscription = require('../../models/PushSubscription');
 
 const storage = require('../../config/storage');
+const imageService = require('../../services/images');
 const telegram = require('../../channels/telegram');
 const webpush = require('../../channels/webpush');
 const pricing = require('../../services/pricing');
@@ -50,6 +51,52 @@ async function updateProfile(req, res) {
   if (formActive !== undefined) profile.formActive = formActive;
 
   await profile.save();
+  return ok(res, { profile });
+}
+
+/**
+ * The shop's picture.
+ *
+ * Public, and therefore hosted rather than stored: it is rendered on the
+ * reseller's order form to a customer who has no account and cannot be handed a
+ * signed URL. This is the opposite decision from `submitKyc` below, where the
+ * same reseller uploads a photograph that must never be reachable without one.
+ *
+ * `logoUrl` is the field every reader renders. The record beside it exists only
+ * so the image can be replaced or detached later.
+ */
+async function uploadLogo(req, res) {
+  if (!req.file) throw badRequest('NO_FILE', 'Choose a picture first');
+
+  const profile = req.reseller;
+  const previous = profile.logo;
+
+  const image = await imageService.uploadPublic(req.file, { kind: imageService.KINDS.LOGO });
+
+  profile.logo = image;
+  profile.logoUrl = imageService.urlOf(image);
+  await profile.save();
+
+  /*
+   * The old picture is released only once the new one is saved, and a failure
+   * is swallowed. Doing it the other way round leaves the shop with no logo if
+   * the upload then fails, which is worse than leaving one orphaned image.
+   */
+  if (previous) await imageService.remove(previous);
+
+  return ok(res, { profile });
+}
+
+async function removeLogo(req, res) {
+  const profile = req.reseller;
+  const previous = profile.logo;
+
+  profile.logo = null;
+  profile.logoUrl = null;
+  await profile.save();
+
+  if (previous) await imageService.remove(previous);
+
   return ok(res, { profile });
 }
 
@@ -230,6 +277,8 @@ async function telegramLink(req, res) {
 }
 
 module.exports = {
+  uploadLogo,
+  removeLogo,
   getProfile,
   updateProfile,
   submitKyc,

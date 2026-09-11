@@ -3,6 +3,7 @@
 const mongoose = require('mongoose');
 const { UNITS } = require('../utils/quantity');
 const { isSafeMoney } = require('../utils/money');
+const publicImageSchema = require('./publicImage');
 
 const money = (opts = {}) => ({
   type: Number,
@@ -14,7 +15,12 @@ const productSchema = new mongoose.Schema(
   {
     nameBn: { type: String, required: true, trim: true, maxlength: 160 },
     description: { type: String, maxlength: 2000 },
-    images: [{ _id: false, key: String }],
+    /*
+     * Public photographs, hosted off-box. Product images used to be an R2 key
+     * and nothing else; they are now the shared shape, so a row written before
+     * ImgBB still renders. See models/publicImage.js.
+     */
+    images: [publicImageSchema],
 
     unit: { type: String, enum: UNITS, required: true },
     // Smallest orderable increment, in milli-units. Whole units are 1000.

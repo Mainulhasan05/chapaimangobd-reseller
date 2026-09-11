@@ -5,7 +5,7 @@ const Product = require('../../models/Product');
 const DeliveryZone = require('../../models/DeliveryZone');
 const Order = require('../../models/Order');
 
-const storage = require('../../config/storage');
+const imageService = require('../../services/images');
 const audit = require('../../services/audit');
 const { ok } = require('../../middleware/error');
 const { notFound, badRequest } = require('../../utils/errors');
@@ -126,8 +126,11 @@ async function updateProduct(req, res) {
    * whoever saves last. Only keys this product actually owns are honoured.
    */
   const requested = new Set(req.body.removeImages || []);
-  const removed = existing.images.filter((img) => requested.has(img.key));
-  const kept = existing.images.filter((img) => !requested.has(img.key));
+  // Addressed by handle, which is the ImgBB id or, for an image saved before
+  // ImgBB, the R2 key. Only handles this product actually owns are honoured.
+  const owns = (img) => requested.has(img.id) || (img.key && requested.has(img.key));
+  const removed = existing.images.filter(owns);
+  const kept = existing.images.filter((img) => !owns(img));
 
   if (images.length > 0 || removed.length > 0) patch.images = [...kept, ...images];
 
@@ -142,18 +145,16 @@ async function updateProduct(req, res) {
   const product = await Product.findByIdAndUpdate(req.params.id, { $set: patch }, { new: true });
 
   /*
-   * The bucket is reconciled only after the document is, and a failure here is
+   * The host is reconciled only after the document is, and a failure here is
    * swallowed deliberately. An orphaned object costs a fraction of a paisa a
    * month; failing the request would tell the owner their edit did not save when
    * it did, and the retry would then delete an image that is already gone.
+   *
+   * For an ImgBB image this detaches and nothing more. ImgBB has no delete API,
+   * so a photo removed from a product stops being shown but its link keeps
+   * resolving for anyone who already has it.
    */
-  await Promise.all(
-    removed.map((img) =>
-      storage.destroy(img.key).catch(() => {
-        /* orphaned in the bucket, already detached from the product */
-      })
-    )
-  );
+  await imageService.removeMany(removed);
 
   // A cost price change is the kind of thing that gets argued about later.
   if (patch.costPricePoisha !== undefined && patch.costPricePoisha !== existing.costPricePoisha) {
@@ -172,22 +173,14 @@ async function updateProduct(req, res) {
 }
 
 /**
- * Only the storage key is kept. The delivery URL is derived when the product is
- * presented, so moving the bucket to a different domain does not orphan every
- * image already saved against the old one.
+ * Product photographs go to the public image host, never to the private bucket.
+ *
+ * The whole record comes back rather than a key, because an ImgBB URL cannot be
+ * derived from anything we hold. `services/images.js` decides the destination;
+ * this only has to say what kind of image it is handing over.
  */
 async function uploadImages(files) {
-  if (!files || files.length === 0) return [];
-
-  const uploads = await Promise.all(
-    files.map((file) =>
-      storage.uploadBuffer(file.buffer, {
-        folder: storage.FOLDERS.PRODUCT,
-        contentType: file.mimetype,
-      })
-    )
-  );
-  return uploads.map((u) => ({ key: u.key }));
+  return imageService.uploadManyPublic(files, { kind: imageService.KINDS.PRODUCT });
 }
 
 async function archiveProduct(req, res) {

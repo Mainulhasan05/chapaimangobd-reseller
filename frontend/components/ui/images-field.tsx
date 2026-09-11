@@ -6,6 +6,7 @@ import { t } from '@/lib/i18n/bn';
 import { formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { Label } from '@/components/ui/form';
+import type { ProductImage } from '@/lib/types';
 
 /**
  * Several photographs of one product, seen before they are uploaded.
@@ -26,7 +27,12 @@ const MAX_BYTES = 5 * 1024 * 1024;
 /** Mirrors the multer filter on the server, so a reject happens before upload. */
 const ALLOWED = ['image/jpeg', 'image/png', 'image/webp', 'image/heic'];
 
-export type ExistingImage = { key: string; url: string };
+/**
+ * An image already stored, addressed by its handle. The handle is the ImgBB id,
+ * or the R2 key for one saved before images were hosted; the field never has to
+ * know which, it only hands the value back when the owner drops the image.
+ */
+export type ExistingImage = ProductImage;
 
 export function ImagesField({
   label,
@@ -43,9 +49,9 @@ export function ImagesField({
   /** Newly chosen files, not yet uploaded. */
   value: File[];
   onChange: (files: File[]) => void;
-  /** Already uploaded and stored, addressed by storage key. */
+  /** Already uploaded and hosted, addressed by handle. */
   existing?: ExistingImage[];
-  onRemoveExisting?: (key: string) => void;
+  onRemoveExisting?: (id: string) => void;
   max?: number;
   hint?: string;
   error?: string;
@@ -145,11 +151,13 @@ export function ImagesField({
           <div className="mb-3 grid grid-cols-3 gap-2 sm:grid-cols-4">
             {existing.map((image, index) => (
               <Tile
-                key={image.key}
+                key={image.id}
                 alt={label}
-                src={image.url}
+                // The small rendition: a tile is a hundred pixels wide and has no
+                // business pulling a full size photograph to fill it.
+                src={image.thumbUrl ?? image.url}
                 isCover={index === 0}
-                onRemove={onRemoveExisting ? () => onRemoveExisting(image.key) : undefined}
+                onRemove={onRemoveExisting ? () => onRemoveExisting(image.id) : undefined}
               />
             ))}
 

@@ -14,6 +14,7 @@ import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/components/ui/toast';
 import { ShareShopCard, useShopUrl } from '@/components/share-shop';
 import { Field, Input, Textarea } from '@/components/ui/form';
+import { ImageField } from '@/components/ui/image-field';
 
 export default function ShopSettingsPage() {
   const { data: session, isLoading } = useSession();
@@ -53,6 +54,31 @@ function ShopSettings({ profile }: { profile: ResellerProfile }) {
     },
   });
 
+  /*
+   * The picture is multipart and the rest of this page is JSON, so it cannot
+   * ride along with `save`. It invalidates the session, because the profile the
+   * whole dashboard reads is the one the session carries.
+   */
+  const uploadLogo = useMutation({
+    mutationFn: (file: File) => {
+      const data = new FormData();
+      data.set('logo', file);
+      return api.upload('/reseller/profile/logo', data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: sessionKey });
+      toast(t('file.uploaded'));
+    },
+  });
+
+  const removeLogo = useMutation({
+    mutationFn: () => api.del('/reseller/profile/logo'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: sessionKey });
+      toast(t('file.removed'));
+    },
+  });
+
   const approved = profile.kycStatus === 'approved';
   const errors = fieldErrors(save.error);
 
@@ -81,6 +107,31 @@ function ShopSettings({ profile }: { profile: ResellerProfile }) {
           onChange={(checked) => save.mutate({ formActive: checked })}
           label={profile.formActive ? t('shop.open') : t('shop.closed')}
           hint={approved ? undefined : t('kyc.gateHelp')}
+        />
+      </Card>
+
+      {/*
+       * Above the name and the link, because this is the first thing a customer
+       * sees on the form and the last thing a reseller thinks to set.
+       */}
+      <Card className="mb-4">
+        <CardHeader title={t('shop.logo')} />
+        <ImageField
+          label={t('shop.logo')}
+          hint={t('shop.logoHint')}
+          shape="circle"
+          currentUrl={profile.logoUrl}
+          uploading={uploadLogo.isPending}
+          removing={removeLogo.isPending}
+          onUpload={(file) => uploadLogo.mutate(file)}
+          onRemove={() => removeLogo.mutate()}
+          error={
+            uploadLogo.error
+              ? errorMessage(uploadLogo.error)
+              : removeLogo.error
+                ? errorMessage(removeLogo.error)
+                : undefined
+          }
         />
       </Card>
 

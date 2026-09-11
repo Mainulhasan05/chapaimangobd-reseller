@@ -5,9 +5,11 @@ import { useQuery } from '@tanstack/react-query';
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
+  ChartColumn,
   ClipboardCheck,
   ClipboardList,
   Clock,
+  Package,
   ShoppingBag,
   Wallet,
 } from 'lucide-react';
@@ -32,6 +34,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { ListSkeleton, Skeleton, StatSkeleton } from '@/components/ui/skeleton';
 import { CountUp, Greeting, HeroCard } from '@/components/dashboard/metrics';
+import { ActionCard, ActionGrid } from '@/components/dashboard/actions';
 import { PipelineBar } from '@/components/dashboard/pipeline-bar';
 import { QueuePanel, QueueTile, RailList, RailRow } from '@/components/dashboard/rail';
 
@@ -148,6 +151,48 @@ export default function OwnerDashboardPage() {
           href="/owner/finance"
         />
       </div>
+
+      {/*
+       * What to do next, directly under what is happening. Placed above the fold
+       * on a phone deliberately: the figures say a decision is needed and this is
+       * the row that starts it, so putting it below the panels would mean reading
+       * a number and then scrolling back up to the navigation to act on it.
+       */}
+      <section className="mb-5">
+        <h2 className="mb-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          {t('dash.actions')}
+        </h2>
+        <ActionGrid>
+          <ActionCard
+            icon={ClipboardList}
+            tone="primary"
+            label={t('nav.orders')}
+            hint={t('dash.actionOrders')}
+            href="/owner/orders"
+          />
+          <ActionCard
+            icon={Package}
+            tone="brand"
+            label={t('nav.products')}
+            hint={t('dash.actionProducts')}
+            href="/owner/products"
+          />
+          <ActionCard
+            icon={Wallet}
+            tone="success"
+            label={t('nav.deposits')}
+            hint={t('dash.actionFinance')}
+            href="/owner/finance"
+          />
+          <ActionCard
+            icon={ChartColumn}
+            tone="warning"
+            label={t('nav.reports')}
+            hint={t('dash.actionReports')}
+            href="/owner/reports"
+          />
+        </ActionGrid>
+      </section>
 
       <DashboardGrid>
         <div className="flex flex-col gap-5">

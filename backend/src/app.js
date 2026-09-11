@@ -6,6 +6,7 @@ const cors = require('cors');
 const cookieParser = require('cookie-parser');
 
 const env = require('./config/env');
+const images = require('./services/images');
 const { notFoundHandler, errorHandler } = require('./middleware/error');
 
 const app = express();
@@ -35,7 +36,9 @@ app.get('/api/health', (_req, res) => {
       env: env.NODE_ENV,
       integrations: {
         storage: env.r2Configured,
-        publicImages: env.r2PublicDelivery,
+        // Where a public image goes: the host, the bucket, or nowhere yet.
+        publicImages: images.provider(),
+        imageHost: env.imgbbConfigured,
         webPush: env.webPushConfigured,
         sms: env.smsConfigured,
         telegram: env.telegramConfigured,

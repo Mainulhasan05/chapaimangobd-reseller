@@ -355,7 +355,13 @@
     padding-bottom: calc(4.25rem + env(safe-area-inset-bottom));
   }
 
-  @media (min-width: 640px) {
+  /*
+   * The bottom bar now survives until the sidebar takes over at `lg`, so the
+   * reservation has to last that long too. Releasing it at `sm`, as it did when
+   * navigation moved into the header at that width, parked the last row of every
+   * list under the tab bar on a tablet.
+   */
+  @media (min-width: 1024px) {
     .pb-nav {
       padding-bottom: 2rem;
     }

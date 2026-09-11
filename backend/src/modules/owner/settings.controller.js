@@ -6,11 +6,14 @@ const sms = require('../../channels/sms');
 const { ok } = require('../../middleware/error');
 const { toPoisha, toTaka } = require('../../utils/money');
 const { normalizeBdPhone } = require('../../utils/phone');
+const imageService = require('../../services/images');
+const { badRequest } = require('../../utils/errors');
 
 const shape = (s) => ({
   businessName: s.businessName,
   supportPhone: s.supportPhoneE164,
   poweredByText: s.poweredByText,
+  brandLogoUrl: s.brandLogoUrl || null,
   defaultCreditLimit: toTaka(s.defaultCreditLimitPoisha),
   orderAgingHours: s.orderAgingHours,
   reverseDeliveryChargeOnReturn: s.reverseDeliveryChargeOnReturn,
@@ -67,6 +70,44 @@ async function update(req, res) {
   return ok(res, { settings: shape(settings) });
 }
 
+/**
+ * A public asset: the brand mark customers see on every shop and tracking page.
+ *
+ * It goes to the image host rather than the private bucket because its whole
+ * audience is logged out. Nothing the owner uploads here is confidential; a
+ * document that is belongs in KYC, which is a different route into a different
+ * store entirely.
+ */
+async function uploadBrandLogo(req, res) {
+  if (!req.file) throw badRequest('NO_FILE', 'Choose an image first');
+
+  const before = await getSettings({ fresh: true });
+  const previous = before.brandLogo;
+
+  const image = await imageService.uploadPublic(req.file, { kind: imageService.KINDS.ASSET });
+
+  const settings = await updateSettings({
+    brandLogo: image,
+    brandLogoUrl: imageService.urlOf(image),
+  });
+
+  // Released only after the replacement is saved, so a failure cannot leave the
+  // brand with no mark at all.
+  if (previous) await imageService.remove(previous);
+
+  return ok(res, { settings: shape(settings) });
+}
+
+async function removeBrandLogo(_req, res) {
+  const before = await getSettings({ fresh: true });
+  const previous = before.brandLogo;
+
+  const settings = await updateSettings({ brandLogo: null, brandLogoUrl: null });
+  if (previous) await imageService.remove(previous);
+
+  return ok(res, { settings: shape(settings) });
+}
+
 /** Gateway balance, so the owner learns about an empty account before a send fails. */
 async function smsBalance(_req, res) {
   if (!sms.isConfigured()) {
@@ -76,4 +117,4 @@ async function smsBalance(_req, res) {
   return ok(res, { configured: true, balance });
 }
 
-module.exports = { get, update, smsBalance };
+module.exports = { get, update, uploadBrandLogo, removeBrandLogo, smsBalance };

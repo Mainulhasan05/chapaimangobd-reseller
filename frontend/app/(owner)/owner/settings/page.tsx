@@ -10,6 +10,8 @@ import { Button, Spinner } from '@/components/ui/button';
 import { Field, Input, MoneyInput } from '@/components/ui/form';
 import { Switch } from '@/components/ui/switch';
 import { PhoneField } from '@/components/ui/phone-field';
+import { ImageField } from '@/components/ui/image-field';
+import { useToast } from '@/components/ui/toast';
 
 type Settings = {
   businessName: string;
@@ -20,6 +22,8 @@ type Settings = {
   reverseDeliveryChargeOnReturn: boolean;
   smsPricePerCredit: number;
   features: { sms: boolean; telegram: boolean; webPush: boolean };
+  /** The public brand mark. Uploaded on its own, not through the form below. */
+  brandLogoUrl?: string | null;
 };
 
 export default function OwnerSettingsPage() {
@@ -43,6 +47,7 @@ export default function OwnerSettingsPage() {
 
 function SettingsForm({ initial }: { initial: Settings }) {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [draft, setDraft] = useState<Settings>(initial);
 
   const smsBalance = useQuery({
@@ -67,6 +72,31 @@ function SettingsForm({ initial }: { initial: Settings }) {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['owner', 'settings'] }),
   });
 
+  /*
+   * The picture is multipart and the rest of this page is JSON, so it cannot
+   * ride along with `save`. Both invalidate the same query, which is what puts
+   * the new logo on screen without a reload.
+   */
+  const uploadLogo = useMutation({
+    mutationFn: (file: File) => {
+      const data = new FormData();
+      data.set('image', file);
+      return api.upload('/owner/settings/brand-logo', data);
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['owner', 'settings'] });
+      toast(t('file.uploaded'));
+    },
+  });
+
+  const removeLogo = useMutation({
+    mutationFn: () => api.del('/owner/settings/brand-logo'),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['owner', 'settings'] });
+      toast(t('file.removed'));
+    },
+  });
+
   const errors = fieldErrors(save.error);
   const set = <K extends keyof Settings>(key: K, value: Settings[K]) =>
     setDraft((prev) => ({ ...prev, [key]: value }));
@@ -79,6 +109,32 @@ function SettingsForm({ initial }: { initial: Settings }) {
         <Alert tone="danger">{errorMessage(save.error)}</Alert>
       )}
       {save.isSuccess && <Alert tone="success">{t('app.save')}</Alert>}
+
+      {/*
+       * Its own card, and its own request. Every other setting here is text the
+       * owner edits and saves together; a picture is sent the moment it is
+       * confirmed, and pretending otherwise would mean holding a five megabyte
+       * file in the form state until someone remembers to press save.
+       */}
+      <Card className="mb-4">
+        <CardHeader title={t('settings.brandLogo')} />
+        <ImageField
+          label={t('settings.brandLogo')}
+          hint={t('settings.brandLogoHint')}
+          currentUrl={initial.brandLogoUrl}
+          uploading={uploadLogo.isPending}
+          removing={removeLogo.isPending}
+          onUpload={(file) => uploadLogo.mutate(file)}
+          onRemove={() => removeLogo.mutate()}
+          error={
+            uploadLogo.error
+              ? errorMessage(uploadLogo.error)
+              : removeLogo.error
+                ? errorMessage(removeLogo.error)
+                : undefined
+          }
+        />
+      </Card>
 
       <Card className="mb-4">
         <CardHeader title={t('app.name')} />

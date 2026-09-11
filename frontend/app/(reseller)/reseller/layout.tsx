@@ -17,12 +17,22 @@ import type { Order, Paged } from '@/lib/types';
  * on a phone without opening the More sheet first.
  */
 const NAV: NavItem[] = [
-  { href: '/reseller', labelKey: 'nav.dashboard', icon: LayoutDashboard },
-  { href: '/reseller/orders', labelKey: 'nav.orders', icon: ClipboardList },
-  { href: '/reseller/catalog', labelKey: 'nav.catalog', icon: Package },
-  { href: '/reseller/wallet', labelKey: 'nav.wallet', icon: Wallet },
-  { href: '/reseller/shop', labelKey: 'nav.myShop', icon: Store },
-  { href: '/reseller/kyc', labelKey: 'nav.kyc', icon: BadgeCheck },
+  {
+    href: '/reseller',
+    labelKey: 'nav.dashboard',
+    icon: LayoutDashboard,
+    section: 'nav.groupDaily',
+  },
+  {
+    href: '/reseller/orders',
+    labelKey: 'nav.orders',
+    icon: ClipboardList,
+    section: 'nav.groupDaily',
+  },
+  { href: '/reseller/catalog', labelKey: 'nav.catalog', icon: Package, section: 'nav.groupDaily' },
+  { href: '/reseller/wallet', labelKey: 'nav.wallet', icon: Wallet, section: 'nav.groupDaily' },
+  { href: '/reseller/shop', labelKey: 'nav.myShop', icon: Store, section: 'nav.groupSetup' },
+  { href: '/reseller/kyc', labelKey: 'nav.kyc', icon: BadgeCheck, section: 'nav.groupSetup' },
 ];
 
 export default function ResellerLayout({ children }: { children: React.ReactNode }) {

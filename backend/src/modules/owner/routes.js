@@ -132,6 +132,18 @@ router.get('/exports/ledger.csv', asyncHandler(reports.exportLedger));
 /* settings */
 router.get('/settings', asyncHandler(settings.get));
 router.patch('/settings', validate({ body: schema.updateSettings }), asyncHandler(settings.update));
+/*
+ * A public asset, hosted rather than stored. Everything the owner uploads here
+ * is meant to be seen by logged-out customers; anything confidential belongs in
+ * the private bucket, which nothing on this route can reach.
+ */
+router.post(
+  '/settings/brand-logo',
+  upload.single('image'),
+  handleUploadErrors,
+  asyncHandler(settings.uploadBrandLogo)
+);
+router.delete('/settings/brand-logo', asyncHandler(settings.removeBrandLogo));
 router.get('/settings/sms-balance', asyncHandler(settings.smsBalance));
 
 module.exports = router;

@@ -30,9 +30,18 @@ const nextConfig: NextConfig = {
 
   images: {
     // images.domains is deprecated in Next 16; remotePatterns is the replacement.
-    // Product photos come from the R2 bucket's public base URL, which is either an
-    // r2.dev subdomain or a custom domain, so both are allowed.
+    //
+    // Public images are hosted on ImgBB, which serves them from i.ibb.co and
+    // renders its thumbnails on the same host. An unlisted host is not a broken
+    // image but a hard runtime error, so both ImgBB hostnames are listed even
+    // though only one is in use today.
+    //
+    // The R2 entries stay for deployments that had the public bucket configured
+    // before ImgBB, where the URL is still derived from the bucket's base URL
+    // and is either an r2.dev subdomain or a custom domain.
     remotePatterns: [
+      { protocol: 'https' as const, hostname: 'i.ibb.co' },
+      { protocol: 'https' as const, hostname: '**.ibb.co' },
       { protocol: 'https' as const, hostname: '**.r2.dev' },
       ...(publicImageHost ? [{ protocol: 'https' as const, hostname: publicImageHost }] : []),
     ],

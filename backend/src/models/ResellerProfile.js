@@ -3,6 +3,7 @@
 const mongoose = require('mongoose');
 const { KYC_STATUS, values } = require('../domain/constants');
 const { isSafeMoney } = require('../utils/money');
+const publicImageSchema = require('./publicImage');
 
 const money = (def = 0) => ({
   type: Number,
@@ -15,7 +16,14 @@ const resellerProfileSchema = new mongoose.Schema(
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, unique: true },
     shopName: { type: String, trim: true, maxlength: 120 },
     slug: { type: String, required: true, unique: true, index: true },
+    /*
+     * The shop's picture, shown on a public form to a customer who is not
+     * logged in. `logoUrl` is what every reader renders and stays a plain
+     * string; `logo` carries what is needed to replace or detach the image and
+     * is only read by the upload endpoint.
+     */
     logoUrl: { type: String },
+    logo: { type: publicImageSchema, default: null },
     address: { type: String, maxlength: 500 },
 
     kycStatus: {

@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import { Package } from 'lucide-react';
-import Image from 'next/image';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, errorMessage, fieldErrors } from '@/lib/api';
 import { t } from '@/lib/i18n/bn';
@@ -14,6 +13,7 @@ import { CardGridSkeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/components/ui/toast';
 import { Field, MoneyInput } from '@/components/ui/form';
+import { ProductThumb } from '@/components/ui/product-image';
 
 export default function CatalogPage() {
   const catalog = useQuery({
@@ -81,28 +81,10 @@ function CatalogRow({ product }: { product: CatalogItem }) {
 
   const errors = fieldErrors(save.error);
   const margin = Number(price) - product.costPrice;
-  const image = product.images?.[0]?.url;
-
   return (
     <Card>
       <div className="mb-3 flex items-start gap-3">
-        {image ? (
-          <Image
-            src={image}
-            alt={product.name}
-            width={56}
-            height={56}
-            className="h-14 w-14 shrink-0 rounded-xl object-cover"
-          />
-        ) : (
-          /* A placeholder rather than nothing, so the column keeps one left edge. */
-          <span
-            aria-hidden
-            className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-subtle text-muted-foreground"
-          >
-            <Package className="h-5 w-5" />
-          </span>
-        )}
+        <ProductThumb images={product.images} alt={product.name} size="md" />
 
         <div className="min-w-0 flex-1">
           <h3 className="truncate font-semibold">{product.name}</h3>

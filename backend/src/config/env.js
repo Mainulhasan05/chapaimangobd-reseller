@@ -47,6 +47,16 @@ const schema = z.object({
   // use this.
   R2_PUBLIC_BASE_URL: z.string().url().optional(),
 
+  // ImgBB hosts every image a customer or a logged-out visitor may see: product
+  // photographs, shop logos, brand assets. It is a free image host with no
+  // bucket, no signing and no egress bill, which is the whole reason it is here.
+  // Nothing private ever goes to it. KYC scans and deposit screenshots stay in
+  // R2, behind signed URLs, because ImgBB has no notion of a private image.
+  IMGBB_API_KEY: z.string().optional(),
+  IMGBB_UPLOAD_URL: z.string().url().default('https://api.imgbb.com/1/upload'),
+  // A slow third party must not hold an Express worker open indefinitely.
+  IMGBB_TIMEOUT_MS: z.coerce.number().int().positive().default(20000),
+
   VAPID_PUBLIC_KEY: z.string().optional(),
   VAPID_PRIVATE_KEY: z.string().optional(),
   VAPID_SUBJECT: z.string().default('mailto:support@example.com'),
@@ -92,6 +102,9 @@ env.r2Configured = Boolean(
 env.r2PublicDelivery = Boolean(
   env.r2Configured && env.R2_PUBLIC_BUCKET && env.R2_PUBLIC_BASE_URL
 );
+// ImgBB needs nothing but a key, which is why it is the default home for public
+// images and R2 public delivery is only the fallback when it is unset.
+env.imgbbConfigured = Boolean(env.IMGBB_API_KEY);
 env.webPushConfigured = Boolean(env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_KEY);
 env.smsConfigured = Boolean(env.SMS_API_KEY && env.SMS_SENDER_ID);
 env.telegramConfigured = Boolean(env.TELEGRAM_BOT_TOKEN);

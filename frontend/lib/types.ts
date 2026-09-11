@@ -29,6 +29,20 @@ export type User = {
   lastLoginAt?: string;
 };
 
+/**
+ * A publicly visible image, as the API presents it.
+ *
+ * `id` is the handle used to remove it; `key` is the same value under the name
+ * the product form originally shipped with. `thumbUrl` is a smaller rendition
+ * when the host makes one, which is what a grid of tiles should be pulling.
+ */
+export type ProductImage = {
+  id: string;
+  key: string;
+  url: string;
+  thumbUrl?: string;
+};
+
 export type ResellerProfile = {
   _id: string;
   shopName: string;
@@ -112,7 +126,7 @@ export type CatalogItem = {
   id: string;
   name: string;
   description?: string;
-  images: { key: string; url: string }[];
+  images: ProductImage[];
   unit: string;
   step: number;
   minOrderQty: number;
@@ -131,7 +145,7 @@ export type OwnerProduct = {
   id: string;
   name: string;
   description?: string;
-  images: { key: string; url: string }[];
+  images: ProductImage[];
   unit: string;
   step: number;
   minOrderQty: number;
@@ -210,7 +224,7 @@ export type PublicShop = {
     id: string;
     name: string;
     description?: string;
-    images: { key: string; url: string }[];
+    images: ProductImage[];
     unit: string;
     step: number;
     minOrderQty: number;

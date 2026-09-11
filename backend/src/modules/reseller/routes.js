@@ -25,6 +25,19 @@ router.patch(
   asyncHandler(controller.updateProfile)
 );
 
+/*
+ * The shop picture is public and goes to the image host; the KYC documents
+ * below are private and go to the bucket. Same reseller, same form factor, two
+ * very different destinations. See services/images.js.
+ */
+router.post(
+  '/profile/logo',
+  upload.single('logo'),
+  handleUploadErrors,
+  asyncHandler(controller.uploadLogo)
+);
+router.delete('/profile/logo', asyncHandler(controller.removeLogo));
+
 const kycFields = Object.values(KYC_DOC_TYPE).map((name) => ({ name, maxCount: 1 }));
 router.post(
   '/kyc',

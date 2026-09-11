@@ -4,10 +4,11 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import type { Route } from 'next';
-import { Bell, ChevronDown, ChevronRight, Ellipsis, LogOut, WifiOff } from 'lucide-react';
+import { Bell, CalendarDays, ChevronRight, Ellipsis, LogOut, WifiOff } from 'lucide-react';
 import { useSession, useLogout } from '@/lib/session';
 import { useOnline } from '@/lib/use-online';
 import { t, type DictKey } from '@/lib/i18n/bn';
+import { formatToday } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { Modal } from '@/components/ui/modal';
 import { Avatar } from '@/components/ui/layout';
@@ -24,6 +25,12 @@ export type NavItem = {
   icon: IconComponent;
   /** A count to surface on the tab, such as orders waiting to be confirmed. */
   badge?: number;
+  /**
+   * Heading this item sits under in the sidebar. Consecutive items sharing a
+   * value are drawn as one group. Ignored on a phone, where the bottom bar has
+   * no room for headings and the first four items are the whole story.
+   */
+  section?: DictKey;
 };
 
 /**
@@ -33,25 +40,18 @@ export type NavItem = {
 const TABS = 4;
 
 /**
- * How many pills reach the header.
- *
- * The owner has ten destinations. Ten pills plus a logo plus a profile is wider
- * than a 1280px viewport, and a centred row that overflows is worse than a long
- * one: `justify-content: center` in a scroll container puts the first item off
- * the left edge where it cannot be scrolled back to. Six fits at `lg` with room
- * to spare, and the setup screens that fall past it are visited once a season.
- */
-const PILLS = 6;
-
-/**
  * The frame both dashboards share.
  *
- * Navigation used to be a horizontally scrolling strip in the header, holding
- * seven items for a reseller and ten for an owner. About three were visible on a
- * phone, with no fade or arrow to say the rest existed, and all of them sat at
- * the top of the screen, as far from a thumb as a control can get. It is now a
- * bottom bar on a phone and a centred row of pills from `sm` up, where a wide
- * viewport and a pointer make a top bar the right shape again.
+ * Navigation has moved twice. It began as a horizontally scrolling strip in the
+ * header, then became a bottom bar on a phone and a centred row of pills above
+ * `sm`. The pills were the weak half: the owner has ten destinations, six fitted,
+ * and the remaining four hid behind a More menu on the widest screens in the
+ * product, which is precisely where there was room to spare.
+ *
+ * So a wide screen now gets a sidebar. Every destination is visible at once,
+ * grouped by how often it is touched, and the horizontal band across the top is
+ * gone. A phone keeps the bottom bar, because a thumb reaches the bottom of a
+ * screen and not the side of one.
  *
  * It also performs the client side half of the role check: the proxy already
  * redirected anyone without a cookie, and Express refuses the data regardless,
@@ -111,81 +111,142 @@ export function AppShell({
   const tabs = nav.slice(0, TABS);
   const overflow = nav.slice(TABS);
   const overflowActive = overflow.some((item) => isActive(item.href));
-  const pills = nav.slice(0, PILLS);
-  const pillOverflow = nav.slice(PILLS);
   const home = (role === 'owner' ? '/owner' : '/reseller') as Route;
 
+  /*
+   * Distinct section headings in the order the layout listed them. Derived
+   * rather than accumulated, because building this by pushing into an array
+   * during render is a mutation the compiler is right to object to.
+   */
+  const sections = Array.from(new Set(nav.map((item) => item.section)));
+
+  /*
+   * The deepest match rather than the first, so `/owner/orders` does not lose
+   * to a hypothetical `/owner` prefix and leave every page named Dashboard.
+   */
+  const current = nav
+    .filter((item) => isActive(item.href))
+    .sort((a, b) => b.href.length - a.href.length)[0];
+
   return (
-    <div className="min-h-screen">
-      <header className="sticky top-0 z-30 border-b border-border bg-surface/90 backdrop-blur">
-        <div className="mx-auto flex h-16 max-w-7xl items-center gap-4 px-4 sm:px-6">
-          <Link href={home} className="flex shrink-0 items-center gap-2">
+    <div className="min-h-screen lg:grid lg:grid-cols-[17rem_1fr]">
+      {/*
+       * The sidebar owns the full height of the viewport and scrolls its own
+       * list, so the brand stays at the top and the account stays at the bottom
+       * no matter how long the page beside it gets.
+       */}
+      <aside className="sticky top-0 hidden h-screen flex-col border-r border-border bg-surface lg:flex">
+        <div className="flex h-16 shrink-0 items-center gap-2.5 px-5">
+          <Link href={home} className="flex min-w-0 items-center gap-2.5">
             <Logo />
-            <span className="hidden truncate font-bold tracking-tight sm:inline">
-              {t('app.name')}
-            </span>
+            <span className="truncate font-bold tracking-tight">{t('app.name')}</span>
           </Link>
-
-          {/*
-           * Centred, so the row of pills reads as the app's spine rather than as
-           * a list that happens to start after the logo. From `sm` up there is
-           * room for every destination at once, which is the whole reason the
-           * bottom bar exists only below it.
-           */}
-          <nav className="hidden flex-1 justify-center sm:flex">
-            <div className="flex items-center gap-1">
-              {pills.map((item) => (
-                <NavPill key={item.href} item={item} active={isActive(item.href)} />
-              ))}
-              {pillOverflow.length > 0 && (
-                <NavMore items={pillOverflow} isActive={isActive} />
-              )}
-            </div>
-          </nav>
-
-          <div className="ml-auto flex shrink-0 items-center gap-1 sm:ml-0">
-            {notificationsHref && (
-              <Link
-                href={notificationsHref}
-                aria-label={t('nav.notifications')}
-                className="relative flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              >
-                <Bell className="h-[1.125rem] w-[1.125rem]" />
-                {/* A dot, not a count. The count lives on the page itself. */}
-                {notificationCount ? (
-                  <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-danger ring-2 ring-surface" />
-                ) : null}
-              </Link>
-            )}
-
-            <ProfileMenu
-              name={session.user.name}
-              role={role}
-              onLogout={() => logout.mutate()}
-              loggingOut={logout.isPending}
-            />
-          </div>
         </div>
 
-        {!online && (
-          <div className="flex items-center justify-center gap-2 bg-warning-soft px-4 py-1.5 text-xs font-semibold text-warning-ink">
-            <WifiOff className="h-3.5 w-3.5" />
-            {t('app.offline')}
+        <nav className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
+          {sections.map((section) => (
+            <div key={section ?? 'main'} className="mb-1">
+              {section && (
+                <p className="px-3 pb-1.5 pt-4 text-[0.6875rem] font-semibold uppercase tracking-wider text-muted-foreground">
+                  {t(section)}
+                </p>
+              )}
+              <ul className="space-y-0.5">
+                {nav
+                  .filter((item) => item.section === section)
+                  .map((item) => (
+                    <li key={item.href}>
+                      <SideLink item={item} active={isActive(item.href)} />
+                    </li>
+                  ))}
+              </ul>
+            </div>
+          ))}
+        </nav>
+
+        <div className="shrink-0 border-t border-border p-3">
+          <ProfileMenu
+            name={session.user.name}
+            role={role}
+            placement="top"
+            full
+            onLogout={() => logout.mutate()}
+            loggingOut={logout.isPending}
+          />
+        </div>
+      </aside>
+
+      <div className="min-w-0">
+        {/*
+         * The top bar, at every width.
+         *
+         * It used to stop at `lg`, on the reasoning that the sidebar had taken
+         * over. What that left was a content column beginning in mid air, with
+         * a notification bell floating above the page heading and nothing to
+         * hold it. A dashboard with a sidebar still needs a bar across the top:
+         * it is where the current place is named and where the controls that
+         * are not destinations live.
+         *
+         * The two halves swap at `lg`. Below it the bar carries the brand,
+         * because there is no sidebar to carry it and the account has nowhere
+         * else to go. At `lg` the sidebar has both, so the bar names the page
+         * instead.
+         */}
+        <header className="sticky top-0 z-30 border-b border-border bg-surface/90 backdrop-blur">
+          <div className="mx-auto flex h-16 max-w-7xl items-center gap-3 px-4 sm:px-6 lg:px-8">
+            <Link href={home} className="flex shrink-0 items-center gap-2 lg:hidden">
+              <Logo />
+              <span className="hidden truncate font-bold tracking-tight sm:inline">
+                {t('app.name')}
+              </span>
+            </Link>
+
+            {/*
+             * Where you are, taken from the same nav the sidebar is drawn from,
+             * so a new destination cannot arrive with an unnamed bar. A detail
+             * route falls under its section, which is what the highlighted
+             * sidebar row already says.
+             */}
+            <h1 className="hidden min-w-0 truncate text-base font-semibold tracking-tight lg:block">
+              {current ? t(current.labelKey) : t('app.name')}
+            </h1>
+
+            <div className="ml-auto flex shrink-0 items-center gap-1">
+              <TodayChip />
+
+              {notificationsHref && (
+                <NotificationBell href={notificationsHref} count={notificationCount} />
+              )}
+
+              {/* At `lg` the account lives in the sidebar footer, so it is not
+                * repeated here: two ways to log out, both on screen at once, is
+                * one more than anybody needs. */}
+              <div className="lg:hidden">
+                <ProfileMenu
+                  name={session.user.name}
+                  role={role}
+                  onLogout={() => logout.mutate()}
+                  loggingOut={logout.isPending}
+                />
+              </div>
+            </div>
           </div>
-        )}
-      </header>
 
-      {/*
-       * Keyed on the path so the arrival plays once per destination. Without the
-       * key React keeps the same element across a navigation and the animation
-       * never re-runs, which is the usual reason these look broken.
-       */}
-      <main key={pathname} className="page-in mx-auto max-w-7xl px-4 py-8 pb-nav sm:px-6">
-        {children}
-      </main>
+          {!online && <OfflineStrip />}
+        </header>
 
-      {/* The bottom bar. Phones only; `sm` keeps the pills in the header. */}
-      <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-surface/95 pb-safe backdrop-blur sm:hidden">
+        {/*
+         * Keyed on the path so the arrival plays once per destination. Without the
+         * key React keeps the same element across a navigation and the animation
+         * never re-runs, which is the usual reason these look broken.
+         */}
+        <main key={pathname} className="page-in mx-auto max-w-7xl px-4 py-8 pb-nav sm:px-6 lg:px-8">
+          {children}
+        </main>
+      </div>
+
+      {/* The bottom bar. Everything below the sidebar breakpoint. */}
+      <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-surface/95 pb-safe backdrop-blur lg:hidden">
         <div className="flex">
           {tabs.map((item) => (
             <TabLink key={item.href} item={item} active={isActive(item.href)} />
@@ -245,22 +306,81 @@ export function AppShell({
   );
 }
 
-/** One destination in the header row. */
-function NavPill({ item, active }: { item: NavItem; active: boolean }) {
+/**
+ * Which day the business is on.
+ *
+ * Half the screens in here say "today" - today's orders, today's takings - and
+ * none of them said which day that was. It is the Dhaka date, not the device's,
+ * because a phone with a wrong clock should not move the business into
+ * yesterday. Hidden on the narrowest screens, where the bar has room for the
+ * brand and the controls and nothing else.
+ */
+function TodayChip() {
+  return (
+    <span className="mr-1 hidden items-center gap-1.5 rounded-lg bg-subtle px-2.5 py-1.5 text-xs font-medium text-muted-foreground sm:flex">
+      <CalendarDays aria-hidden className="h-3.5 w-3.5" />
+      {formatToday()}
+    </span>
+  );
+}
+
+function OfflineStrip() {
+  return (
+    <div className="flex items-center justify-center gap-2 bg-warning-soft px-4 py-1.5 text-xs font-semibold text-warning-ink">
+      <WifiOff className="h-3.5 w-3.5" />
+      {t('app.offline')}
+    </div>
+  );
+}
+
+function NotificationBell({ href, count }: { href: Route; count?: number }) {
+  return (
+    <Link
+      href={href}
+      aria-label={t('nav.notifications')}
+      className="relative flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+    >
+      <Bell className="h-[1.125rem] w-[1.125rem]" />
+      {/* A dot, not a count. The count lives on the page itself. */}
+      {count ? (
+        <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-danger ring-2 ring-surface" />
+      ) : null}
+    </Link>
+  );
+}
+
+/**
+ * One destination in the sidebar.
+ *
+ * The active state is a filled row with a short bar against the left edge. The
+ * fill alone was the whole signal in the header pills, which is fine for a
+ * horizontal row of six but weak in a vertical list of ten, where the eye is
+ * scanning down an edge rather than across a band.
+ */
+function SideLink({ item, active }: { item: NavItem; active: boolean }) {
   return (
     <Link
       href={item.href}
       aria-current={active ? 'page' : undefined}
       className={cn(
-        'flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3.5 py-2 text-sm transition-all',
+        'group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors',
         active
-          ? 'bg-primary-softer font-semibold text-primary-ink shadow-[inset_0_0_0_1px_oklch(0.546_0.244_263/0.12)]'
+          ? 'bg-primary-soft font-semibold text-primary-ink'
           : 'font-medium text-muted-foreground hover:bg-muted hover:text-foreground'
       )}
     >
-      {t(item.labelKey)}
+      {active && (
+        <span
+          aria-hidden
+          className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-primary"
+        />
+      )}
+      <item.icon
+        className={cn('h-[1.125rem] w-[1.125rem] shrink-0', !active && 'opacity-80')}
+      />
+      <span className="min-w-0 flex-1 truncate">{t(item.labelKey)}</span>
       {item.badge ? (
-        <span className="tabular rounded-full bg-danger px-1.5 text-xs font-semibold text-danger-foreground">
+        <span className="tabular shrink-0 rounded-full bg-danger px-1.5 text-xs font-semibold text-danger-foreground">
           {item.badge > 99 ? '99+' : item.badge}
         </span>
       ) : null}
@@ -269,107 +389,28 @@ function NavPill({ item, active }: { item: NavItem; active: boolean }) {
 }
 
 /**
- * The destinations past the sixth, on a wide screen.
- *
- * It carries the active state of whatever is inside it, so a reader on the zones
- * page can still see where they are without opening the menu to find out.
- */
-function NavMore({
-  items,
-  isActive,
-}: {
-  items: NavItem[];
-  isActive: (href: string) => boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const active = items.some((item) => isActive(item.href));
-
-  useEffect(() => {
-    if (!open) return undefined;
-    const onPointerDown = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false);
-    };
-    document.addEventListener('pointerdown', onPointerDown);
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('pointerdown', onPointerDown);
-      document.removeEventListener('keydown', onKeyDown);
-    };
-  }, [open]);
-
-  return (
-    <div ref={rootRef} className="relative">
-      <button
-        type="button"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen((current) => !current)}
-        className={cn(
-          'flex items-center gap-1 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm transition-colors',
-          active || open
-            ? 'bg-primary-softer font-semibold text-primary-ink'
-            : 'font-medium text-muted-foreground hover:bg-muted hover:text-foreground'
-        )}
-      >
-        {t('nav.more')}
-        <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', open && 'rotate-180')} />
-      </button>
-
-      {open && (
-        <div
-          role="menu"
-          className="menu-in elev-3 absolute left-1/2 top-full z-40 mt-1.5 min-w-52 -translate-x-1/2 overflow-hidden rounded-xl border border-border bg-surface py-1"
-        >
-          {items.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              role="menuitem"
-              // The route changes without unmounting this menu, so following a
-              // link inside it has to close it explicitly.
-              onClick={() => setOpen(false)}
-              aria-current={isActive(item.href) ? 'page' : undefined}
-              className={cn(
-                'flex items-center gap-2.5 px-3 py-2 text-sm transition-colors hover:bg-muted',
-                isActive(item.href) ? 'font-semibold text-primary-ink' : 'text-foreground'
-              )}
-            >
-              <item.icon className="h-4 w-4 shrink-0 opacity-70" />
-              <span className="flex-1 truncate">{t(item.labelKey)}</span>
-              {item.badge ? (
-                <span className="tabular rounded-full bg-danger px-1.5 text-xs font-semibold text-danger-foreground">
-                  {item.badge}
-                </span>
-              ) : null}
-            </Link>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/**
  * Name, role and the way out.
  *
  * Logout used to be a bare icon button sitting in the header at all times, which
  * put a destructive action one mis-tap from every screen. It is now behind the
- * avatar, where the rest of the account belongs.
+ * avatar, where the rest of the account belongs. In the sidebar it fills the
+ * footer and opens upward, because there is nothing below it to open into.
  */
 function ProfileMenu({
   name,
   role,
   onLogout,
   loggingOut,
+  placement = 'bottom',
+  full,
 }: {
   name: string;
   role: Role;
   onLogout: () => void;
   loggingOut: boolean;
+  placement?: 'bottom' | 'top';
+  /** Stretches the trigger to the width of its container, for the sidebar footer. */
+  full?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -397,7 +438,7 @@ function ProfileMenu({
   const roleLabel = t(role === 'owner' ? 'role.owner' : 'role.reseller');
 
   return (
-    <div ref={rootRef} className="relative">
+    <div ref={rootRef} className={cn('relative', full && 'w-full')}>
       <button
         ref={triggerRef}
         type="button"
@@ -407,12 +448,20 @@ function ProfileMenu({
         onClick={() => setOpen((current) => !current)}
         className={cn(
           'flex items-center gap-2 rounded-lg py-1 pl-1 pr-1.5 transition-colors hover:bg-muted sm:pr-2',
+          full && 'w-full gap-2.5 p-2',
           open && 'bg-muted'
         )}
       >
         <Avatar name={name} size="md" />
-        <span className="hidden min-w-0 text-left leading-tight lg:block">
-          <span className="block max-w-28 truncate text-xs font-semibold">{name}</span>
+        <span
+          className={cn(
+            'hidden min-w-0 text-left leading-tight lg:block',
+            full && 'block flex-1'
+          )}
+        >
+          <span className={cn('block truncate text-xs font-semibold', !full && 'max-w-28')}>
+            {name}
+          </span>
           <span className="block text-[0.6875rem] text-muted-foreground">{roleLabel}</span>
         </span>
       </button>
@@ -420,7 +469,10 @@ function ProfileMenu({
       {open && (
         <div
           role="menu"
-          className="menu-in elev-3 absolute right-0 top-full z-40 mt-1.5 min-w-52 overflow-hidden rounded-xl border border-border bg-surface"
+          className={cn(
+            'menu-in elev-3 absolute z-40 min-w-52 overflow-hidden rounded-xl border border-border bg-surface',
+            placement === 'top' ? 'bottom-full left-0 mb-1.5 w-full' : 'right-0 top-full mt-1.5'
+          )}
         >
           <div className="flex items-center gap-2.5 border-b border-border px-3 py-2.5">
             <Avatar name={name} size="lg" />

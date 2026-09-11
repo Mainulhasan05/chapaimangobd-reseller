@@ -108,3 +108,20 @@ export function formatDayShort(value: string): string {
 export function businessDate(date = new Date()): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dhaka' }).format(date);
 }
+
+/**
+ * Today, in Dhaka, as a person would say it: weekday, day, month.
+ *
+ * The app runs on business dates and half its screens say "today", so the top
+ * bar says which day that is. Read from the formatter rather than the device
+ * clock, for the same reason `dhakaHour` is: a phone set to the wrong timezone
+ * should not quietly move the business into yesterday.
+ */
+export function formatToday(date = new Date()): string {
+  return new Intl.DateTimeFormat('bn-BD', {
+    timeZone: 'Asia/Dhaka',
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+  }).format(date);
+}

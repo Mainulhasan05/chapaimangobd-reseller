@@ -3,6 +3,7 @@
 const { toTaka } = require('./money');
 const { fromMilli } = require('./quantity');
 const storage = require('../config/storage');
+const imageService = require('../services/images');
 
 /**
  * Converts internal integer representations to the decimal values the API speaks.
@@ -10,20 +11,18 @@ const storage = require('../config/storage');
  */
 
 /**
- * Only the storage key is persisted, so the delivery URL is built here. Moving
- * the bucket to a different domain then changes every image at once instead of
- * orphaning the ones already saved. An unconfigured bucket yields an empty list,
- * and the UI falls back to its placeholder rather than a broken image.
+ * Images are presented, never rendered from a raw row.
+ *
+ * A public image is either hosted on ImgBB, where the URL is the record, or in
+ * the R2 public bucket, where the URL is derived from the key so that moving
+ * the bucket does not orphan everything already saved. `services/images.js`
+ * knows which is which; nothing above this line should have to.
+ *
+ * The handle travels alongside the URL because the owner's product form needs
+ * to name an individual image in order to drop it. It leaks nothing: these are
+ * public images, so the handle is already the tail of a URL anyone can see.
  */
-/**
- * The key travels alongside the URL because the owner's product form needs to
- * name an individual image in order to delete it. It leaks nothing: product
- * images live in the public bucket, so the key is already the tail of the URL.
- */
-const images = (list) =>
-  (list || [])
-    .map((img) => ({ key: img.key, url: storage.publicUrl(img.key) }))
-    .filter((img) => Boolean(img.url));
+const images = (list) => imageService.presentMany(list);
 
 const line = (l) => ({
   id: l._id,

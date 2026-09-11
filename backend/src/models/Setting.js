@@ -2,6 +2,7 @@
 
 const mongoose = require('mongoose');
 const { isSafeMoney } = require('../utils/money');
+const publicImageSchema = require('./publicImage');
 
 /** Singleton. Loaded once at boot and cached; see services/settings.js. */
 const settingSchema = new mongoose.Schema(
@@ -11,6 +12,14 @@ const settingSchema = new mongoose.Schema(
     businessName: { type: String, default: 'ChapaiMango' },
     supportPhoneE164: { type: String },
     poweredByText: { type: String, default: 'Powered by ChapaiMango' },
+
+    /*
+     * The brand mark, shown on every public shop and on the tracking page, to
+     * visitors who are not logged in. Hosted rather than stored, for the same
+     * reason product photographs are. `brandLogoUrl` is what readers render.
+     */
+    brandLogoUrl: { type: String },
+    brandLogo: { type: publicImageSchema, default: null },
 
     defaultCreditLimitPoisha: {
       type: Number,

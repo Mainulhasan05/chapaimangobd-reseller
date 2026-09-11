@@ -28,6 +28,7 @@ import { SearchInput, SortSelect, Toolbar, ToolbarSpacer } from '@/components/ui
 import { Button, Spinner } from '@/components/ui/button';
 import { Field, Input, MoneyInput, Select, Textarea } from '@/components/ui/form';
 import { ImagesField } from '@/components/ui/images-field';
+import { ProductThumb } from '@/components/ui/product-image';
 import { Switch } from '@/components/ui/switch';
 import { Modal } from '@/components/ui/modal';
 
@@ -181,9 +182,20 @@ export default function OwnerProductsPage() {
               <Tr key={product.id}>
                 {columns.isVisible('name') && (
                   <Td>
-                    <div className="font-semibold">{product.name}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {formatNumber(product.minOrderQty)} {product.unit} {t('catalog.minOrderQty')}
+                    {/*
+                     * The owner's own catalog was the one screen listing mangoes
+                     * with no picture of them, which made the photographs feel
+                     * like something you upload and never see again.
+                     */}
+                    <div className="flex items-center gap-3">
+                      <ProductThumb images={product.images} alt={product.name} size="sm" />
+                      <div className="min-w-0">
+                        <div className="truncate font-semibold">{product.name}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {formatNumber(product.minOrderQty)} {product.unit}{' '}
+                          {t('catalog.minOrderQty')}
+                        </div>
+                      </div>
                     </div>
                   </Td>
                 )}
@@ -252,9 +264,9 @@ function ProductModal({ product, onClose }: { product: OwnerProduct | null; onCl
   // read-only: dropping one photo out of a chosen five means rebuilding the set.
   const [files, setFiles] = useState<File[]>([]);
 
-  // Keys of stored images the owner has removed, applied on save rather than
+  // Handles of stored images the owner has dropped, applied on save rather than
   // immediately, so closing the sheet without saving changes nothing.
-  const [removedKeys, setRemovedKeys] = useState<string[]>([]);
+  const [removedIds, setRemovedIds] = useState<string[]>([]);
 
   const [draft, setDraft] = useState<Draft>(() =>
     product
@@ -289,7 +301,7 @@ function ProductModal({ product, onClose }: { product: OwnerProduct | null; onCl
       if (draft.trackStock) data.set('stockQty', draft.stockQty);
       data.set('isAvailable', String(draft.isAvailable));
       files.forEach((file) => data.append('images', file));
-      removedKeys.forEach((key) => data.append('removeImages', key));
+      removedIds.forEach((id) => data.append('removeImages', id));
 
       return product
         ? api.upload(`/owner/products/${product.id}`, data, 'PATCH')
@@ -445,8 +457,8 @@ function ProductModal({ product, onClose }: { product: OwnerProduct | null; onCl
         hint={t('catalog.imagesHint')}
         value={files}
         onChange={setFiles}
-        existing={(product?.images ?? []).filter((image) => !removedKeys.includes(image.key))}
-        onRemoveExisting={(key) => setRemovedKeys((prev) => [...prev, key])}
+        existing={(product?.images ?? []).filter((image) => !removedIds.includes(image.id))}
+        onRemoveExisting={(id) => setRemovedIds((prev) => [...prev, id])}
       />
 
       {save.error && errors.images && (

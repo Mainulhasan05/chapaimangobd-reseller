@@ -1,7 +1,6 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import Image from 'next/image';
 import Link from 'next/link';
 import { useMutation } from '@tanstack/react-query';
 import { CircleCheck } from 'lucide-react';
@@ -14,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { QuantityStepper } from '@/components/ui/stepper';
 import { Field, Input, Select, Textarea } from '@/components/ui/form';
 import { PhoneField } from '@/components/ui/phone-field';
+import { ProductThumb } from '@/components/ui/product-image';
 
 type Line = { product: string; quantity: number };
 
@@ -129,7 +129,6 @@ export function OrderForm({
         <div className="mb-6 space-y-3">
           {shop.products.map((product) => {
             const quantity = lines[product.id] ?? 0;
-            const image = product.images?.[0]?.url;
 
             return (
               <Card
@@ -139,23 +138,11 @@ export function OrderForm({
                 <div className="flex items-start gap-3">
                   {/*
                    * A mango shop with no photographs of mangoes was asking people
-                   * to buy fruit from a spreadsheet. Fixed size and lazy, because
-                   * this page loads over a mobile connection.
+                   * to buy fruit from a spreadsheet. The largest thumb on offer,
+                   * because this is the only screen where the photograph is the
+                   * thing being sold rather than a row marker.
                    */}
-                  {image ? (
-                    <Image
-                      src={image}
-                      alt={product.name}
-                      width={72}
-                      height={72}
-                      className="h-18 w-18 shrink-0 rounded-lg object-cover"
-                    />
-                  ) : (
-                    <div
-                      aria-hidden
-                      className="h-18 w-18 shrink-0 rounded-lg bg-muted"
-                    />
-                  )}
+                  <ProductThumb images={product.images} alt={product.name} size="lg" />
 
                   <div className="min-w-0 flex-1">
                     <div className="flex items-start justify-between gap-2">
