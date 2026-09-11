@@ -164,7 +164,7 @@ function ReviewModal({
 
       {documents.error && <Alert tone="warning">{errorMessage(documents.error)}</Alert>}
 
-      <div className="mb-4 grid gap-3 sm:grid-cols-2">
+      <div className="mb-5 grid gap-4 sm:grid-cols-2">
         {documents.data?.documents.map((doc) => (
           <figure key={doc.type}>
             <figcaption className="mb-1 text-xs text-muted-foreground">{doc.type}</figcaption>

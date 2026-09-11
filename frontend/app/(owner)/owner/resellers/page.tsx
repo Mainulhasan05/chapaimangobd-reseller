@@ -87,7 +87,7 @@ export default function OwnerResellersPage() {
     <>
       <PageHeader title={t('nav.resellers')} subtitle={t('wallet.negativeHelp')} />
 
-      <div className="mb-4 grid gap-3 sm:grid-cols-3">
+      <div className="mb-5 grid gap-4 sm:grid-cols-3">
         <Stat icon={Users} tone="primary" label={t('nav.resellers')} value={all.length} />
         <Stat
           icon={TrendingDown}

@@ -105,10 +105,10 @@ export default function OwnerDashboardPage() {
 
   return (
     <>
-      <header className="mb-5">
+      <header className="mb-7">
         <Greeting name={session?.user.name} />
-        <h1 className="text-2xl font-bold">{t('nav.dashboard')}</h1>
-        <p className="text-sm text-muted-foreground">{data?.today}</p>
+        <h1 className="text-2xl font-semibold tracking-tight">{t('nav.dashboard')}</h1>
+        <p className="mt-1 text-sm text-muted-foreground">{data?.today}</p>
       </header>
 
       {/*
@@ -117,7 +117,7 @@ export default function OwnerDashboardPage() {
        * hero has moved into the rail, because on a wide screen a single number
        * stretched across twelve hundred pixels is mostly empty space.
        */}
-      <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mb-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Stat
           icon={ShoppingBag}
           tone="primary"
@@ -150,7 +150,7 @@ export default function OwnerDashboardPage() {
       </div>
 
       <DashboardGrid>
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-5">
           {/*
            * Where the orders in flight are sitting. This is the owner's actual
            * job in one bar, and it replaces four separate counts that had to be

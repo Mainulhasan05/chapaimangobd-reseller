@@ -91,7 +91,7 @@ export function QueuePanel({
   footer?: React.ReactNode;
 }) {
   return (
-    <section className="elev-2 relative overflow-hidden rounded-[var(--radius-card)] bg-gradient-to-br from-[oklch(0.5_0.22_263)] to-[oklch(0.38_0.16_265)] p-4 text-white">
+    <section className="elev-2 relative overflow-hidden rounded-[var(--radius-panel)] bg-gradient-to-br from-[oklch(0.5_0.22_263)] to-[oklch(0.38_0.16_265)] p-5 text-white">
       {/* A soft highlight, so the fill reads as a surface rather than a swatch. */}
       <div
         aria-hidden
@@ -115,7 +115,7 @@ export function QueuePanel({
           )}
         </div>
 
-        <div className="grid grid-cols-2 gap-2">{children}</div>
+        <div className="grid grid-cols-2 gap-2.5">{children}</div>
 
         {footer && (
           <div className="mt-3 rounded-lg bg-white/12 px-3 py-2 text-xs text-white/90">{footer}</div>
@@ -160,7 +160,7 @@ export function QueueTile({
   );
 
   const className = cn(
-    'flex items-center gap-2 rounded-lg bg-white/10 px-2.5 py-2 transition-colors',
+    'flex items-center gap-2.5 rounded-xl bg-white/10 px-3 py-2.5 transition-colors',
     empty && 'opacity-60',
     href && 'hover:bg-white/20'
   );

@@ -122,7 +122,7 @@ export function HeroCard({
   return (
     <div
       className={cn(
-        'relative overflow-hidden rounded-2xl p-5 shadow-md',
+        'elev-2 relative overflow-hidden rounded-[var(--radius-panel)] p-6',
         tone === 'brand'
           ? 'bg-gradient-to-br from-[oklch(0.84_0.15_85)] to-[oklch(0.74_0.17_62)] text-[oklch(0.24_0.045_60)]'
           : 'bg-gradient-to-br from-[oklch(0.32_0.06_35)] to-[oklch(0.24_0.05_30)] text-[oklch(0.97_0.01_60)]'
@@ -136,8 +136,8 @@ export function HeroCard({
 
       <div className="relative">
         <p className="text-xs font-semibold opacity-80">{label}</p>
-        <p className="tabular mt-1 text-4xl font-bold leading-tight">{value}</p>
-        {caption && <p className="mt-1 text-xs font-medium opacity-80">{caption}</p>}
+        <p className="tabular mt-1.5 text-[2.5rem] font-bold leading-none tracking-tight">{value}</p>
+        {caption && <p className="mt-2.5 text-xs font-medium opacity-80">{caption}</p>}
         {children}
       </div>
     </div>

@@ -100,7 +100,7 @@ export function AppShell({
         <div className="border-b border-border bg-surface px-4 py-3">
           <Skeleton className="h-6 w-32" />
         </div>
-        <div className="mx-auto max-w-7xl px-4 py-6">
+        <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
           <Skeleton className="mb-6 h-8 w-40" />
           <ListSkeleton rows={4} />
         </div>
@@ -118,7 +118,7 @@ export function AppShell({
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-30 border-b border-border bg-surface/90 backdrop-blur">
-        <div className="mx-auto flex h-14 max-w-7xl items-center gap-4 px-4">
+        <div className="mx-auto flex h-16 max-w-7xl items-center gap-4 px-4 sm:px-6">
           <Link href={home} className="flex shrink-0 items-center gap-2">
             <Logo />
             <span className="hidden truncate font-bold tracking-tight sm:inline">
@@ -175,7 +175,14 @@ export function AppShell({
         )}
       </header>
 
-      <main className="mx-auto max-w-7xl px-4 py-6 pb-nav">{children}</main>
+      {/*
+       * Keyed on the path so the arrival plays once per destination. Without the
+       * key React keeps the same element across a navigation and the animation
+       * never re-runs, which is the usual reason these look broken.
+       */}
+      <main key={pathname} className="page-in mx-auto max-w-7xl px-4 py-8 pb-nav sm:px-6">
+        {children}
+      </main>
 
       {/* The bottom bar. Phones only; `sm` keeps the pills in the header. */}
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-surface/95 pb-safe backdrop-blur sm:hidden">
@@ -245,9 +252,9 @@ function NavPill({ item, active }: { item: NavItem; active: boolean }) {
       href={item.href}
       aria-current={active ? 'page' : undefined}
       className={cn(
-        'flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm transition-colors',
+        'flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3.5 py-2 text-sm transition-all',
         active
-          ? 'bg-primary-softer font-semibold text-primary-ink'
+          ? 'bg-primary-softer font-semibold text-primary-ink shadow-[inset_0_0_0_1px_oklch(0.546_0.244_263/0.12)]'
           : 'font-medium text-muted-foreground hover:bg-muted hover:text-foreground'
       )}
     >

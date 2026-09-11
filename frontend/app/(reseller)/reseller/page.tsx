@@ -98,8 +98,8 @@ export default function ResellerDashboard() {
        * stays full width above the split rather than becoming another tile.
        */}
       {pendingCount > 0 && (
-        <Link href="/reseller/orders?status=pending" className="mb-4 block">
-          <div className="flex items-center gap-3 rounded-xl bg-warning-soft px-4 py-3 ring-1 ring-warning/50 transition-colors hover:brightness-[0.98]">
+        <Link href="/reseller/orders?status=pending" className="mb-5 block">
+          <div className="flex items-center gap-3.5 rounded-2xl bg-warning-soft px-5 py-4 ring-1 ring-warning/40 transition-[filter] hover:brightness-[0.985]">
             <span className="tabular text-2xl font-bold text-warning-ink">
               {formatNumber(pendingCount)}
             </span>
@@ -114,7 +114,7 @@ export default function ResellerDashboard() {
         </Link>
       )}
 
-      <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mb-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Stat
           icon={ClipboardList}
           label={t('order.pending')}
@@ -146,7 +146,7 @@ export default function ResellerDashboard() {
       </div>
 
       <DashboardGrid>
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-5">
           <Card>
             <CardHeader
               title={t('dash.earnings')}

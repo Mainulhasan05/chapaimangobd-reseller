@@ -59,9 +59,9 @@
 
   --font-sans: var(--font-bengali), ui-sans-serif, system-ui, sans-serif;
 
-  --radius-card: 1rem;
-  --radius-panel: 1.25rem;
-  --radius-control: 0.625rem;
+  --radius-card: 1.125rem;
+  --radius-panel: 1.5rem;
+  --radius-control: 0.75rem;
 }
 
 /*
@@ -85,11 +85,17 @@
  * which is the job blue does everywhere else in the app.
  */
 :root {
-  --background: oklch(0.978 0.004 265);
+  /*
+   * The page ground is a shade deeper than it was, and that one change does more
+   * for the way this reads than any shadow. A white card on a nearly white page
+   * has to be outlined to be seen at all; on a ground with some weight in it the
+   * card separates by itself and the border can stay a whisper.
+   */
+  --background: oklch(0.967 0.005 265);
   --surface: oklch(1 0 0);
-  --foreground: oklch(0.2 0.02 265); /* 17.0:1 on background, 18.1:1 on surface */
-  --muted: oklch(0.968 0.005 265);
-  --subtle: oklch(0.945 0.007 265); /* table header fill, chip ground */
+  --foreground: oklch(0.2 0.02 265); /* 16.5:1 on background, 18.1:1 on surface */
+  --muted: oklch(0.958 0.005 265); /* hover fill on a white surface */
+  --subtle: oklch(0.935 0.007 265); /* table header fill, chip ground */
   --muted-foreground: oklch(0.48 0.02 265); /* 6.5:1 on surface, 5.6:1 on subtle */
 
   /*
@@ -182,14 +188,14 @@
    * cards this replaced.
    */
   --elev-1:
-    0 1px 2px oklch(0.2 0.02 265 / 0.04),
-    0 1px 3px oklch(0.2 0.02 265 / 0.03);
+    0 1px 2px oklch(0.2 0.02 265 / 0.03),
+    0 2px 10px oklch(0.2 0.02 265 / 0.04);
   --elev-2:
-    0 8px 24px oklch(0.2 0.02 265 / 0.06),
-    0 2px 6px oklch(0.2 0.02 265 / 0.035);
+    0 2px 4px oklch(0.2 0.02 265 / 0.03),
+    0 12px 32px oklch(0.2 0.02 265 / 0.07);
   --elev-3:
-    0 24px 56px oklch(0.2 0.02 265 / 0.12),
-    0 8px 16px oklch(0.2 0.02 265 / 0.05);
+    0 8px 16px oklch(0.2 0.02 265 / 0.05),
+    0 32px 64px oklch(0.2 0.02 265 / 0.14);
 }
 
 @layer base {
@@ -239,6 +245,14 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-card);
     box-shadow: var(--elev-1);
+    /*
+     * Every card transitions, whether or not it is interactive. A card that
+     * gains a shadow instantly reads as a different card; one that eases into it
+     * reads as the same card, lifting.
+     */
+    transition:
+      box-shadow 200ms cubic-bezier(0.22, 1, 0.36, 1),
+      border-color 200ms ease;
   }
 
   /*
@@ -356,6 +370,18 @@
     min-width: 2.75rem;
   }
 
+  /*
+   * A page arriving, rather than appearing. Eight pixels of rise over a third of
+   * a second on the standard decelerating curve: enough for the eye to register
+   * that something settled, far too little to wait for.
+   *
+   * Keyed on the pathname where it is used, so it plays once per destination and
+   * not on every re-render of the same screen.
+   */
+  .page-in {
+    animation: page-in 320ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
   .sheet-in {
     animation: sheet-in 200ms cubic-bezier(0.32, 0.72, 0, 1);
   }
@@ -378,6 +404,17 @@
     background: linear-gradient(90deg, var(--muted) 25%, var(--subtle) 37%, var(--muted) 63%);
     background-size: 400% 100%;
     animation: shimmer 1.4s ease-in-out infinite;
+  }
+}
+
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.5rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
   }
 }
 
@@ -436,6 +473,7 @@
  * tint rather than disappearing.
  */
 @media (prefers-reduced-motion: reduce) {
+  .page-in,
   .sheet-in,
   .fade-in,
   .toast-in,

@@ -32,7 +32,7 @@ export type { SortState, SortDirection, MenuItem, ColumnDef } from './table';
 /* ----------------------------------------------------------------- card -- */
 
 export function Card({ className, ...props }: React.ComponentProps<'div'>) {
-  return <div className={cn('card p-4 sm:p-5', className)} {...props} />;
+  return <div className={cn('card p-5 sm:p-6', className)} {...props} />;
 }
 
 /**
@@ -60,10 +60,10 @@ export function CardHeader({
   className?: string;
 }) {
   return (
-    <div className={cn('mb-4 flex items-start justify-between gap-3', className)}>
+    <div className={cn('mb-5 flex items-start justify-between gap-3', className)}>
       <div className="min-w-0">
-        <h2 className="truncate text-[0.9375rem] font-semibold tracking-tight">{title}</h2>
-        {subtitle && <p className="mt-0.5 text-sm text-muted-foreground">{subtitle}</p>}
+        <h2 className="truncate text-base font-semibold tracking-tight">{title}</h2>
+        {subtitle && <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>}
       </div>
 
       <div className="flex shrink-0 items-center gap-2">
@@ -102,8 +102,8 @@ export function Panel({
   className?: string;
 }) {
   return (
-    <section className={cn('card p-4', className)}>
-      <CardHeader title={title} href={href} hrefLabel={hrefLabel} action={action} className="mb-3" />
+    <section className={cn('card p-5', className)}>
+      <CardHeader title={title} href={href} hrefLabel={hrefLabel} action={action} className="mb-4" />
       {children}
     </section>
   );
@@ -171,14 +171,20 @@ export function statusTone(status: string): Tone {
 
 /* ----------------------------------------------------------------- stat -- */
 
-/** The tinted circle a stat card wears. Quiet enough to sit behind the number. */
+/**
+ * The tinted square a stat card wears.
+ *
+ * A gradient rather than a flat tint, running from the soft ground into a
+ * fractionally deeper one. It is barely perceptible on its own and it is the
+ * difference between a chip that looks placed and a chip that looks printed.
+ */
 const CHIPS: Record<Tone, string> = {
-  neutral: 'bg-subtle text-muted-foreground',
-  primary: 'bg-primary-softer text-primary-ink',
-  brand: 'bg-brand-soft text-brand-ink',
-  success: 'bg-success-soft text-success-ink',
-  warning: 'bg-warning-soft text-warning-ink',
-  danger: 'bg-danger-soft text-danger-ink',
+  neutral: 'bg-gradient-to-br from-subtle to-muted text-muted-foreground',
+  primary: 'bg-gradient-to-br from-primary-softer to-primary-soft text-primary-ink',
+  brand: 'bg-gradient-to-br from-brand-soft to-brand/25 text-brand-ink',
+  success: 'bg-gradient-to-br from-success-soft to-success/15 text-success-ink',
+  warning: 'bg-gradient-to-br from-warning-soft to-warning/25 text-warning-ink',
+  danger: 'bg-gradient-to-br from-danger-soft to-danger/12 text-danger-ink',
 };
 
 /**
@@ -227,13 +233,13 @@ export function Stat({
        * row of four cards where only some carry an icon reads as a misalignment.
        */}
       {(Icon || href) && (
-        <div className="mb-3 flex items-start justify-between gap-2">
+        <div className="mb-4 flex items-start justify-between gap-2">
           {Icon ? (
             <span
               aria-hidden
-              className={cn('flex h-9 w-9 items-center justify-center rounded-full', CHIPS[tone])}
+              className={cn('flex h-10 w-10 items-center justify-center rounded-xl', CHIPS[tone])}
             >
-              <Icon className="h-[1.125rem] w-[1.125rem]" />
+              <Icon className="h-5 w-5" />
             </span>
           ) : (
             <span />
@@ -241,29 +247,36 @@ export function Stat({
           {href && (
             <span
               aria-hidden
-              className="flex h-7 w-7 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors group-hover:border-input group-hover:text-foreground"
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-all group-hover:bg-muted group-hover:text-foreground"
             >
-              <ArrowUpRight className="h-3.5 w-3.5" />
+              <ArrowUpRight className="h-4 w-4" />
             </span>
           )}
         </div>
       )}
 
       <div className="text-xs font-semibold text-muted-foreground">{label}</div>
-      <div className={cn('tabular mt-0.5 text-3xl font-bold leading-tight', accent)}>{value}</div>
-      {hint && <div className="mt-1 text-xs text-muted-foreground">{hint}</div>}
+      <div
+        className={cn(
+          'tabular mt-1 text-[2rem] font-bold leading-none tracking-tight',
+          accent
+        )}
+      >
+        {value}
+      </div>
+      {hint && <div className="mt-2 text-xs text-muted-foreground">{hint}</div>}
     </>
   );
 
   if (href) {
     return (
-      <Link href={href} className={cn('card card-interactive group block p-4', className)}>
+      <Link href={href} className={cn('card card-interactive group block p-5', className)}>
         {body}
       </Link>
     );
   }
 
-  return <div className={cn('card p-4', className)}>{body}</div>;
+  return <div className={cn('card p-5', className)}>{body}</div>;
 }
 
 /* --------------------------------------------------------------- avatar -- */
@@ -423,11 +436,15 @@ export function Person({
  * it follows the main column rather than competing with it for the fold.
  */
 export function DashboardGrid({ children }: { children: React.ReactNode }) {
-  return <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">{children}</div>;
+  return (
+    <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+      {children}
+    </div>
+  );
 }
 
 export function Rail({ children }: { children: React.ReactNode }) {
-  return <div className="flex flex-col gap-4">{children}</div>;
+  return <div className="flex flex-col gap-5">{children}</div>;
 }
 
 export function PageHeader({
@@ -440,10 +457,10 @@ export function PageHeader({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+    <div className="mb-7 flex flex-wrap items-start justify-between gap-3">
       <div className="min-w-0">
-        <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">{title}</h1>
-        {subtitle && <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>}
+        <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+        {subtitle && <p className="mt-1.5 text-sm text-muted-foreground">{subtitle}</p>}
       </div>
       {action}
     </div>
@@ -464,11 +481,11 @@ export function EmptyState({
   icon?: React.ComponentType<{ className?: string }>;
 }) {
   return (
-    <div className="card flex flex-col items-center gap-2 px-6 py-12 text-center">
+    <div className="card flex flex-col items-center gap-2 px-6 py-14 text-center">
       {Icon && (
         <span
           aria-hidden
-          className="mb-1 flex h-11 w-11 items-center justify-center rounded-full bg-subtle text-muted-foreground"
+          className="mb-2 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-subtle to-muted text-muted-foreground"
         >
           <Icon className="h-5 w-5" />
         </span>

@@ -55,8 +55,32 @@ export function TrendChart({
     padX + (points.length === 1 ? innerW / 2 : (index / (points.length - 1)) * innerW);
   const y = (value: number) => padY + innerH - (value / max) * innerH;
 
-  const line = points.map((point, index) => `${x(index)},${y(point.value)}`).join(' ');
-  const area = `${padX},${padY + innerH} ${line} ${x(points.length - 1)},${padY + innerH}`;
+  const coords = points.map((point, index) => [x(index), y(point.value)] as const);
+
+  /*
+   * A smoothed path rather than a kinked polyline.
+   *
+   * Control points are placed on a monotone cubic, which is the one smoothing
+   * that cannot invent a value: between two days it never rises above the higher
+   * of them or dips below the lower. A plain Catmull-Rom curve does exactly that,
+   * and on an earnings chart an overshoot below zero would draw a loss that never
+   * happened. The tension is deliberately mild, so the shape still reads as seven
+   * measured days rather than a flowing illustration.
+   */
+  const line = coords.reduce((path, [cx, cy], index) => {
+    if (index === 0) return `M ${cx} ${cy}`;
+    const [px, py] = coords[index - 1];
+    // A horizontal handle on each side: the curve leaves and arrives flat, so a
+    // peak is a rounded crest and never a spike above the value it represents.
+    const handle = (cx - px) * 0.4;
+    return `${path} C ${px + handle} ${py}, ${cx - handle} ${cy}, ${cx} ${cy}`;
+  }, '');
+
+  const floor = padY + innerH;
+  const area =
+    coords.length > 0
+      ? `${line} L ${coords[coords.length - 1][0]} ${floor} L ${coords[0][0]} ${floor} Z`
+      : '';
 
   const last = points[points.length - 1];
   const bestIndex = points.reduce(
@@ -89,7 +113,8 @@ export function TrendChart({
             <defs>
               <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
                 {/* A wash, never a saturated block. */}
-                <stop offset="0%" stopColor={SERIES} stopOpacity="0.22" />
+                <stop offset="0%" stopColor={SERIES} stopOpacity="0.26" />
+                <stop offset="60%" stopColor={SERIES} stopOpacity="0.08" />
                 <stop offset="100%" stopColor={SERIES} stopOpacity="0" />
               </linearGradient>
             </defs>
@@ -106,12 +131,12 @@ export function TrendChart({
 
             {!empty && (
               <>
-                <polygon points={area} fill={`url(#${gradientId})`} />
-                <polyline
-                  points={line}
+                <path d={area} fill={`url(#${gradientId})`} />
+                <path
+                  d={line}
                   fill="none"
                   stroke={SERIES}
-                  strokeWidth="2"
+                  strokeWidth="2.25"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 />
@@ -142,6 +167,13 @@ export function TrendChart({
                 <circle
                   cx={x(points.length - 1)}
                   cy={y(last.value)}
+                  r="9"
+                  fill={SERIES}
+                  opacity="0.16"
+                />
+                <circle
+                  cx={x(points.length - 1)}
+                  cy={y(last.value)}
                   r="4.5"
                   fill={SERIES}
                   stroke="var(--surface)"
@@ -161,7 +193,7 @@ export function TrendChart({
         {/* Value leads, label follows: the reader already knows the series. */}
         {shown && (
           <div
-            className="pointer-events-none absolute -top-1 z-10 -translate-x-1/2 rounded-lg bg-foreground px-2 py-1 text-center shadow-md"
+            className="elev-3 pointer-events-none absolute -top-1 z-10 -translate-x-1/2 rounded-xl bg-foreground px-2.5 py-1.5 text-center"
             style={{ left: Math.min(Math.max(x(active!), 44), width - 44) }}
           >
             <span className="tabular block text-xs font-bold text-background">

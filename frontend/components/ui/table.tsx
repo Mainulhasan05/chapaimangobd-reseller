@@ -48,7 +48,7 @@ export function Th({ className, ...props }: React.ComponentProps<'th'>) {
   return (
     <th
       className={cn(
-        'sticky top-0 z-10 border-b border-border bg-subtle px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground',
+        'sticky top-0 z-10 border-b border-border bg-muted px-5 py-3 text-left text-xs font-semibold text-muted-foreground',
         className
       )}
       {...props}
@@ -59,7 +59,7 @@ export function Th({ className, ...props }: React.ComponentProps<'th'>) {
 export function Td({ className, ...props }: React.ComponentProps<'td'>) {
   return (
     <td
-      className={cn('border-b border-border px-4 py-3 align-middle last:border-b-0', className)}
+      className={cn('border-b border-border px-5 py-3.5 align-middle last:border-b-0', className)}
       {...props}
     />
   );
@@ -78,8 +78,8 @@ export function Tr({
     <tr
       data-selected={selected || undefined}
       className={cn(
-        'transition-colors',
-        selected ? 'bg-primary-softer' : 'hover:bg-muted/70',
+        'transition-colors duration-150',
+        selected ? 'bg-primary-softer' : 'hover:bg-muted/60',
         className
       )}
       {...props}
@@ -174,7 +174,7 @@ export function SortTh<K extends string>({
         type="button"
         onClick={() => onSort(column)}
         className={cn(
-          'flex w-full items-center gap-1.5 px-4 py-2.5 text-xs font-semibold transition-colors hover:text-foreground',
+          'flex w-full items-center gap-1.5 px-5 py-3 text-xs font-semibold transition-colors hover:text-foreground',
           align === 'right' && 'justify-end',
           active && 'text-foreground'
         )}

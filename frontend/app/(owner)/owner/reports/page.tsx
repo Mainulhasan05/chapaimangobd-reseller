@@ -93,7 +93,7 @@ export default function OwnerReportsPage() {
         }
       />
 
-      <div className="mb-6 grid gap-3 sm:grid-cols-3">
+      <div className="mb-6 grid gap-4 sm:grid-cols-3">
         <Stat
           icon={TrendingDown}
           label={t('owner.receivable')}
@@ -172,7 +172,7 @@ export default function OwnerReportsPage() {
       <Card>
         <CardHeader title={t('nav.products')} />
 
-        <div className="mb-4 grid gap-3 sm:grid-cols-2">
+        <div className="mb-5 grid gap-4 sm:grid-cols-2">
           <Field label="শুরু" htmlFor="from" className="mb-0">
             <Input id="from" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
           </Field>
