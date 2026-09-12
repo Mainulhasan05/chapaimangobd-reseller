@@ -61,10 +61,17 @@ const schema = z.object({
   VAPID_PRIVATE_KEY: z.string().optional(),
   VAPID_SUBJECT: z.string().default('mailto:support@example.com'),
 
+  // Automas, the SMS gateway. The AUTOMAS_ names are what the dashboard calls
+  // them and are what a new deployment should set; the SMS_ names are the
+  // originals and still work, so an existing .env keeps booting untouched.
   SMS_API_URL: z.string().default('https://api.automas.com.bd/smsapiv3'),
-  SMS_BALANCE_URL: z.string().default('https://api.automas.com.bd/'),
+  // Lowercase, and it is not a path under smsapiv3. It answers
+  // `{"response":"104"}`, a count of messages rather than a sum of money.
+  SMS_BALANCE_URL: z.string().default('https://api.automas.com.bd/getbalance'),
   SMS_API_KEY: z.string().optional(),
   SMS_SENDER_ID: z.string().optional(),
+  AUTOMAS_API_KEY: z.string().optional(),
+  AUTOMAS_SENDER_ID: z.string().optional(),
 
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_BOT_USERNAME: z.string().optional(),
@@ -106,7 +113,16 @@ env.r2PublicDelivery = Boolean(
 // images and R2 public delivery is only the fallback when it is unset.
 env.imgbbConfigured = Boolean(env.IMGBB_API_KEY);
 env.webPushConfigured = Boolean(env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_KEY);
-env.smsConfigured = Boolean(env.SMS_API_KEY && env.SMS_SENDER_ID);
+
+/*
+ * One pair of names for the gateway credentials, whichever pair the .env used.
+ * Nothing outside this file should know that two spellings exist: the channel
+ * reads `env.smsApiKey`, and adding a third alias later touches only these two
+ * lines rather than every call site.
+ */
+env.smsApiKey = env.AUTOMAS_API_KEY || env.SMS_API_KEY || null;
+env.smsSenderId = env.AUTOMAS_SENDER_ID || env.SMS_SENDER_ID || null;
+env.smsConfigured = Boolean(env.smsApiKey && env.smsSenderId);
 env.telegramConfigured = Boolean(env.TELEGRAM_BOT_TOKEN);
 
 module.exports = env;

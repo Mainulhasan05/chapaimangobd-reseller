@@ -171,7 +171,7 @@ export function Modal({
             <span aria-hidden className="h-1 w-10 rounded-full bg-input" />
           </div>
 
-          <div className="flex items-center justify-between gap-3 px-5 pb-1 pt-4 sm:pt-5">
+          <div className="flex items-center justify-between gap-3 px-5 pb-3 pt-4 sm:px-6 sm:pt-5">
             <h2 className="min-w-0 truncate text-lg font-semibold tracking-tight">{title}</h2>
             <button
               type="button"
@@ -184,14 +184,18 @@ export function Modal({
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-4">{children}</div>
+        {/* A little more room than the header and footer, because this is the
+          * part that is read rather than scanned. */}
+        <div className="flex-1 overflow-y-auto overscroll-contain px-5 pb-5 pt-1 sm:px-6">
+          {children}
+        </div>
 
         {(footer || footerLead) && (
-          <div className="shrink-0 border-t border-border bg-surface px-5 py-4 pb-safe">
+          <div className="shrink-0 border-t border-border bg-surface px-5 pt-4 pb-safe-4 sm:px-6">
             {footerLead && <div className="mb-3">{footerLead}</div>}
             {/* Full width and side by side on a phone, where a corner button is a stretch. */}
             {footer && (
-              <div className="flex gap-2 [&>button]:flex-1 sm:justify-end sm:[&>button]:flex-none">
+              <div className="flex gap-3 [&>button]:flex-1 sm:justify-end sm:[&>button]:flex-none">
                 {footer}
               </div>
             )}
@@ -200,10 +204,10 @@ export function Modal({
 
         {confirmingClose && (
           <div className="fade-in absolute inset-0 z-10 flex flex-col justify-end bg-black/40 sm:justify-center sm:p-6">
-            <div className="card elev-3 m-0 rounded-b-none rounded-t-2xl border-0 p-5 sm:rounded-2xl">
+            <div className="card elev-3 m-0 rounded-b-none rounded-t-2xl border-0 px-5 pt-5 pb-safe-5 sm:rounded-2xl sm:pb-5">
               <p className="font-medium">{t('app.unsavedTitle')}</p>
               <p className="mt-1 text-sm text-muted-foreground">{t('app.unsavedHelp')}</p>
-              <div className="mt-4 flex gap-2 [&>button]:flex-1">
+              <div className="mt-5 flex gap-3 [&>button]:flex-1">
                 <Button variant="outline" onClick={() => setConfirmingClose(false)}>
                   {t('app.keepEditing')}
                 </Button>

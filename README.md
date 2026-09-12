@@ -95,9 +95,12 @@ docs/        the plan and the decision records
   `R2_PUBLIC_BUCKET` plus `R2_PUBLIC_BASE_URL` serve the images. Without
   credentials those uploads fail and everything else works. Verify with
   `npm run check:storage`.
-- **SMS is built but switched off.** The Automas gateway integration, credit
-  purchase and owner toggle are all complete, behind a feature flag that defaults
-  to off, because Bengali messages are Unicode and cost roughly double.
+- **SMS defaults to off,** because Bengali messages are Unicode and cost roughly
+  double. The owner's SMS panel at `/owner/sms` is the master switch: off means
+  no reseller action sends a text, whatever that reseller's own preferences say.
+  Every attempt is recorded in `SmsLog` with the gateway's reply, including the
+  ones that were suppressed, and `services/sms.js` is the only code that may
+  reach the gateway. Set `AUTOMAS_API_KEY` and `AUTOMAS_SENDER_ID`.
 - **Web push needs a VAPID keypair** and is best effort regardless: aggressive
   Android battery savers drop it. The in-app record is the source of truth.
 - **Telegram needs a bot token.** It is the free channel that actually arrives.

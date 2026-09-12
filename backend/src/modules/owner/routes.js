@@ -7,6 +7,7 @@ const orders = require('./orders.controller');
 const finance = require('./finance.controller');
 const reports = require('./reports.controller');
 const settings = require('./settings.controller');
+const sms = require('./sms.controller');
 const customers = require('./customers.controller');
 const notifications = require('../shared/notifications.controller');
 const schema = require('./schema');
@@ -156,6 +157,22 @@ router.post(
 );
 router.delete('/settings/brand-logo', asyncHandler(settings.removeBrandLogo));
 router.get('/settings/sms-balance', asyncHandler(settings.smsBalance));
+
+/*
+ * sms
+ *
+ * The switch and the record, together, because they are read together: the
+ * reason to touch the switch is nearly always something seen in the record.
+ * `/settings` can still set `features.sms` alongside everything else, and both
+ * write the same field and the same audit action; this is the route the panel
+ * uses, where turning SMS off is the only thing the request can do.
+ */
+router.get('/sms/overview', asyncHandler(sms.overview));
+router.post('/sms/toggle', validate({ body: schema.toggleSms }), asyncHandler(sms.toggle));
+router.get('/sms/logs', validate({ query: schema.listSmsLogs }), asyncHandler(sms.listLogs));
+router.get('/sms/logs/:id', asyncHandler(sms.getLog));
+router.post('/sms/logs/:id/resend', asyncHandler(sms.resend));
+router.post('/sms/test', validate({ body: schema.sendTestSms }), asyncHandler(sms.sendTest));
 
 /*
  * The owner's inbox.

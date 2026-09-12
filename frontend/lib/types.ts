@@ -330,3 +330,72 @@ export type ResellerSummary = {
 export type Paged<K extends string, T> = { page: number; limit: number; total: number } & {
   [P in K]: T[];
 };
+
+/* -------------------------------------------------------------------- sms -- */
+
+export type SmsStatus = 'sent' | 'failed' | 'blocked';
+export type SmsPurpose = 'notification' | 'test' | 'manual';
+export type SmsBlockReason =
+  | 'feature_off'
+  | 'not_configured'
+  | 'no_credits'
+  | 'no_recipient'
+  | 'empty_text';
+
+/**
+ * One attempted message. Every SMS this platform tries to send becomes one of
+ * these, including the ones that never left: a message suppressed because the
+ * owner switched SMS off is recorded as `blocked`, not as nothing at all.
+ */
+export type SmsLog = {
+  id: string;
+  phone: string;
+  text: string;
+  status: SmsStatus;
+  blockedReason: SmsBlockReason | null;
+  purpose: SmsPurpose;
+  eventType: string | null;
+  /** Bengali is Unicode, so the same sentence costs twice what Latin does. */
+  segments: number;
+  encoding: 'gsm' | 'unicode';
+  resellerName: string | null;
+  resellerId: string | null;
+  creditsCharged: number;
+  creditsRefunded: number;
+  providerMessageId: string | null;
+  providerStatusCode: number | null;
+  error: string | null;
+  durationMs: number | null;
+  sentAt: string | null;
+  createdAt: string;
+};
+
+/** The log row plus the evidence: what the gateway actually replied. */
+export type SmsLogDetail = SmsLog & {
+  senderId: string | null;
+  toLocal: string | null;
+  retryable: boolean | null;
+  providerHttpStatus: number | null;
+  providerResponse: unknown;
+  providerRaw: string | null;
+  outboxMessageId: string | null;
+};
+
+export type SmsOverview = {
+  /** The owner's master switch. Off means off for every reseller action. */
+  enabled: boolean;
+  /** Whether the gateway credentials are set on the server at all. */
+  configured: boolean;
+  senderId: string | null;
+  balance: number | null;
+  /** Set when the gateway was unreachable. The page still renders. */
+  balanceError: string | null;
+  pricePerCredit: number;
+  stats: {
+    sentToday: number;
+    last30: { sent: number; failed: number; blocked: number };
+    segments: number;
+    creditsSpent: number;
+    resellerCredits: number;
+  };
+};

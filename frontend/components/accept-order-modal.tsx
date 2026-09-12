@@ -120,11 +120,18 @@ export function AcceptOrderModal({ order, onClose }: { order: Order | null; onCl
             </Field>
           )}
 
-          <div className="divide-y divide-border">
+          {/*
+           * One tinted block per line rather than a divider list.
+           *
+           * A product name, its quantity and a select stacked between hairlines
+           * read as six loose things in a column; boxed, they read as three
+           * decisions. It is the same information with room to breathe around it.
+           */}
+          <div className="space-y-3">
             {order.items.map((item) => (
-              <div key={item.id} className="py-3 first:pt-0 last:pb-0">
+              <div key={item.id} className="rounded-xl bg-muted/60 p-3.5">
                 <p className="text-sm font-semibold">{item.productName}</p>
-                <p className="tabular mb-2 text-xs text-muted-foreground">
+                <p className="tabular mb-2.5 text-xs text-muted-foreground">
                   {formatQuantity(item.quantity, item.unit)}
                 </p>
                 <Select
@@ -146,7 +153,7 @@ export function AcceptOrderModal({ order, onClose }: { order: Order | null; onCl
           </div>
 
           {!complete && (
-            <p className="mt-3 text-xs text-muted-foreground">{t('order.sourceMissing')}</p>
+            <p className="mt-4 text-xs text-muted-foreground">{t('order.sourceMissing')}</p>
           )}
         </>
       )}

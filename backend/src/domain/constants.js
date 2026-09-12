@@ -69,6 +69,36 @@ const NOTIFICATION_CHANNEL = Object.freeze({
   SMS: 'sms',
 });
 
+/**
+ * What became of one SMS. Every attempt ends on exactly one of these, including
+ * the ones that never reached the gateway: a suppressed message is a fact the
+ * owner needs, not an absence of one.
+ */
+const SMS_STATUS = Object.freeze({
+  SENT: 'sent',
+  FAILED: 'failed',
+  BLOCKED: 'blocked',
+});
+
+/** Why a message was never handed to the gateway. */
+const SMS_BLOCK_REASON = Object.freeze({
+  FEATURE_OFF: 'feature_off',
+  NOT_CONFIGURED: 'not_configured',
+  NO_CREDITS: 'no_credits',
+  NO_RECIPIENT: 'no_recipient',
+  EMPTY_TEXT: 'empty_text',
+});
+
+/** What the message was for, which decides who pays for it. */
+const SMS_PURPOSE = Object.freeze({
+  // A notification fanned out of the outbox. Charged to the reseller receiving it.
+  NOTIFICATION: 'notification',
+  // The owner proving the gateway works. Charged to nobody.
+  TEST: 'test',
+  // The owner typing a message by hand. Charged to nobody.
+  MANUAL: 'manual',
+});
+
 const EVENT_TYPE = Object.freeze({
   ORDER_PENDING: 'order.pending',
   ORDER_CONFIRMED: 'order.confirmed',
@@ -100,5 +130,8 @@ module.exports = {
   KYC_DOC_TYPE,
   NOTIFICATION_CHANNEL,
   EVENT_TYPE,
+  SMS_STATUS,
+  SMS_BLOCK_REASON,
+  SMS_PURPOSE,
   values,
 };

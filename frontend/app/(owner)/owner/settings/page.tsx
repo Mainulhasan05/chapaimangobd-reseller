@@ -218,13 +218,17 @@ function SettingsForm({ initial }: { initial: Settings }) {
               ? `SMS ব্যালেন্স: ${smsBalance.data.balance ?? '—'}`
               : 'SMS গেটওয়ে যুক্ত করা হয়নি'
           }
+          /*
+           * SMS has its own screen now, because it is the only channel that
+           * spends money and the only one with a record worth reading. The
+           * switch stays here as well: it belongs in a list of the three
+           * channels, and someone turning notifications off across the board
+           * should not have to visit two pages to do it.
+           */
+          href="/owner/sms"
+          hrefLabel={t('sms.title')}
         />
 
-        {/*
-          SMS costs money per message and Bengali halves the characters per
-          segment, so it stays off until the credit purchase flow has been tested
-          against the live gateway.
-        */}
         <div className="mb-4 divide-y divide-border">
           <Switch
             checked={draft.features.sms}

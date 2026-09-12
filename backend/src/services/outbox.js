@@ -5,9 +5,8 @@ const ResellerProfile = require('../models/ResellerProfile');
 const User = require('../models/User');
 const webpush = require('../channels/webpush');
 const telegram = require('../channels/telegram');
-const sms = require('../channels/sms');
-const { getSettings } = require('./settings');
-const { NOTIFICATION_CHANNEL } = require('../domain/constants');
+const smsService = require('./sms');
+const { NOTIFICATION_CHANNEL, SMS_PURPOSE } = require('../domain/constants');
 
 /**
  * Drains side effects that were queued during a database transaction.
@@ -32,7 +31,7 @@ async function deliver(message) {
   for (const channel of message.channels) {
     try {
       // eslint-disable-next-line no-await-in-loop
-      await deliverOne(channel, { user, title, body, data });
+      await deliverOne(channel, { user, title, body, data, message });
     } catch (err) {
       errors.push(`${channel}: ${err.message}`);
     }
@@ -41,7 +40,7 @@ async function deliver(message) {
   if (errors.length > 0) throw new Error(errors.join('; '));
 }
 
-async function deliverOne(channel, { user, title, body, data }) {
+async function deliverOne(channel, { user, title, body, data, message }) {
   if (channel === NOTIFICATION_CHANNEL.WEB_PUSH) {
     await webpush.send({ userId: user._id, title, body, data });
     return;
@@ -53,38 +52,33 @@ async function deliverOne(channel, { user, title, body, data }) {
   }
 
   if (channel === NOTIFICATION_CHANNEL.SMS) {
-    await sendSms(user, title, body);
+    await sendSms(user, title, body, message);
   }
 }
 
 /**
- * SMS is the only channel that costs money, so it re-checks the flag and spends a
- * credit atomically. The credit is taken before the send: a message that failed at
- * the gateway after leaving our hands may still have been delivered.
+ * SMS is the only channel that costs money and the only one the owner can switch
+ * off for everybody at once, so it goes through services/sms.js rather than the
+ * gateway. That service re-checks the master switch, moves the credits and
+ * writes the log row; all that is left here is finding whose credits to spend.
+ *
+ * It throws only when the message deserves another attempt, which is what keeps
+ * a permanently rejected number from being re-queued five times.
  */
-async function sendSms(user, title, body) {
-  const settings = await getSettings();
-  if (!settings.features.sms) return;
+async function sendSms(user, title, body, message) {
+  const profile = await ResellerProfile.findOne({ user: user._id });
 
-  const text = body ? `${title}. ${body}` : title;
-  const cost = sms.segmentCount(text);
-
-  const profile = await ResellerProfile.findOneAndUpdate(
-    { user: user._id, smsCredits: { $gte: cost } },
-    { $inc: { smsCredits: -cost } },
-    { new: true }
-  );
-  if (!profile) return; // Not enough credits; the in-app record still stands.
-
-  try {
-    await sms.send({ phoneE164: user.phoneE164, text });
-  } catch (err) {
-    // A gateway rejection that was never going to succeed refunds the credit.
-    if (!err.retryable) {
-      await ResellerProfile.updateOne({ _id: profile._id }, { $inc: { smsCredits: cost } });
-    }
-    throw err;
-  }
+  await smsService.send({
+    phoneE164: user.phoneE164,
+    text: body ? `${title}. ${body}` : title,
+    purpose: SMS_PURPOSE.NOTIFICATION,
+    eventType: message.eventType,
+    user,
+    // Only a reseller pays. The owner has no profile and no credit balance, and
+    // a notification addressed to them is not a reseller cost.
+    charge: profile || null,
+    outboxMessage: message._id,
+  });
 }
 
 /** Processes one batch of due messages. Returns how many were handled. */

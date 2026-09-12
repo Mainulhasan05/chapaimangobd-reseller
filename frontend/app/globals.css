@@ -343,8 +343,31 @@
    * Phones with a home indicator or a rounded chin eat the bottom of a fixed
    * bar. Everything pinned to the bottom of the viewport pays this tax.
    */
+  /*
+   * The home-indicator inset, for an element whose bottom padding is nothing
+   * else. Setting `padding-bottom` outright is the point here and the trap
+   * everywhere else: combined with `py-4` it does not add to it, it replaces
+   * it, and on any device without an inset that is zero. Three sticky footers
+   * had their bottom padding silently deleted that way, which is why their
+   * buttons sat flat against the edge of the screen.
+   *
+   * Anything that wants its own padding as well uses one of the additive ones
+   * below, named for the Tailwind step they correspond to.
+   */
   .pb-safe {
     padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .pb-safe-3 {
+    padding-bottom: calc(0.75rem + env(safe-area-inset-bottom));
+  }
+
+  .pb-safe-4 {
+    padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+  }
+
+  .pb-safe-5 {
+    padding-bottom: calc(1.25rem + env(safe-area-inset-bottom));
   }
 
   /*

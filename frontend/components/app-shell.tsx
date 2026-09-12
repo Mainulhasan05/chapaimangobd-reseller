@@ -717,7 +717,7 @@ function NavDrawer({
           ))}
         </nav>
 
-        <div className="shrink-0 border-t border-border p-3 pb-safe">
+        <div className="shrink-0 border-t border-border p-3 pb-safe-3">
           <div className="flex items-center gap-2.5 px-1 py-2">
             <Avatar name={name} size="lg" />
             <span className="min-w-0 flex-1">

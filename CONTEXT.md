@@ -91,3 +91,13 @@ written and is the source of truth. Every other channel is best effort.
 
 **Outbox** — the queue that carries side effects out of a database transaction. Nothing
 is sent from inside a transaction, because the transaction may be retried.
+
+**SMS log** — one row per SMS this platform attempted, carrying the gateway's own reply.
+Written by `services/sms.js`, which is the only code allowed to reach the gateway. An
+attempt that never left is logged too, as **blocked**, with the reason: a suppressed
+message and a broken gateway are indistinguishable without it.
+
+**Master switch** — the owner's `features.sms` flag, surfaced as one toggle on the SMS
+panel. Off means off for every reseller action, whatever a reseller's own preferences say
+and however many credits they hold. Enforced twice, on purpose: once when the message
+would be queued, and again, read fresh, at the moment of sending.

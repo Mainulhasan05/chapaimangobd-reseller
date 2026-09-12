@@ -2,7 +2,7 @@
 
 const { z } = require('zod');
 const { UNITS } = require('../../utils/quantity');
-const { DEPOSIT_METHOD, values } = require('../../domain/constants');
+const { DEPOSIT_METHOD, values, SMS_STATUS, SMS_PURPOSE } = require('../../domain/constants');
 
 const objectId = z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid identifier');
 // Multipart bodies arrive as strings, so numbers coerce at the boundary.
@@ -162,6 +162,38 @@ const updateSettings = z.object({
     .optional(),
 });
 
+/* sms */
+
+/**
+ * The master switch, on its own endpoint rather than inside updateSettings.
+ *
+ * It is the one control here that starts spending money per use, and a body
+ * that can only carry that one boolean cannot turn it on as a side effect of
+ * saving the business name.
+ */
+const toggleSms = z.object({ enabled: z.boolean() });
+
+const listSmsLogs = z.object({
+  status: z.enum(values(SMS_STATUS)).optional(),
+  purpose: z.enum(values(SMS_PURPOSE)).optional(),
+  eventType: z.string().max(60).optional(),
+  resellerId: objectId.optional(),
+  q: z.string().trim().max(80).optional(),
+  from: z.string().optional(),
+  to: z.string().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(25),
+});
+
+/*
+ * Capped at the same length the service truncates to, so the owner is told the
+ * message is too long rather than discovering it was cut off after paying for it.
+ */
+const sendTestSms = z.object({
+  phone: z.string().min(1),
+  text: z.string().trim().min(1).max(1000),
+});
+
 /**
  * A browser push subscription, exactly as the Push API hands it over. The same
  * shape the reseller posts: the owner subscribes their own browser through the
@@ -192,4 +224,7 @@ module.exports = {
   approveWithdrawal,
   listFinance,
   updateSettings,
+  toggleSms,
+  listSmsLogs,
+  sendTestSms,
 };

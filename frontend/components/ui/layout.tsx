@@ -503,6 +503,7 @@ export function Alert({
   children,
   icon: Icon,
   onDismiss,
+  className,
 }: {
   tone?: Tone;
   title?: string;
@@ -510,9 +511,17 @@ export function Alert({
   icon?: React.ComponentType<{ className?: string }>;
   /** Adds the close button from the reference design's inline notices. */
   onDismiss?: () => void;
+  /** For the spacing only. A notice that follows a control needs a top margin. */
+  className?: string;
 }) {
   return (
-    <div className={cn('mb-4 flex items-start gap-3 rounded-xl px-4 py-3 text-sm', TONES[tone])}>
+    <div
+      className={cn(
+        'mb-4 flex items-start gap-3 rounded-xl px-4 py-3 text-sm',
+        TONES[tone],
+        className
+      )}
+    >
       {Icon && <Icon aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />}
       <div className="min-w-0 flex-1">
         {title && <p className="font-bold">{title}</p>}
@@ -599,7 +608,7 @@ export function ErrorState({
  */
 export function StickyBar({ children }: { children: React.ReactNode }) {
   return (
-    <div className="elev-2 fixed inset-x-0 bottom-0 z-40 border-t border-border bg-surface/95 px-4 py-3 pb-safe backdrop-blur sm:static sm:border-0 sm:bg-transparent sm:px-0 sm:shadow-none sm:backdrop-blur-none">
+    <div className="elev-2 fixed inset-x-0 bottom-0 z-40 border-t border-border bg-surface/95 px-4 pt-3 pb-safe-3 backdrop-blur sm:static sm:border-0 sm:bg-transparent sm:px-0 sm:shadow-none sm:backdrop-blur-none">
       <div className="mx-auto max-w-2xl">{children}</div>
     </div>
   );
