@@ -542,6 +542,87 @@ export const bn = {
   'landing.finalHelp': 'রেজিস্ট্রেশনে দুই মিনিট লাগে। আমের মৌসুম অপেক্ষা করে না।',
   'landing.footerNote': 'রিসেলারদের জন্য অর্ডার ব্যবস্থাপনা',
   'landing.track': 'অর্ডার ট্র্যাক করুন',
+
+  'app.description': 'রিসেলার অর্ডার ম্যানেজমেন্ট সিস্টেম',
+
+  'order.notFound': 'অর্ডারটি পাওয়া যায়নি',
+  'order.notFoundHelp': 'লিংকটি ভুল হতে পারে, অথবা এই অর্ডারটি আপনার নয়',
+
+  'push.title': 'ফোনে নোটিফিকেশন',
+  'push.subtitle': 'ফোনে সাথে সাথে জানতে চালু করুন',
+  'push.enable': 'নোটিফিকেশন চালু করুন',
+  'push.notConfigured': 'সার্ভারে পুশ নোটিফিকেশন চালু করা হয়নি',
+  'push.iosInstall':
+    'আইফোনে নোটিফিকেশন পেতে সাফারির শেয়ার মেনু থেকে "Add to Home Screen" চাপুন, তারপর ইনস্টল করা অ্যাপ থেকে খুলুন',
+  'push.denied': 'ব্রাউজারের সেটিংস থেকে এই সাইটের নোটিফিকেশন অনুমতি দিন',
+  'push.stateUnsupported': 'এই ব্রাউজারে চলে না',
+  'push.stateIosInstall': 'আগে ইনস্টল করুন',
+  'push.stateDefault': 'চালু হয়নি',
+  'push.stateGranted': 'চালু আছে',
+  'push.stateDenied': 'অনুমতি নেই',
+
+  'telegram.title': 'টেলিগ্রাম',
+  'telegram.subtitle': 'বিনামূল্যে এবং নির্ভরযোগ্য',
+  'telegram.connect': 'টেলিগ্রাম যুক্ত করুন',
+  'telegram.open': 'টেলিগ্রাম খুলুন',
+
+  'money.required': 'টাকার পরিমাণ লিখুন',
+  'money.invalid': 'শুধু ইংরেজি অঙ্কে লিখুন, দশমিকের পর সর্বোচ্চ দুই ঘর',
+  'money.positive': 'পরিমাণ শূন্যের বেশি হতে হবে',
+  'money.tooLarge': 'পরিমাণ অনেক বেশি',
+  'money.overAvailable': 'ব্যবহারযোগ্য ব্যালেন্সের চেয়ে বেশি',
+
+  'reseller.manage': 'পরিচালনা',
+  'reseller.account': 'অ্যাকাউন্ট',
+  'reseller.active': 'সক্রিয়',
+  'reseller.inactive': 'নিষ্ক্রিয়',
+  'reseller.activeHint': 'এই রিসেলার এখন অর্ডার নিতে পারছেন',
+  'reseller.inactiveHint': 'এই রিসেলার নিষ্ক্রিয় আছেন। চালু করলে আবার কাজ করতে পারবেন',
+  'reseller.deactivate': 'নিষ্ক্রিয় করুন',
+  'reseller.deactivateTitle': 'রিসেলারকে নিষ্ক্রিয় করবেন?',
+  'reseller.deactivateHelp':
+    'নিষ্ক্রিয় করলে এই রিসেলারের দোকানে নতুন অর্ডার নেওয়া বন্ধ হবে। ব্যালেন্স ও লেনদেনের হিসাব যেমন আছে তেমনই থাকবে।',
+  'reseller.smsEnabled': 'SMS পাঠানো চালু',
+  'reseller.smsEnabledHint': 'এই রিসেলারের ক্রেডিট থেকে SMS যাবে। মূল SMS সুইচ বন্ধ থাকলে কিছুই যাবে না',
+
+  'ledger.direction': 'ধরন',
+  'ledger.manualCredit': 'ব্যালেন্সে যোগ (হাতে সমন্বয়)',
+  'ledger.manualDebit': 'ব্যালেন্স থেকে কাটা (হাতে সমন্বয়)',
+
+  'reconcile.matched': 'হিসাব মিলেছে',
+  'reconcile.checkedOk': '{n}টি হিসাব মিলেছে',
+  'reconcile.drifted': '{n}টিতে গরমিল',
+
+  'catalog.step': 'ধাপ',
+  'catalog.stepHint': 'যত পরিমাণের গুণিতকে অর্ডার নেওয়া হবে',
+
+  'settings.poweredBy': 'ফর্মের নিচের লেখা',
+  'settings.poweredByHint': 'ক্রেতার ফর্মের নিচে দেখানো হবে',
+  'settings.defaultCreditLimitHint': 'নতুন রিসেলারের জন্য শুরুতে যত',
+  'settings.agingHoursHint': 'কত ঘণ্টা পর অর্ডার পুরনো ধরা হবে',
+  'settings.reverseDeliveryCharge': 'ফেরত এলে ডেলিভারি চার্জও ফেরত দিন',
+  'settings.reverseDeliveryChargeHint': 'বন্ধ রাখলে কুরিয়ার খরচ রিসেলারের কাছেই থাকবে',
+  'settings.smsBalance': 'SMS ব্যালেন্স',
+  'settings.smsNotConfigured': 'SMS গেটওয়ে যুক্ত করা হয়নি',
+  'settings.featureSms': 'SMS',
+  'settings.featureSmsHint': 'চালু করলে রিসেলাররা SMS ক্রেডিট কিনতে পারবে',
+  'settings.featureTelegram': 'টেলিগ্রাম',
+  'settings.featureWebPush': 'ব্রাউজার নোটিফিকেশন',
+  'settings.smsPricePerCredit': 'প্রতি SMS ক্রেডিটের দাম',
+
+  'reports.atLimit': 'সীমা শেষ',
+  'reports.from': 'শুরু',
+  'reports.to': 'শেষ',
+
+  'shop.metaTitle': 'দোকান',
+  'shop.metaDescription': 'সরাসরি অর্ডার করুন',
+  'shop.slugHint': 'a-z, 0-9 এবং হাইফেন',
+
+  'dash.agingHint': '{n}+ ঘণ্টা',
+
+  'zone.help': 'ক্রেতা জেলা বাছাই করলে এই চার্জ যোগ হবে',
+  'zone.districtsHint': 'প্রতি লাইনে একটি জেলা',
+  'source.help': 'যেখান থেকে পণ্য সংগ্রহ করা হয়',
 } as const;
 
 export type DictKey = keyof typeof bn;

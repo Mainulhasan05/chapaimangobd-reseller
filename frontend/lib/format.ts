@@ -14,6 +14,9 @@ const BENGALI = new Intl.NumberFormat('bn-BD', {
 
 const LATIN = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 2,
+  // `10,000` is not a number to an `<input type="number">` or to `Number()`,
+  // so a value of a thousand or more rendered as an empty field.
+  useGrouping: false,
 });
 
 /** Display only. Emits Bengali digits. */

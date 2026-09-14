@@ -8,6 +8,8 @@ const { toPoisha, toTaka } = require('../../utils/money');
 const { normalizeBdPhone } = require('../../utils/phone');
 const imageService = require('../../services/images');
 const { badRequest } = require('../../utils/errors');
+const env = require('../../config/env');
+const { databaseIsUp } = require('../../config/db');
 
 const shape = (s) => ({
   businessName: s.businessName,
@@ -117,4 +119,26 @@ async function smsBalance(_req, res) {
   return ok(res, { configured: true, balance });
 }
 
-module.exports = { get, update, uploadBrandLogo, removeBrandLogo, smsBalance };
+/**
+ * What used to be public at /api/health: which integrations this deployment has
+ * credentials for. Useful when setting up, and a reconnaissance map to anyone
+ * else, so it is owner only.
+ */
+async function systemHealth(_req, res) {
+  return ok(res, {
+    status: 'up',
+    db: (await databaseIsUp()) ? 'up' : 'down',
+    env: env.NODE_ENV,
+    integrations: {
+      storage: env.r2Configured,
+      // Where a public image goes: the host, the bucket, or nowhere yet.
+      publicImages: imageService.provider(),
+      imageHost: env.imgbbConfigured,
+      webPush: env.webPushConfigured,
+      sms: env.smsConfigured,
+      telegram: env.telegramConfigured,
+    },
+  });
+}
+
+module.exports = { get, update, uploadBrandLogo, removeBrandLogo, smsBalance, systemHealth };

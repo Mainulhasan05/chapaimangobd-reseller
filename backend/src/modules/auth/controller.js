@@ -95,7 +95,12 @@ async function refresh(req, res) {
   const raw = req.cookies[tokens.REFRESH_COOKIE];
   if (!raw) throw unauthorized('No session to refresh');
 
-  const result = await tokens.rotateRefreshToken(raw, { userAgent: req.get('user-agent') });
+  const result = await tokens.rotateRefreshToken(raw);
+  if (result.reason === 'raced') {
+    // Another tab won the same rotation a moment ago and its response carries
+    // the new cookies. Clearing them here would sign that tab out too.
+    throw unauthorized('Session is being refreshed, please retry');
+  }
   if (!result.ok) {
     tokens.clearAuthCookies(res);
     const message =

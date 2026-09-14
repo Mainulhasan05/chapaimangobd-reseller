@@ -1,5 +1,9 @@
 'use strict';
 
+const crypto = require('node:crypto');
+const os = require('node:os');
+
+const { logger } = require('../config/logger');
 const OutboxMessage = require('../models/OutboxMessage');
 const ResellerProfile = require('../models/ResellerProfile');
 const User = require('../models/User');
@@ -8,36 +12,53 @@ const telegram = require('../channels/telegram');
 const smsService = require('./sms');
 const { NOTIFICATION_CHANNEL, SMS_PURPOSE } = require('../domain/constants');
 
+const { OUTBOX_STATUS, CHANNEL_STATUS, toChannelState } = OutboxMessage;
+
 /**
  * Drains side effects that were queued during a database transaction.
  *
  * Nothing sends from inside a transaction, because the callback is retried on
  * write conflict and the reseller would receive the same message twice.
+ *
+ * Safe with any number of API instances (docs/adr/0012):
+ * - a message is claimed with one atomic update that sets a lease, so two
+ *   workers never hold the same message;
+ * - each channel records its own outcome, so a retry after a Telegram failure
+ *   does not send the web push again;
+ * - after MAX_ATTEMPTS the message is dead-lettered, left for the owner's daily
+ *   digest rather than retried forever.
  */
 
 const MAX_ATTEMPTS = 5;
 const POLL_MS = 15 * 1000;
+// Longer than the worst case for one message: three external channels with a
+// 15 second timeout each. A lease that expires mid-send lets another worker
+// resend, so this errs long.
+const LEASE_MS = 60 * 1000;
+
+/** Identifies this process in `leaseOwner`, for debugging a stuck message. */
+const WORKER_ID = `${os.hostname()}:${process.pid}:${crypto.randomBytes(3).toString('hex')}`;
 
 /** Exponential backoff, so a dead gateway is not hammered. */
 const backoffMs = (attempts) => Math.min(60 * 60 * 1000, 1000 * 2 ** attempts);
 
-async function deliver(message) {
-  const user = await User.findById(message.user);
-  if (!user) return;
-
-  const { title, body, data } = message.payload || {};
-  const errors = [];
-
-  for (const channel of message.channels) {
-    try {
-      // eslint-disable-next-line no-await-in-loop
-      await deliverOne(channel, { user, title, body, data, message });
-    } catch (err) {
-      errors.push(`${channel}: ${err.message}`);
-    }
-  }
-
-  if (errors.length > 0) throw new Error(errors.join('; '));
+/**
+ * Queues a message. Pass `session` from inside a transaction: the message then
+ * commits or vanishes with the business write that caused it.
+ */
+async function enqueue({ user, eventType, channels, payload }, { session } = {}) {
+  const [message] = await OutboxMessage.create(
+    [
+      {
+        user: user && user._id ? user._id : user,
+        eventType,
+        channels: (channels || []).map(toChannelState),
+        payload,
+      },
+    ],
+    session ? { session } : {}
+  );
+  return message;
 }
 
 async function deliverOne(channel, { user, title, body, data, message }) {
@@ -81,64 +102,189 @@ async function sendSms(user, title, body, message) {
   });
 }
 
-/** Processes one batch of due messages. Returns how many were handled. */
-async function drainOnce(limit = 25) {
-  const due = await OutboxMessage.find({
-    sentAt: null,
-    nextAttemptAt: { $lte: new Date() },
-    attempts: { $lt: MAX_ATTEMPTS },
-  })
-    .sort({ nextAttemptAt: 1 })
-    .limit(limit);
+/**
+ * Atomically takes one due message. Documents written before per-channel
+ * state and statuses existed have neither `status` nor `leaseUntil`, and
+ * `null` in the filter matches a missing field, so they are claimed too.
+ */
+function claimNext(now = new Date()) {
+  return OutboxMessage.findOneAndUpdate(
+    {
+      status: { $in: [OUTBOX_STATUS.PENDING, null] },
+      sentAt: null,
+      nextAttemptAt: { $lte: now },
+      $or: [{ leaseUntil: null }, { leaseUntil: { $lte: now } }],
+    },
+    { $set: { leaseUntil: new Date(now.getTime() + LEASE_MS), leaseOwner: WORKER_ID } },
+    { sort: { nextAttemptAt: 1 }, new: true, lean: true }
+  );
+}
 
-  let delivered = 0;
+/** Writes only while this worker still holds the lease. */
+const withLease = (message) => ({ _id: message._id, leaseOwner: WORKER_ID });
 
-  for (const message of due) {
+/**
+ * Tries every channel not already sent, recording each outcome as it happens,
+ * so a crash between two channels does not resend the first.
+ * Returns true when every channel has now gone out.
+ */
+async function processMessage(message) {
+  const states = (message.channels || []).map((c) => ({ ...toChannelState(c) }));
+  const attempts = (message.attempts || 0) + 1;
+
+  // A message that exhausted its attempts under the old worker is dead-lettered
+  // without another try.
+  if ((message.attempts || 0) >= MAX_ATTEMPTS) {
+    await OutboxMessage.updateOne(withLease(message), {
+      $set: { channels: states, status: OUTBOX_STATUS.DEAD, deadAt: new Date() },
+      $unset: { leaseUntil: 1, leaseOwner: 1 },
+    });
+    return false;
+  }
+
+  const user = await User.findById(message.user);
+  if (!user) {
+    // Nobody left to tell. Not a failure worth retrying or reporting.
+    await OutboxMessage.updateOne(withLease(message), {
+      $set: {
+        channels: states,
+        status: OUTBOX_STATUS.SENT,
+        sentAt: new Date(),
+        lastError: 'recipient no longer exists',
+      },
+      $inc: { attempts: 1 },
+      $unset: { leaseUntil: 1, leaseOwner: 1 },
+    });
+    return false;
+  }
+
+  const { title, body, data } = message.payload || {};
+  const errors = [];
+
+  for (const state of states) {
+    if (state.status === CHANNEL_STATUS.SENT) continue; // eslint-disable-line no-continue
+    state.attempts = (state.attempts || 0) + 1;
     try {
       // eslint-disable-next-line no-await-in-loop
-      await deliver(message);
-      // eslint-disable-next-line no-await-in-loop
-      await OutboxMessage.updateOne(
-        { _id: message._id },
-        { $set: { sentAt: new Date(), lastError: null }, $inc: { attempts: 1 } }
-      );
-      delivered += 1;
+      await deliverOne(state.name, { user, title, body, data, message });
+      state.status = CHANNEL_STATUS.SENT;
+      state.sentAt = new Date();
+      state.lastError = null;
     } catch (err) {
-      const attempts = message.attempts + 1;
+      state.status = CHANNEL_STATUS.FAILED;
+      state.lastError = String(err.message || err).slice(0, 500);
+      errors.push(`${state.name}: ${state.lastError}`);
+    }
+    // eslint-disable-next-line no-await-in-loop
+    await OutboxMessage.updateOne(withLease(message), { $set: { channels: states } });
+  }
+
+  if (errors.length === 0) {
+    await OutboxMessage.updateOne(withLease(message), {
+      $set: { status: OUTBOX_STATUS.SENT, sentAt: new Date(), lastError: null, attempts },
+      $unset: { leaseUntil: 1, leaseOwner: 1 },
+    });
+    return true;
+  }
+
+  const lastError = errors.join('; ').slice(0, 500);
+  if (attempts >= MAX_ATTEMPTS) {
+    await OutboxMessage.updateOne(withLease(message), {
+      $set: { status: OUTBOX_STATUS.DEAD, deadAt: new Date(), lastError, attempts },
+      $unset: { leaseUntil: 1, leaseOwner: 1 },
+    });
+    logger.warn({ outboxMessage: message._id, lastError }, 'outbox: message dead-lettered');
+    return false;
+  }
+
+  await OutboxMessage.updateOne(withLease(message), {
+    $set: {
+      status: OUTBOX_STATUS.PENDING,
+      attempts,
+      lastError,
+      nextAttemptAt: new Date(Date.now() + backoffMs(attempts)),
+    },
+    $unset: { leaseUntil: 1, leaseOwner: 1 },
+  });
+  return false;
+}
+
+/** Processes up to `limit` due messages. Returns how many were fully delivered. */
+async function drainOnce(limit = 25) {
+  let delivered = 0;
+
+  for (let i = 0; i < limit; i += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    const message = await claimNext();
+    if (!message) break;
+
+    try {
       // eslint-disable-next-line no-await-in-loop
-      await OutboxMessage.updateOne(
-        { _id: message._id },
-        {
-          $set: {
-            attempts,
-            lastError: err.message.slice(0, 500),
-            nextAttemptAt: new Date(Date.now() + backoffMs(attempts)),
-          },
-        }
-      );
+      if (await processMessage(message)) delivered += 1;
+    } catch (err) {
+      // A database error mid-message. The lease expires and the message is
+      // picked up again; channels already recorded as sent stay sent.
+      logger.error({ err, outboxMessage: message._id }, 'outbox: processing failed');
     }
   }
 
   return delivered;
 }
 
+/** How many messages gave up, in total and since `since`. For the digest. */
+async function deadLetterCounts({ since } = {}) {
+  const [total, recent] = await Promise.all([
+    OutboxMessage.countDocuments({ status: OUTBOX_STATUS.DEAD }),
+    since
+      ? OutboxMessage.countDocuments({ status: OUTBOX_STATUS.DEAD, deadAt: { $gte: since } })
+      : Promise.resolve(null),
+  ]);
+  return { total, recent };
+}
+
 let timer = null;
+let inFlight = null;
+
+/**
+ * One tick at a time in this process. A slow gateway used to let the next
+ * interval start a second drain over the same messages before the first ended.
+ */
+function tick() {
+  if (inFlight) return inFlight;
+  inFlight = drainOnce()
+    .catch((err) => {
+      logger.error({ err }, 'outbox: drain failed');
+    })
+    .finally(() => {
+      inFlight = null;
+    });
+  return inFlight;
+}
 
 function startOutboxWorker({ intervalMs = POLL_MS } = {}) {
   if (timer) return timer;
-  timer = setInterval(() => {
-    drainOnce().catch((err) => {
-      // eslint-disable-next-line no-console
-      console.error('[outbox] drain failed', err.message);
-    });
-  }, intervalMs);
+  timer = setInterval(tick, intervalMs);
   timer.unref();
   return timer;
 }
 
-function stopOutboxWorker() {
+/** Stops polling and resolves once the drain in progress, if any, finishes. */
+async function stopOutboxWorker() {
   if (timer) clearInterval(timer);
   timer = null;
+  if (inFlight) await inFlight;
 }
 
-module.exports = { drainOnce, startOutboxWorker, stopOutboxWorker, MAX_ATTEMPTS };
+module.exports = {
+  enqueue,
+  drainOnce,
+  tick,
+  deadLetterCounts,
+  startOutboxWorker,
+  stopOutboxWorker,
+  backoffMs,
+  MAX_ATTEMPTS,
+  LEASE_MS,
+  OUTBOX_STATUS,
+  CHANNEL_STATUS,
+};

@@ -14,13 +14,24 @@ const PROTECTED = ['/owner', '/reseller'];
 
 export default function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const hasSession = request.cookies.has('cm_at') || request.cookies.has('cm_rt');
+
+  /*
+   * The root is the landing page for a visitor and the app for someone signed
+   * in, because it is also the installed app's start URL and the same icon is
+   * tapped by the owner and by resellers. The role is not read here, so a
+   * signed-in visitor goes to /login, which already sends a live session to its
+   * own dashboard and shows the form to a dead one.
+   */
+  if (pathname === '/') {
+    return hasSession ? NextResponse.redirect(new URL('/login', request.url)) : NextResponse.next();
+  }
 
   const needsSession = PROTECTED.some(
     (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
   );
   if (!needsSession) return NextResponse.next();
 
-  const hasSession = request.cookies.has('cm_at') || request.cookies.has('cm_rt');
   if (hasSession) return NextResponse.next();
 
   const login = new URL('/login', request.url);
@@ -29,5 +40,5 @@ export default function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/owner/:path*', '/reseller/:path*'],
+  matcher: ['/', '/owner/:path*', '/reseller/:path*'],
 };

@@ -20,6 +20,29 @@ function businessDate(date = new Date()) {
   return dateFormatter.format(date);
 }
 
+const dateTimeFormatter = new Intl.DateTimeFormat('en-CA', {
+  timeZone: TZ,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hourCycle: 'h23',
+});
+
+/**
+ * A Dhaka wall-clock timestamp as `YYYY-MM-DD HH:mm:ss`, for people reading a
+ * spreadsheet. An ISO string in UTC put every morning entry on the previous day.
+ */
+function formatDhakaDateTime(date) {
+  if (!date) return '';
+  const parts = Object.fromEntries(
+    dateTimeFormatter.formatToParts(new Date(date)).map((p) => [p.type, p.value])
+  );
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
+}
+
 /** UTC instant of midnight starting the given Dhaka business date. */
 function startOfBusinessDay(dateStr) {
   return new Date(`${dateStr}T00:00:00+06:00`);
@@ -39,4 +62,11 @@ function agingCutoff(hours) {
   return new Date(Date.now() - hours * 60 * 60 * 1000);
 }
 
-module.exports = { TZ, businessDate, startOfBusinessDay, endOfBusinessDay, agingCutoff };
+module.exports = {
+  TZ,
+  businessDate,
+  formatDhakaDateTime,
+  startOfBusinessDay,
+  endOfBusinessDay,
+  agingCutoff,
+};

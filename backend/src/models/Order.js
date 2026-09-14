@@ -53,7 +53,7 @@ const lineItemSchema = new mongoose.Schema(
 
 const orderSchema = new mongoose.Schema(
   {
-    orderCode: { type: String, required: true, unique: true, index: true },
+    orderCode: { type: String, required: true, unique: true },
     reseller: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'ResellerProfile',
@@ -61,7 +61,9 @@ const orderSchema = new mongoose.Schema(
       index: true,
     },
     origin: { type: String, enum: values(ORDER_ORIGIN), required: true },
-    // Fixed at creation. Only the delivered transition branches on it. docs/adr/0003.
+    // Chosen by the customer, changeable by the reseller at confirm, fixed from
+    // confirm onwards. Only the delivered transition branches on it.
+    // docs/adr/0003 and docs/adr/0007.
     paymentMode: { type: String, enum: values(PAYMENT_MODE), required: true },
 
     // Client-generated, so a retry on a flaky connection returns the same order
@@ -90,6 +92,12 @@ const orderSchema = new mongoose.Schema(
     deliveryZone: { type: mongoose.Schema.Types.ObjectId, ref: 'DeliveryZone' },
     deliveryZoneName: { type: String },
     deliveryChargePoisha: money({ required: true, min: 0, default: 0 }),
+    /*
+     * How many DELIVERY_ADJUSTMENT entries this order has posted. Incremented in
+     * the same status-guarded update that changes the charge, and used as the
+     * suffix of the entry's idempotency key. See docs/adr/0010.
+     */
+    deliveryAdjustmentCount: { type: Number, default: 0, min: 0 },
 
     totals: {
       costSubtotalPoisha: money({ default: 0 }),
@@ -115,6 +123,10 @@ const orderSchema = new mongoose.Schema(
         at: { type: Date, default: Date.now },
         by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
         note: { type: String, maxlength: 500 },
+        // Set only on the confirm entry, and only when the reseller changed the
+        // payment mode the customer chose. See docs/adr/0007.
+        paymentModeFrom: { type: String, enum: values(PAYMENT_MODE) },
+        paymentModeTo: { type: String, enum: values(PAYMENT_MODE) },
       },
     ],
 
@@ -132,6 +144,8 @@ const orderSchema = new mongoose.Schema(
 
     cancelReason: { type: String, maxlength: 500 },
     cancelledBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    // The owner ticked "put back in stock" when marking this order returned.
+    restockedOnReturn: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

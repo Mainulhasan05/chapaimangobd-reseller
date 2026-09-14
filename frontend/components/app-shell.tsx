@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useSession, useLogout } from '@/lib/session';
 import { useOnline } from '@/lib/use-online';
+import { syncPushRole } from '@/lib/push';
 import { t, type DictKey } from '@/lib/i18n/bn';
 import { formatToday } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -89,11 +90,19 @@ export function AppShell({
   useEffect(() => {
     if (isLoading) return;
     if (!session) {
-      router.replace('/login');
+      // Back to where they were once signed in again, not to the dashboard.
+      router.replace(`/login?next=${encodeURIComponent(pathname)}` as Route);
     } else if (session.user.role !== role) {
       router.replace(session.user.role === 'owner' ? '/owner' : '/reseller');
     }
-  }, [session, isLoading, role, router]);
+  }, [session, isLoading, role, router, pathname]);
+
+  // Keeps the push worker's idea of who is signed in here current, so a tapped
+  // notification opens this role's pages even after an account switch.
+  const signedInRole = session?.user.role;
+  useEffect(() => {
+    if (signedInRole === role) void syncPushRole(role);
+  }, [signedInRole, role]);
 
   /*
    * Whether a path falls under a destination. Prefix matching, so an order's

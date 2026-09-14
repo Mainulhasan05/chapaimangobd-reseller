@@ -163,7 +163,7 @@ function ShopSettings({ profile }: { profile: ResellerProfile }) {
           label={t('shop.yourLink')}
           htmlFor="slug"
           error={errors.slug}
-          hint={approved ? 'a-z, 0-9 এবং হাইফেন' : t('kyc.gateHelp')}
+          hint={approved ? t('shop.slugHint') : t('kyc.gateHelp')}
         >
           <Input
             id="slug"

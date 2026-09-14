@@ -1,8 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { ApiError } from '@/lib/api';
+import { ApiError, setUnauthorizedHandler } from '@/lib/api';
+
+const PROTECTED = ['/owner', '/reseller'];
 import { ToastProvider } from '@/components/ui/toast';
 
 /**
@@ -28,6 +30,27 @@ export function Providers({ children }: { children: React.ReactNode }) {
         },
       })
   );
+
+  /*
+   * A session that cannot be refreshed ends here, once. The cache is cleared
+   * so the next person on this phone never sees the previous one's orders, and
+   * the navigation is a full load so nothing held in memory survives either.
+   */
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      const { pathname, search } = window.location;
+      const isProtected = PROTECTED.some(
+        (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
+      );
+      if (!isProtected) return false;
+
+      client.clear();
+      const next = encodeURIComponent(`${pathname}${search}`);
+      window.location.replace(`/login?next=${next}`);
+      return true;
+    });
+    return () => setUnauthorizedHandler(null);
+  }, [client]);
 
   return (
     <QueryClientProvider client={client}>

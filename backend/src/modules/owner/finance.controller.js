@@ -44,7 +44,7 @@ async function listDeposits(req, res) {
       method: d.method,
       senderNumber: d.senderNumber,
       transactionId: d.transactionId,
-      hasScreenshot: Boolean(d.screenshot && d.screenshot.publicId),
+      hasScreenshot: Boolean(d.screenshot && d.screenshot.key),
       status: d.status,
       note: d.note,
       createdAt: d.createdAt,

@@ -1,5 +1,6 @@
 'use strict';
 
+const { logger } = require('../config/logger');
 const AuditLog = require('../models/AuditLog');
 
 /**
@@ -10,8 +11,7 @@ async function record({ actor, action, targetType, targetId, before, after, ip }
   try {
     await AuditLog.create({ actor, action, targetType, targetId, before, after, ip });
   } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error('[audit] failed to record', action, err.message);
+    logger.error({ err, action }, 'audit: failed to record');
   }
 }
 

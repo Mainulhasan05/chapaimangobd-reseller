@@ -5,15 +5,17 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Store, TrendingDown, Users } from 'lucide-react';
 import { api, errorMessage } from '@/lib/api';
 import { useDebounced } from '@/lib/use-debounced';
-import { t } from '@/lib/i18n/bn';
+import { t, type DictKey } from '@/lib/i18n/bn';
 import { formatMoney, formatMoneyPlain, formatSignedMoney, formatDateTime } from '@/lib/format';
-import type { LedgerEntry, ResellerSummary } from '@/lib/types';
+import { checkMoney, moneyError } from '@/lib/money';
+import type { KycStatus, LedgerEntry, ResellerSummary } from '@/lib/types';
 import {
   Alert,
   Badge,
   Card,
   ColumnToggle,
   EmptyState,
+  ErrorState,
   PageHeader,
   Person,
   SortTh,
@@ -27,10 +29,13 @@ import {
   useSort,
   type ColumnDef,
 } from '@/components/ui/layout';
-import { SearchInput, SortSelect, Toolbar, ToolbarSpacer } from '@/components/ui/toolbar';
+import { Segmented, SearchInput, SortSelect, Toolbar, ToolbarSpacer } from '@/components/ui/toolbar';
 import { Button, Spinner } from '@/components/ui/button';
 import { Field, MoneyInput, Select, Textarea } from '@/components/ui/form';
 import { Modal } from '@/components/ui/modal';
+import { Switch } from '@/components/ui/switch';
+import { ListSkeleton } from '@/components/ui/skeleton';
+import { useToast } from '@/components/ui/toast';
 
 type SortKey = 'shop' | 'person' | 'kyc' | 'balance' | 'limit';
 
@@ -42,14 +47,38 @@ const COLUMNS: ColumnDef<SortKey>[] = [
   { key: 'limit', label: t('wallet.creditLimit') },
 ];
 
+const KYC_LABEL: Record<KycStatus, DictKey> = {
+  not_submitted: 'kyc.notSubmitted',
+  pending: 'kyc.pending',
+  approved: 'kyc.approved',
+  rejected: 'kyc.rejected',
+};
+
+const KYC_FILTERS: { value: '' | KycStatus; label: string }[] = [
+  { value: '', label: t('app.all') },
+  { value: 'pending', label: t('kyc.pending') },
+  { value: 'approved', label: t('kyc.approved') },
+  { value: 'rejected', label: t('kyc.rejected') },
+  { value: 'not_submitted', label: t('kyc.notSubmitted') },
+];
+
+/** The reseller detail the list does not carry: channel preferences. */
+type ResellerDetail = {
+  reseller: ResellerSummary & { channelPrefs?: { sms?: boolean } };
+};
+
 export default function OwnerResellersPage() {
-  const [managing, setManaging] = useState<ResellerSummary | null>(null);
+  const [managingId, setManagingId] = useState<string | null>(null);
+  const [kycStatus, setKycStatus] = useState<'' | KycStatus>('');
   const [term, setTerm] = useState('');
   const search = useDebounced(term);
 
   const resellers = useQuery({
-    queryKey: ['owner', 'resellers'],
-    queryFn: () => api.get<{ resellers: ResellerSummary[] }>('/owner/resellers'),
+    queryKey: ['owner', 'resellers', kycStatus],
+    queryFn: () =>
+      api.get<{ resellers: ResellerSummary[] }>(
+        `/owner/resellers${kycStatus ? `?kycStatus=${kycStatus}` : ''}`
+      ),
   });
 
   const all = resellers.data?.resellers ?? [];
@@ -83,6 +112,9 @@ export default function OwnerResellersPage() {
   const debtors = all.filter((reseller) => reseller.balance < 0);
   const owed = debtors.reduce((sum, reseller) => sum + Math.abs(reseller.balance), 0);
 
+  // Looked up from the live list, so the sheet shows fresh numbers after a save.
+  const managing = all.find((reseller) => reseller.id === managingId) ?? null;
+
   return (
     <>
       <PageHeader title={t('nav.resellers')} subtitle={t('wallet.negativeHelp')} />
@@ -104,6 +136,12 @@ export default function OwnerResellersPage() {
       </div>
 
       <Toolbar>
+        <Segmented
+          label={t('kyc.title')}
+          value={kycStatus}
+          onChange={setKycStatus}
+          options={KYC_FILTERS}
+        />
         <ToolbarSpacer />
         <SearchInput value={term} onChange={setTerm} placeholder={t('auth.shopName')} />
         <SortSelect
@@ -111,105 +149,165 @@ export default function OwnerResellersPage() {
           onChange={(key) => sorting.setSort(key ? { key, direction: 'asc' } : null)}
           options={COLUMNS.map((column) => ({ value: column.key, label: column.label }))}
         />
-        <div className="hidden sm:block">
+        <div className="hidden lg:block">
           <ColumnToggle columns={COLUMNS} isVisible={columns.isVisible} onToggle={columns.toggle} />
         </div>
       </Toolbar>
 
-      {resellers.isLoading && (
-        <Card className="flex justify-center py-10">
-          <Spinner />
-        </Card>
+      {resellers.isLoading && <ListSkeleton />}
+
+      {resellers.isError && (
+        <ErrorState
+          onRetry={() => resellers.refetch()}
+          isRetrying={resellers.isFetching}
+          error={resellers.error}
+        />
       )}
 
       {resellers.isSuccess && rows.length === 0 && (
-        <EmptyState icon={Users} title={search ? t('app.noResults') : t('app.none')} />
+        <EmptyState
+          icon={Users}
+          title={search || kycStatus ? t('app.noResults') : t('app.none')}
+        />
       )}
 
       {rows.length > 0 && (
-        <TableWrap alwaysVisible>
-          <thead>
-            <tr>
-              {columns.isVisible('shop') && (
-                <SortTh column="shop" sort={sorting.sort} onSort={sorting.toggle}>
-                  {t('auth.shopName')}
-                </SortTh>
-              )}
-              {columns.isVisible('person') && (
-                <SortTh column="person" sort={sorting.sort} onSort={sorting.toggle}>
-                  {t('auth.phone')}
-                </SortTh>
-              )}
-              {columns.isVisible('kyc') && (
-                <SortTh column="kyc" sort={sorting.sort} onSort={sorting.toggle}>
-                  {t('kyc.title')}
-                </SortTh>
-              )}
-              {columns.isVisible('balance') && (
-                <SortTh column="balance" sort={sorting.sort} onSort={sorting.toggle} align="right">
-                  {t('wallet.balance')}
-                </SortTh>
-              )}
-              {columns.isVisible('limit') && (
-                <SortTh column="limit" sort={sorting.sort} onSort={sorting.toggle} align="right">
-                  {t('wallet.creditLimit')}
-                </SortTh>
-              )}
-              <Th className="w-28 text-right">{t('app.actions')}</Th>
-            </tr>
-          </thead>
-          <tbody>
+        <>
+          {/* Cards on a phone; five columns and a button do not fit in 360px. */}
+          <ul className="grid gap-3 sm:grid-cols-2 lg:hidden">
             {rows.map((reseller) => (
-              <Tr key={reseller.id}>
-                {columns.isVisible('shop') && (
-                  <Td>
-                    <Person name={reseller.shopName} caption={`/r/${reseller.slug}`} size="sm" />
-                  </Td>
-                )}
-
-                {columns.isVisible('person') && (
-                  <Td>
-                    <div className="text-sm font-medium">{reseller.user?.name}</div>
-                    <div className="tabular text-xs text-muted-foreground">
-                      {reseller.user?.phoneE164}
+              <li key={reseller.id}>
+                <Card className="p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <Person
+                      name={reseller.shopName}
+                      caption={reseller.user?.phoneE164}
+                      size="sm"
+                    />
+                    <div className="flex shrink-0 flex-col items-end gap-1">
+                      <Badge tone={statusTone(reseller.kycStatus)} dot>
+                        {t(KYC_LABEL[reseller.kycStatus])}
+                      </Badge>
+                      {reseller.user && !reseller.user.isActive && (
+                        <Badge tone="danger">{t('reseller.inactive')}</Badge>
+                      )}
                     </div>
-                  </Td>
-                )}
+                  </div>
 
-                {columns.isVisible('kyc') && (
-                  <Td>
-                    <Badge tone={statusTone(reseller.kycStatus)} dot>
-                      {reseller.kycStatus}
-                    </Badge>
-                  </Td>
-                )}
-
-                {columns.isVisible('balance') && (
-                  <Td
-                    className={`tabular text-right font-semibold ${
-                      reseller.balance < 0 ? 'text-danger' : 'text-success'
-                    }`}
-                  >
-                    {formatSignedMoney(reseller.balance)}
-                  </Td>
-                )}
-
-                {columns.isVisible('limit') && (
-                  <Td className="tabular text-right">{formatMoney(reseller.creditLimit)}</Td>
-                )}
-
-                <Td className="text-right">
-                  <Button size="sm" variant="outline" onClick={() => setManaging(reseller)}>
-                    {t('app.actions')}
-                  </Button>
-                </Td>
-              </Tr>
+                  <div className="mt-3 flex items-end justify-between gap-3 border-t border-border pt-3">
+                    <div>
+                      <p
+                        className={`tabular text-lg font-bold ${
+                          reseller.balance < 0 ? 'text-danger' : 'text-success'
+                        }`}
+                      >
+                        {formatSignedMoney(reseller.balance)}
+                      </p>
+                      <p className="tabular text-xs text-muted-foreground">
+                        {t('wallet.creditLimit')} {formatMoney(reseller.creditLimit)}
+                      </p>
+                    </div>
+                    <Button size="sm" variant="outline" onClick={() => setManagingId(reseller.id)}>
+                      {t('reseller.manage')}
+                    </Button>
+                  </div>
+                </Card>
+              </li>
             ))}
-          </tbody>
-        </TableWrap>
+          </ul>
+
+          <TableWrap from="lg">
+            <thead>
+              <tr>
+                {columns.isVisible('shop') && (
+                  <SortTh column="shop" sort={sorting.sort} onSort={sorting.toggle}>
+                    {t('auth.shopName')}
+                  </SortTh>
+                )}
+                {columns.isVisible('person') && (
+                  <SortTh column="person" sort={sorting.sort} onSort={sorting.toggle}>
+                    {t('auth.phone')}
+                  </SortTh>
+                )}
+                {columns.isVisible('kyc') && (
+                  <SortTh column="kyc" sort={sorting.sort} onSort={sorting.toggle}>
+                    {t('kyc.title')}
+                  </SortTh>
+                )}
+                {columns.isVisible('balance') && (
+                  <SortTh column="balance" sort={sorting.sort} onSort={sorting.toggle} align="right">
+                    {t('wallet.balance')}
+                  </SortTh>
+                )}
+                {columns.isVisible('limit') && (
+                  <SortTh column="limit" sort={sorting.sort} onSort={sorting.toggle} align="right">
+                    {t('wallet.creditLimit')}
+                  </SortTh>
+                )}
+                <Th className="w-28 text-right">{t('app.actions')}</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((reseller) => (
+                <Tr key={reseller.id}>
+                  {columns.isVisible('shop') && (
+                    <Td>
+                      <Person name={reseller.shopName} caption={`/r/${reseller.slug}`} size="sm" />
+                    </Td>
+                  )}
+
+                  {columns.isVisible('person') && (
+                    <Td>
+                      <div className="text-sm font-medium">{reseller.user?.name}</div>
+                      <div className="tabular text-xs text-muted-foreground">
+                        {reseller.user?.phoneE164}
+                      </div>
+                    </Td>
+                  )}
+
+                  {columns.isVisible('kyc') && (
+                    <Td>
+                      <div className="flex flex-wrap gap-1">
+                        <Badge tone={statusTone(reseller.kycStatus)} dot>
+                          {t(KYC_LABEL[reseller.kycStatus])}
+                        </Badge>
+                        {reseller.user && !reseller.user.isActive && (
+                          <Badge tone="danger">{t('reseller.inactive')}</Badge>
+                        )}
+                      </div>
+                    </Td>
+                  )}
+
+                  {columns.isVisible('balance') && (
+                    <Td
+                      className={`tabular text-right font-semibold ${
+                        reseller.balance < 0 ? 'text-danger' : 'text-success'
+                      }`}
+                    >
+                      {formatSignedMoney(reseller.balance)}
+                    </Td>
+                  )}
+
+                  {columns.isVisible('limit') && (
+                    <Td className="tabular text-right">{formatMoney(reseller.creditLimit)}</Td>
+                  )}
+
+                  <Td className="text-right">
+                    <Button size="sm" variant="outline" onClick={() => setManagingId(reseller.id)}>
+                      {t('reseller.manage')}
+                    </Button>
+                  </Td>
+                </Tr>
+              ))}
+            </tbody>
+          </TableWrap>
+        </>
       )}
 
-      <ResellerModal reseller={managing} onClose={() => setManaging(null)} />
+      {managing && (
+        // Keyed by reseller, so the drafts inside start empty for each one.
+        <ResellerModal key={managing.id} reseller={managing} onClose={() => setManagingId(null)} />
+      )}
     </>
   );
 }
@@ -218,52 +316,83 @@ function ResellerModal({
   reseller,
   onClose,
 }: {
-  reseller: ResellerSummary | null;
+  reseller: ResellerSummary;
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [creditLimit, setCreditLimit] = useState('');
   const [entry, setEntry] = useState({ amount: '', direction: 'credit', note: '' });
+  const [confirmingDeactivate, setConfirmingDeactivate] = useState(false);
+
+  const detail = useQuery({
+    queryKey: ['owner', 'reseller', reseller.id],
+    queryFn: () => api.get<ResellerDetail>(`/owner/resellers/${reseller.id}`),
+  });
 
   const ledger = useQuery({
-    queryKey: ['owner', 'ledger', reseller?.id],
-    queryFn: () => api.get<{ entries: LedgerEntry[] }>(`/owner/resellers/${reseller!.id}/ledger`),
-    enabled: Boolean(reseller),
+    queryKey: ['owner', 'ledger', reseller.id],
+    queryFn: () => api.get<{ entries: LedgerEntry[] }>(`/owner/resellers/${reseller.id}/ledger`),
   });
 
   const invalidate = async () => {
     await queryClient.invalidateQueries({ queryKey: ['owner'] });
   };
 
+  const limitCheck = checkMoney(creditLimit, { allowZero: true });
   const saveLimit = useMutation({
-    mutationFn: () =>
-      api.patch(`/owner/resellers/${reseller!.id}`, { creditLimit: Number(creditLimit) }),
-    onSuccess: invalidate,
+    mutationFn: (value: number) =>
+      api.patch(`/owner/resellers/${reseller.id}`, { creditLimit: value }),
+    onSuccess: async () => {
+      await invalidate();
+      setCreditLimit('');
+      toast(t('app.saved'));
+    },
+  });
+
+  /** Active and SMS go through the same endpoint, one field at a time. */
+  const toggle = useMutation({
+    mutationFn: (body: { isActive: boolean } | { smsEnabled: boolean }) =>
+      api.patch(`/owner/resellers/${reseller.id}`, body),
+    onSuccess: async () => {
+      setConfirmingDeactivate(false);
+      await invalidate();
+      toast(t('app.saved'));
+    },
   });
 
   /** An adjustment is a new entry, never an edit, so the reason is required. */
+  const entryCheck = checkMoney(entry.amount);
   const postEntry = useMutation({
-    mutationFn: () =>
-      api.post(`/owner/resellers/${reseller!.id}/ledger`, {
-        amount: Number(entry.amount),
+    mutationFn: (amount: number) =>
+      api.post(`/owner/resellers/${reseller.id}/ledger`, {
+        amount,
         direction: entry.direction,
         note: entry.note,
       }),
     onSuccess: async () => {
       await invalidate();
       setEntry({ amount: '', direction: 'credit', note: '' });
+      toast(t('app.saved'));
     },
   });
 
   const reconcile = useMutation({
     mutationFn: () =>
-      api.get<{ ok: boolean; problems: string[] }>(`/owner/resellers/${reseller!.id}/reconcile`),
+      api.get<{ ok: boolean; problems: string[] }>(`/owner/resellers/${reseller.id}/reconcile`),
   });
 
-  if (!reseller) return null;
+  const isActive = reseller.user?.isActive ?? true;
+  const smsEnabled = detail.data?.reseller.channelPrefs?.sms ?? false;
 
   return (
-    <Modal open wide onClose={onClose} title={reseller.shopName}>
+    <Modal
+      open
+      wide
+      onClose={onClose}
+      title={reseller.shopName}
+      dirty={Boolean(creditLimit || entry.amount || entry.note)}
+    >
       <div className="mb-6 grid grid-cols-2 gap-3">
         <div className="rounded-lg border-2 border-border bg-muted p-3">
           <div className="text-xs font-semibold text-muted-foreground">{t('wallet.balance')}</div>
@@ -286,43 +415,115 @@ function ResellerModal({
       </div>
 
       <section className="mb-6 border-t border-border pt-5">
-        <h3 className="mb-2 text-sm font-bold">{t('owner.creditLimit')}</h3>
-        <div className="flex gap-2">
-          <MoneyInput
-            value={creditLimit}
-            placeholder={formatMoneyPlain(reseller.creditLimit)}
-            onChange={(e) => setCreditLimit(e.target.value)}
+        <h3 className="mb-2 text-sm font-bold">{t('reseller.account')}</h3>
+
+        {toggle.error && <Alert tone="danger">{errorMessage(toggle.error)}</Alert>}
+
+        <div className="divide-y divide-border">
+          <Switch
+            checked={isActive}
+            disabled={toggle.isPending}
+            onChange={(checked) => {
+              // Turning a reseller off stops their shop; it asks first.
+              if (!checked) setConfirmingDeactivate(true);
+              else toggle.mutate({ isActive: true });
+            }}
+            label={t('reseller.active')}
+            hint={isActive ? t('reseller.activeHint') : t('reseller.inactiveHint')}
           />
-          <Button
-            loading={saveLimit.isPending}
-            disabled={!creditLimit}
-            onClick={() => saveLimit.mutate()}
-          >
-            {t('app.save')}
-          </Button>
+
+          {confirmingDeactivate && (
+            <div role="alertdialog" aria-labelledby="deactivate-title" className="py-3">
+              <Alert tone="warning" title={t('reseller.deactivateTitle')}>
+                <span id="deactivate-title">{t('reseller.deactivateHelp')}</span>
+              </Alert>
+              <div className="flex gap-2 [&>button]:flex-1">
+                <Button variant="outline" onClick={() => setConfirmingDeactivate(false)}>
+                  {t('app.cancel')}
+                </Button>
+                <Button
+                  variant="danger"
+                  loading={toggle.isPending}
+                  onClick={() => toggle.mutate({ isActive: false })}
+                >
+                  {t('reseller.deactivate')}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {detail.isLoading ? (
+            <div className="flex justify-center py-3">
+              <Spinner />
+            </div>
+          ) : detail.isError ? (
+            <p className="py-2 text-xs text-danger">{errorMessage(detail.error)}</p>
+          ) : (
+            <Switch
+              checked={smsEnabled}
+              disabled={toggle.isPending}
+              onChange={(checked) => toggle.mutate({ smsEnabled: checked })}
+              label={t('reseller.smsEnabled')}
+              hint={t('reseller.smsEnabledHint')}
+            />
+          )}
         </div>
-        {saveLimit.error && <p className="mt-1 text-xs text-danger">{errorMessage(saveLimit.error)}</p>}
+      </section>
+
+      <section className="mb-6 border-t border-border pt-5">
+        <h3 className="mb-2 text-sm font-bold">{t('owner.creditLimit')}</h3>
+        <Field
+          htmlFor="creditLimit"
+          error={moneyError(creditLimit, { allowZero: true })}
+          className="mb-0"
+        >
+          <div className="flex gap-2">
+            <MoneyInput
+              id="creditLimit"
+              className="flex-1"
+              value={creditLimit}
+              placeholder={formatMoneyPlain(reseller.creditLimit)}
+              onChange={(e) => setCreditLimit(e.target.value)}
+            />
+            <Button
+              loading={saveLimit.isPending}
+              disabled={!limitCheck.ok}
+              onClick={() => limitCheck.ok && saveLimit.mutate(limitCheck.value)}
+            >
+              {t('app.save')}
+            </Button>
+          </div>
+        </Field>
+        {saveLimit.error && (
+          <p className="mt-1 text-xs text-danger">{errorMessage(saveLimit.error)}</p>
+        )}
       </section>
 
       <section className="mb-6 border-t border-border pt-5">
         <h3 className="mb-3 text-sm font-bold">{t('owner.manualEntry')}</h3>
 
         <div className="grid gap-2 sm:grid-cols-2">
-          <Field label={t('wallet.amount')} htmlFor="amount" className="mb-2">
+          <Field
+            label={t('wallet.amount')}
+            htmlFor="amount"
+            className="mb-2"
+            error={moneyError(entry.amount)}
+            required
+          >
             <MoneyInput
               id="amount"
               value={entry.amount}
               onChange={(e) => setEntry((p) => ({ ...p, amount: e.target.value }))}
             />
           </Field>
-          <Field label={t('app.actions')} htmlFor="direction" className="mb-2">
+          <Field label={t('ledger.direction')} htmlFor="direction" className="mb-2">
             <Select
               id="direction"
               value={entry.direction}
               onChange={(e) => setEntry((p) => ({ ...p, direction: e.target.value }))}
             >
-              <option value="credit">{t('wallet.depositRequest')}</option>
-              <option value="debit">{t('wallet.withdrawRequest')}</option>
+              <option value="credit">{t('ledger.manualCredit')}</option>
+              <option value="debit">{t('ledger.manualDebit')}</option>
             </Select>
           </Field>
         </div>
@@ -336,13 +537,15 @@ function ResellerModal({
           />
         </Field>
 
-        {postEntry.error && <p className="mb-2 text-xs text-danger">{errorMessage(postEntry.error)}</p>}
+        {postEntry.error && (
+          <p className="mb-2 text-xs text-danger">{errorMessage(postEntry.error)}</p>
+        )}
 
         <Button
           full
           loading={postEntry.isPending}
-          disabled={!entry.amount || entry.note.trim().length < 3}
-          onClick={() => postEntry.mutate()}
+          disabled={!entryCheck.ok || entry.note.trim().length < 3}
+          onClick={() => entryCheck.ok && postEntry.mutate(entryCheck.value)}
         >
           {t('app.save')}
         </Button>
@@ -364,30 +567,51 @@ function ResellerModal({
 
         {reconcile.data && (
           <Alert tone={reconcile.data.ok ? 'success' : 'danger'}>
-            {reconcile.data.ok ? 'হিসাব মিলেছে' : reconcile.data.problems.join('; ')}
+            {reconcile.data.ok ? t('reconcile.matched') : reconcile.data.problems.join('; ')}
           </Alert>
         )}
+        {reconcile.error && <Alert tone="danger">{errorMessage(reconcile.error)}</Alert>}
 
-        <div className="scroll-x max-h-64 overflow-y-auto">
-          <table className="w-full min-w-[28rem] text-sm">
-            <tbody>
-              {ledger.data?.entries.map((row) => (
-                <tr key={row.id} className="border-b border-border last:border-0">
-                  <Td className="whitespace-nowrap text-xs text-muted-foreground">
-                    {formatDateTime(row.createdAt)}
-                  </Td>
-                  <Td className="text-xs">{row.note ?? row.kind}</Td>
-                  <Td
-                    className={`tabular text-right ${row.amount < 0 ? 'text-danger' : 'text-success'}`}
-                  >
-                    {formatSignedMoney(row.amount)}
-                  </Td>
-                  <Td className="tabular text-right">{formatMoney(row.balanceAfter)}</Td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        {ledger.isLoading && (
+          <div className="flex justify-center py-6">
+            <Spinner />
+          </div>
+        )}
+
+        {ledger.isError && (
+          <ErrorState
+            onRetry={() => ledger.refetch()}
+            isRetrying={ledger.isFetching}
+            error={ledger.error}
+          />
+        )}
+
+        {ledger.isSuccess && ledger.data.entries.length === 0 && (
+          <p className="py-4 text-center text-sm text-muted-foreground">{t('wallet.noEntries')}</p>
+        )}
+
+        {ledger.isSuccess && ledger.data.entries.length > 0 && (
+          <div className="scroll-x max-h-64 overflow-y-auto">
+            <table className="w-full min-w-[28rem] text-sm">
+              <tbody>
+                {ledger.data.entries.map((row) => (
+                  <tr key={row.id} className="border-b border-border last:border-0">
+                    <Td className="whitespace-nowrap text-xs text-muted-foreground">
+                      {formatDateTime(row.createdAt)}
+                    </Td>
+                    <Td className="text-xs">{row.note ?? row.kind}</Td>
+                    <Td
+                      className={`tabular text-right ${row.amount < 0 ? 'text-danger' : 'text-success'}`}
+                    >
+                      {formatSignedMoney(row.amount)}
+                    </Td>
+                    <Td className="tabular text-right">{formatMoney(row.balanceAfter)}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
     </Modal>
   );

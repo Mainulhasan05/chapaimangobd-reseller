@@ -1,7 +1,8 @@
 'use strict';
 
+const { logger } = require('../config/logger');
 const Notification = require('../models/Notification');
-const OutboxMessage = require('../models/OutboxMessage');
+const { enqueue } = require('./outbox');
 const ResellerProfile = require('../models/ResellerProfile');
 const { getSettings } = require('./settings');
 const { NOTIFICATION_CHANNEL, EVENT_TYPE, ROLES } = require('../domain/constants');
@@ -79,7 +80,7 @@ async function notify({ user, eventType, title, body, data = {} }) {
     const external = channels.filter((c) => c !== NOTIFICATION_CHANNEL.IN_APP);
 
     if (external.length > 0) {
-      await OutboxMessage.create({
+      await enqueue({
         user: user._id || user,
         eventType,
         channels: external,
@@ -91,8 +92,7 @@ async function notify({ user, eventType, title, body, data = {} }) {
 
     return notification;
   } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error('[notify] failed', eventType, err.message);
+    logger.error({ err, eventType }, 'notify: failed');
     return null;
   }
 }

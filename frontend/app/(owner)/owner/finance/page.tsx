@@ -11,6 +11,7 @@ import {
   Badge,
   Card,
   EmptyState,
+  ErrorState,
   PageHeader,
   Person,
   statusTone,
@@ -132,6 +133,16 @@ function Deposits({ status }: { status: string }) {
       <Card className="flex justify-center py-10">
         <Spinner />
       </Card>
+    );
+  }
+
+  if (deposits.isError) {
+    return (
+      <ErrorState
+        onRetry={() => deposits.refetch()}
+        isRetrying={deposits.isFetching}
+        error={deposits.error}
+      />
     );
   }
 
@@ -307,6 +318,16 @@ function Withdrawals({ status }: { status: string }) {
       <Card className="flex justify-center py-10">
         <Spinner />
       </Card>
+    );
+  }
+
+  if (withdrawals.isError) {
+    return (
+      <ErrorState
+        onRetry={() => withdrawals.refetch()}
+        isRetrying={withdrawals.isFetching}
+        error={withdrawals.error}
+      />
     );
   }
 

@@ -52,4 +52,27 @@ async function assertTransactionSupport() {
 
 const disconnect = () => mongoose.disconnect();
 
-module.exports = { connect, disconnect, assertTransactionSupport };
+const PING_TIMEOUT_MS = 2000;
+
+/**
+ * Whether this process can talk to the database right now. readyState alone
+ * lags a dead primary by the driver's heartbeat, so a real ping confirms it,
+ * bounded so a hung server fails the probe instead of hanging it. Never throws.
+ */
+async function databaseIsUp() {
+  if (mongoose.connection.readyState !== 1) return false;
+  let timer;
+  try {
+    const timeout = new Promise((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error('ping timed out')), PING_TIMEOUT_MS);
+    });
+    await Promise.race([mongoose.connection.db.admin().command({ ping: 1 }), timeout]);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+module.exports = { connect, disconnect, assertTransactionSupport, databaseIsUp };

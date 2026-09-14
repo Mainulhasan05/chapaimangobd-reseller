@@ -1,5 +1,6 @@
 'use strict';
 
+const { logger } = require('../config/logger');
 const Customer = require('../models/Customer');
 const Order = require('../models/Order');
 const { ORDER_STATUS } = require('../domain/constants');
@@ -102,8 +103,7 @@ async function recordOrder(order) {
       );
     }
   } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error('[customers] recordOrder failed', order?.orderCode, err.message);
+    logger.error({ err, orderCode: order?.orderCode }, 'customers: recordOrder failed');
   }
 }
 
@@ -136,8 +136,7 @@ async function recordOutcome(order) {
 
     await Customer.updateOne({ phoneE164 }, update);
   } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error('[customers] recordOutcome failed', order?.orderCode, err.message);
+    logger.error({ err, orderCode: order?.orderCode }, 'customers: recordOutcome failed');
   }
 }
 

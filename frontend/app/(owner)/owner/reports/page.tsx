@@ -11,6 +11,7 @@ import {
   Card,
   CardHeader,
   EmptyState,
+  ErrorState,
   PageHeader,
   Stat,
   TableWrap,
@@ -97,14 +98,14 @@ export default function OwnerReportsPage() {
         <Stat
           icon={TrendingDown}
           label={t('owner.receivable')}
-          value={formatMoney(receivables.data?.totalOwed ?? 0)}
+          value={receivables.isSuccess ? formatMoney(receivables.data.totalOwed) : '—'}
           tone={(receivables.data?.totalOwed ?? 0) > 0 ? 'danger' : 'neutral'}
         />
         <Stat
           icon={ClipboardList}
           tone="primary"
           label={t('nav.orders')}
-          value={formatNumber(receivables.data?.openOrders ?? 0)}
+          value={receivables.isSuccess ? formatNumber(receivables.data.openOrders) : '—'}
         />
         <Card className="flex flex-col justify-center">
           <Button
@@ -122,8 +123,11 @@ export default function OwnerReportsPage() {
               }`}
             >
               {reconcile.data.drifted.length === 0
-                ? `${formatNumber(reconcile.data.checked)} টি হিসাব মিলেছে`
-                : `${formatNumber(reconcile.data.drifted.length)} টিতে গরমিল`}
+                ? t('reconcile.checkedOk').replace('{n}', formatNumber(reconcile.data.checked))
+                : t('reconcile.drifted').replace(
+                    '{n}',
+                    formatNumber(reconcile.data.drifted.length)
+                  )}
             </p>
           )}
           {reconcile.error && (
@@ -134,9 +138,25 @@ export default function OwnerReportsPage() {
 
       <Card className="mb-6">
         <CardHeader title={t('wallet.owed')} subtitle={t('owner.receivable')} />
-        {receivables.data?.resellers.length === 0 ? (
+        {receivables.isLoading && (
+          <div className="flex justify-center py-6">
+            <Spinner />
+          </div>
+        )}
+
+        {receivables.isError && (
+          <ErrorState
+            onRetry={() => receivables.refetch()}
+            isRetrying={receivables.isFetching}
+            error={receivables.error}
+          />
+        )}
+
+        {receivables.isSuccess && receivables.data.resellers.length === 0 && (
           <EmptyState icon={ClipboardList} title={t('app.none')} />
-        ) : (
+        )}
+
+        {receivables.isSuccess && receivables.data.resellers.length > 0 && (
           <div className="scroll-x">
             <table className="w-full min-w-[32rem] text-sm">
               <thead>
@@ -148,7 +168,7 @@ export default function OwnerReportsPage() {
                 </tr>
               </thead>
               <tbody>
-                {receivables.data?.resellers.map((row) => (
+                {receivables.data.resellers.map((row) => (
                   <Tr key={row.id}>
                     <Td>
                       <div className="font-medium">{row.shopName}</div>
@@ -159,7 +179,7 @@ export default function OwnerReportsPage() {
                     <Td className="tabular text-right text-danger">{formatMoney(row.owed)}</Td>
                     <Td className="tabular text-right">{formatMoney(row.creditLimit)}</Td>
                     <Td className="text-right text-xs">
-                      {row.atLimit && <span className="text-danger">সীমা শেষ</span>}
+                      {row.atLimit && <span className="text-danger">{t('reports.atLimit')}</span>}
                     </Td>
                   </Tr>
                 ))}
@@ -173,10 +193,10 @@ export default function OwnerReportsPage() {
         <CardHeader title={t('nav.products')} />
 
         <div className="mb-5 grid gap-4 sm:grid-cols-2">
-          <Field label="শুরু" htmlFor="from" className="mb-0">
+          <Field label={t('reports.from')} htmlFor="from" className="mb-0">
             <Input id="from" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
           </Field>
-          <Field label="শেষ" htmlFor="to" className="mb-0">
+          <Field label={t('reports.to')} htmlFor="to" className="mb-0">
             <Input id="to" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
           </Field>
         </div>
@@ -185,6 +205,10 @@ export default function OwnerReportsPage() {
           <div className="flex justify-center py-6">
             <Spinner />
           </div>
+        )}
+
+        {sold.isError && (
+          <ErrorState onRetry={() => sold.refetch()} isRetrying={sold.isFetching} error={sold.error} />
         )}
 
         {sold.data?.products.length === 0 && <EmptyState icon={ClipboardList} title={t('app.none')} />}

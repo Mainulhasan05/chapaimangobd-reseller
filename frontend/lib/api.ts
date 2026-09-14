@@ -70,6 +70,39 @@ async function refreshSession(): Promise<boolean> {
   return refreshInFlight;
 }
 
+/**
+ * Whether a 401 on this path is worth a refresh. The auth endpoints that issue
+ * or revoke tokens are not; `/auth/me` is, because an expired access token with
+ * a live refresh token is exactly what a reload after fifteen idle minutes
+ * looks like, and treating that as signed out bounced people to the login form.
+ */
+function canRefresh(path: string): boolean {
+  if (!path.startsWith('/auth/')) return true;
+  return path === '/auth/me';
+}
+
+/*
+ * What happens when the session has definitively ended.
+ *
+ * Registered by the provider that owns the query cache, so this module stays
+ * free of React. Signalled at most once: ten queries failing together must
+ * produce one redirect, not ten.
+ */
+type UnauthorizedHandler = () => boolean;
+let unauthorizedHandler: UnauthorizedHandler | null = null;
+let unauthorizedSignalled = false;
+
+export function setUnauthorizedHandler(handler: UnauthorizedHandler | null): void {
+  unauthorizedHandler = handler;
+}
+
+function signalUnauthorized(): void {
+  if (unauthorizedSignalled || !unauthorizedHandler) return;
+  unauthorizedSignalled = true;
+  // A handler that chose not to navigate (a public page) leaves the latch open.
+  if (!unauthorizedHandler()) unauthorizedSignalled = false;
+}
+
 type RequestOptions = {
   method?: string;
   body?: unknown;
@@ -126,9 +159,16 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   }
 
   // An expired access token is recoverable exactly once per request.
-  if (response.status === 401 && !retrying && !path.startsWith('/auth/')) {
+  if (response.status === 401 && !retrying && canRefresh(path)) {
     const refreshed = await refreshSession();
     if (refreshed) return apiRequest<T>(path, { ...options, retrying: true });
+  }
+
+  // The session is gone for good: the refresh failed, or succeeded and the
+  // retry was still refused. `/auth/*` is excluded because a 401 there is an
+  // answer (`/auth/me` on a public page, a wrong password on login).
+  if (response.status === 401 && !path.startsWith('/auth/')) {
+    signalUnauthorized();
   }
 
   let payload: ApiEnvelope<T>;

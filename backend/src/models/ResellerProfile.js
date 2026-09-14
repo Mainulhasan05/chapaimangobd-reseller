@@ -15,7 +15,7 @@ const resellerProfileSchema = new mongoose.Schema(
   {
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, unique: true },
     shopName: { type: String, trim: true, maxlength: 120 },
-    slug: { type: String, required: true, unique: true, index: true },
+    slug: { type: String, required: true, unique: true },
     /*
      * The shop's picture, shown on a public form to a customer who is not
      * logged in. `logoUrl` is what every reader renders and stays a plain

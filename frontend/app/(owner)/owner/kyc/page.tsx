@@ -4,12 +4,35 @@ import { useState } from 'react';
 import { BadgeCheck } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, errorMessage } from '@/lib/api';
-import { t } from '@/lib/i18n/bn';
+import { t, type DictKey } from '@/lib/i18n/bn';
 import { formatDateTime } from '@/lib/format';
-import { Alert, Badge, Card, CardHeader, EmptyState, PageHeader, statusTone } from '@/components/ui/layout';
+import {
+  Alert,
+  Badge,
+  Card,
+  CardHeader,
+  EmptyState,
+  ErrorState,
+  PageHeader,
+  statusTone,
+} from '@/components/ui/layout';
 import { Button, Spinner } from '@/components/ui/button';
 import { Field, Select, Textarea } from '@/components/ui/form';
 import { Modal } from '@/components/ui/modal';
+
+/** Document types arrive as identifiers; the owner reads them in Bengali. */
+const DOC_LABEL: Record<string, DictKey> = {
+  nid_front: 'kyc.nidFront',
+  nid_back: 'kyc.nidBack',
+  selfie: 'kyc.selfie',
+  trade_license: 'kyc.tradeLicense',
+};
+
+const DICT_STATUS: Record<string, DictKey> = {
+  pending: 'kyc.pending',
+  approved: 'kyc.approved',
+  rejected: 'kyc.rejected',
+};
 
 type Submission = {
   id: string;
@@ -52,6 +75,10 @@ export default function OwnerKycPage() {
         </Card>
       )}
 
+      {queue.isError && (
+        <ErrorState onRetry={() => queue.refetch()} isRetrying={queue.isFetching} error={queue.error} />
+      )}
+
       {queue.data?.submissions.length === 0 && (
         <EmptyState icon={BadgeCheck} title={t('app.none')} />
       )}
@@ -64,7 +91,7 @@ export default function OwnerKycPage() {
               subtitle={submission.reseller?.user?.phoneE164}
               action={
                 <Badge tone={statusTone(submission.status)} dot>
-                  {submission.status}
+                  {DICT_STATUS[submission.status] ? t(DICT_STATUS[submission.status]) : submission.status}
                 </Badge>
               }
             />
@@ -167,7 +194,9 @@ function ReviewModal({
       <div className="mb-5 grid gap-4 sm:grid-cols-2">
         {documents.data?.documents.map((doc) => (
           <figure key={doc.type}>
-            <figcaption className="mb-1 text-xs text-muted-foreground">{doc.type}</figcaption>
+            <figcaption className="mb-1 text-xs text-muted-foreground">
+              {DOC_LABEL[doc.type] ? t(DOC_LABEL[doc.type]) : doc.type}
+            </figcaption>
             {/* Signed Cloudinary URLs expire, so a plain img avoids Next caching them. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img

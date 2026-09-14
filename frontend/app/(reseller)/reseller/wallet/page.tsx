@@ -6,6 +6,7 @@ import { ArrowDownToLine, ArrowUpFromLine, CreditCard, Inbox, Landmark, Wallet a
 import { api, errorMessage, fieldErrors } from '@/lib/api';
 import { t } from '@/lib/i18n/bn';
 import { formatMoney, formatSignedMoney, formatDateTime } from '@/lib/format';
+import { checkMoney, moneyError } from '@/lib/money';
 import type { Deposit, LedgerEntry, Wallet, Withdrawal } from '@/lib/types';
 import {
   Alert,
@@ -359,7 +360,11 @@ function DepositModal({ open, onClose }: { open: boolean; onClose: () => void })
           <Button variant="outline" onClick={onClose}>
             {t('app.cancel')}
           </Button>
-          <Button loading={submit.isPending} onClick={() => submit.mutate()}>
+          <Button
+            loading={submit.isPending}
+            disabled={!checkMoney(form.amount).ok}
+            onClick={() => submit.mutate()}
+          >
             {t('app.save')}
           </Button>
         </>
@@ -369,7 +374,12 @@ function DepositModal({ open, onClose }: { open: boolean; onClose: () => void })
         <Alert tone="danger">{errorMessage(submit.error)}</Alert>
       )}
 
-      <Field label={t('wallet.amount')} htmlFor="amount" error={errors.amount} required>
+      <Field
+        label={t('wallet.amount')}
+        htmlFor="amount"
+        error={errors.amount ?? moneyError(form.amount)}
+        required
+      >
         <MoneyInput id="amount" value={form.amount} onChange={set('amount')} />
       </Field>
 
@@ -427,9 +437,9 @@ function WithdrawModal({
   const [form, setForm] = useState({ amount: '', method: 'bkash', destinationNumber: '', note: '' });
 
   const submit = useMutation({
-    mutationFn: () =>
+    mutationFn: (amount: number) =>
       api.post('/reseller/withdrawals', {
-        amount: Number(form.amount),
+        amount,
         method: form.method,
         destinationNumber: form.destinationNumber,
         ...(form.note ? { note: form.note } : {}),
@@ -443,6 +453,8 @@ function WithdrawModal({
   });
 
   const errors = fieldErrors(submit.error);
+  // Never more than the balance: a withdrawal cannot create debt.
+  const withdrawCheck = checkMoney(form.amount, { max: maxAmount });
   const set =
     (key: keyof typeof form) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
@@ -459,7 +471,11 @@ function WithdrawModal({
           <Button variant="outline" onClick={onClose}>
             {t('app.cancel')}
           </Button>
-          <Button loading={submit.isPending} onClick={() => submit.mutate()}>
+          <Button
+            loading={submit.isPending}
+            disabled={!withdrawCheck.ok}
+            onClick={() => withdrawCheck.ok && submit.mutate(withdrawCheck.value)}
+          >
             {t('app.save')}
           </Button>
         </>
@@ -472,7 +488,7 @@ function WithdrawModal({
       <Field
         label={t('wallet.amount')}
         htmlFor="wamount"
-        error={errors.amount}
+        error={errors.amount ?? moneyError(form.amount, { max: maxAmount })}
         hint={`${t('wallet.available')} ${formatMoney(maxAmount)}`}
         required
       >

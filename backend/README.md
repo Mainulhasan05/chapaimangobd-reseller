@@ -43,13 +43,51 @@ npm run dev
 `npm test` runs the whole suite against an in-memory replica set. No local
 MongoDB required.
 
+## Deploying: sync indexes first (mandatory)
+
+Every deploy, **before** the new release starts serving:
+
+```bash
+npm run db:sync-indexes
+```
+
+Production connects with `autoIndex` off, because building an index on boot
+blocks a large collection. The consequence is that nothing else creates them.
+Skip this step and the unique indexes that stop a double ledger post or a
+duplicated public order simply do not exist, and the duplicates get written.
+
+The script creates any missing collection (a transaction cannot), builds every
+index a schema declares, drops indexes no schema declares any more, prints what
+changed per model and exits non-zero on failure, so a deploy pipeline stops
+there. It is safe to run repeatedly; a second run reports everything up to date.
+
+## Health, shutdown and logs
+
+- `GET /api/health` is public and answers only `{ "ok": true, "db": "up" }`, or
+  `503` with `{ "ok": false, "db": "down" }` when the database does not answer a
+  ping. Point the load balancer at it.
+- `GET /api/owner/system/health` (owner login) additionally reports the
+  environment and which integrations are configured.
+- `SIGTERM` / `SIGINT` stop accepting connections, stop the outbox worker, close
+  MongoDB and exit, with a 10 second hard limit.
+- Logs are one JSON line per event (pino). Every request gets an id, taken from
+  an incoming `X-Request-Id` or generated, and echoed back in the `X-Request-Id`
+  response header; quote it when reporting a problem. Cookies and the
+  `Authorization` header are redacted. `LOG_LEVEL` sets verbosity; tests are
+  silent. Pipe through `npx pino-pretty` locally for readable output.
+
 ## Environment
 
 Only four variables are mandatory: `MONGODB_URI`, `JWT_ACCESS_SECRET`,
 `JWT_REFRESH_SECRET`, and the `OWNER_PHONE` / `OWNER_PASSWORD` pair used by the
 seed. Everything else has a working default.
 
-Integrations are optional and the app reports which are live at `/api/health`:
+The two JWT secrets must each be at least 32 characters and must differ; boot
+refuses otherwise. `COOKIE_SECURE` follows `NODE_ENV` when unset (on in
+production), and `COOKIE_SECURE=false` with `NODE_ENV=production` is refused.
+
+Integrations are optional and the app reports which are live at
+`/api/owner/system/health`:
 
 - **Cloudflare R2** is required for KYC documents, deposit screenshots and
   product images. Without it those uploads fail; the rest of the system works.

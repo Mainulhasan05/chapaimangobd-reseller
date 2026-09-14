@@ -121,6 +121,47 @@ const TEXT = {
         ? `বর্তমান ব্যালেন্স ${taka(d.balancePoisha)}। নতুন অর্ডার নিতে টাকা জমা দিন।`
         : 'নতুন অর্ডার নিতে টাকা জমা দিন',
   }),
+
+  /* -------------------------------------------------------------- alerts -- */
+
+  // Nightly reconciliation found a wallet whose ledger does not add up. Rare,
+  // and serious: the owner should look before the day's money moves.
+  [EVENT_TYPE.ALERT_LEDGER_DRIFT]: (d) => ({
+    title: 'লেজারে গরমিল পাওয়া গেছে',
+    body:
+      d.driftedCount != null
+        ? [
+            `${d.driftedCount}টি রিসেলারের হিসাব মিলছে না`,
+            d.shops && d.shops.length ? d.shops.join(', ') : null,
+          ]
+            .filter(Boolean)
+            .join(' · ')
+        : 'রিসেলারের হিসাব মিলিয়ে দেখুন',
+  }),
+
+  // The owner's morning list. Each line appears only when there is something to
+  // say, so an empty morning produces no notification at all (see the job).
+  [EVENT_TYPE.ALERT_DAILY_DIGEST]: (d) => {
+    const lines = [];
+    if (d.agingCount) {
+      const codes = d.agingCodes && d.agingCodes.length ? `: ${d.agingCodes.join(', ')}` : '';
+      lines.push(`${d.agingCount}টি নিশ্চিত অর্ডার ${d.agingHours} ঘণ্টার বেশি অপেক্ষায়${codes}`);
+    }
+    if (d.nearLimitCount) {
+      const shops = d.nearLimitShops && d.nearLimitShops.length ? `: ${d.nearLimitShops.join(', ')}` : '';
+      lines.push(`${d.nearLimitCount}জন রিসেলার বাকির সীমার কাছে${shops}`);
+    }
+    if (d.deadLetters) {
+      lines.push(`${d.deadLetters}টি নোটিফিকেশন পাঠানো যায়নি`);
+    }
+    if (d.smsBalance != null && d.smsLow) {
+      lines.push(`এসএমএস ব্যালেন্স কম: ${d.smsBalance}`);
+    }
+    return {
+      title: 'আজকের সতর্কতা',
+      body: lines.length ? lines.join('\n') : undefined,
+    };
+  },
 };
 
 /**

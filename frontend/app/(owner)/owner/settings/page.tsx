@@ -4,8 +4,9 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, errorMessage, fieldErrors } from '@/lib/api';
 import { t } from '@/lib/i18n/bn';
-import { formatMoneyPlain } from '@/lib/format';
-import { Alert, Card, CardHeader, PageHeader } from '@/components/ui/layout';
+import { formatMoneyPlain, formatNumber } from '@/lib/format';
+import { checkMoney, moneyError } from '@/lib/money';
+import { Alert, Card, CardHeader, ErrorState, PageHeader } from '@/components/ui/layout';
 import { Button, Spinner } from '@/components/ui/button';
 import { Field, Input, MoneyInput } from '@/components/ui/form';
 import { Switch } from '@/components/ui/switch';
@@ -32,6 +33,19 @@ export default function OwnerSettingsPage() {
     queryFn: () => api.get<{ settings: Settings }>('/owner/settings'),
   });
 
+  if (settings.isError) {
+    return (
+      <>
+        <PageHeader title={t('nav.settings')} />
+        <ErrorState
+          onRetry={() => settings.refetch()}
+          isRetrying={settings.isFetching}
+          error={settings.error}
+        />
+      </>
+    );
+  }
+
   if (!settings.data) {
     return (
       <div className="flex justify-center py-10">
@@ -45,10 +59,26 @@ export default function OwnerSettingsPage() {
   return <SettingsForm initial={settings.data.settings} />;
 }
 
+/**
+ * The two money settings are held as the text typed, not as numbers. A number
+ * re-formatted on every keystroke cannot hold `12.` on its way to `12.50`.
+ */
+type Draft = Omit<Settings, 'defaultCreditLimit' | 'smsPricePerCredit'> & {
+  defaultCreditLimit: string;
+  smsPricePerCredit: string;
+};
+
 function SettingsForm({ initial }: { initial: Settings }) {
   const queryClient = useQueryClient();
   const toast = useToast();
-  const [draft, setDraft] = useState<Settings>(initial);
+  const [draft, setDraft] = useState<Draft>(() => ({
+    ...initial,
+    defaultCreditLimit: formatMoneyPlain(initial.defaultCreditLimit),
+    smsPricePerCredit: formatMoneyPlain(initial.smsPricePerCredit),
+  }));
+
+  const creditLimitCheck = checkMoney(draft.defaultCreditLimit, { allowZero: true });
+  const smsPriceCheck = checkMoney(draft.smsPricePerCredit, { allowZero: true });
 
   const smsBalance = useQuery({
     queryKey: ['owner', 'sms-balance'],
@@ -63,10 +93,10 @@ function SettingsForm({ initial }: { initial: Settings }) {
         businessName: draft.businessName,
         poweredByText: draft.poweredByText,
         supportPhone: draft.supportPhone ?? '',
-        defaultCreditLimit: Number(draft.defaultCreditLimit),
+        defaultCreditLimit: creditLimitCheck.ok ? creditLimitCheck.value : undefined,
         orderAgingHours: Number(draft.orderAgingHours),
         reverseDeliveryChargeOnReturn: draft.reverseDeliveryChargeOnReturn,
-        smsPricePerCredit: Number(draft.smsPricePerCredit),
+        smsPricePerCredit: smsPriceCheck.ok ? smsPriceCheck.value : undefined,
         features: draft.features,
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['owner', 'settings'] }),
@@ -98,7 +128,7 @@ function SettingsForm({ initial }: { initial: Settings }) {
   });
 
   const errors = fieldErrors(save.error);
-  const set = <K extends keyof Settings>(key: K, value: Settings[K]) =>
+  const set = <K extends keyof Draft>(key: K, value: Draft[K]) =>
     setDraft((prev) => ({ ...prev, [key]: value }));
 
   return (
@@ -108,7 +138,7 @@ function SettingsForm({ initial }: { initial: Settings }) {
       {save.error && !Object.keys(errors).length && (
         <Alert tone="danger">{errorMessage(save.error)}</Alert>
       )}
-      {save.isSuccess && <Alert tone="success">{t('app.save')}</Alert>}
+      {save.isSuccess && <Alert tone="success">{t('app.saved')}</Alert>}
 
       {/*
        * Its own card, and its own request. Every other setting here is text the
@@ -157,9 +187,9 @@ function SettingsForm({ initial }: { initial: Settings }) {
         />
 
         <Field
-          label="Powered by"
+          label={t('settings.poweredBy')}
           htmlFor="poweredByText"
-          hint="ক্রেতার ফর্মের নিচে দেখানো হবে"
+          hint={t('settings.poweredByHint')}
           error={errors.poweredByText}
         >
           <Input
@@ -176,20 +206,20 @@ function SettingsForm({ initial }: { initial: Settings }) {
         <Field
           label={t('wallet.creditLimit')}
           htmlFor="defaultCreditLimit"
-          hint="নতুন রিসেলারের জন্য শুরুতে যত"
-          error={errors.defaultCreditLimit}
+          hint={t('settings.defaultCreditLimitHint')}
+          error={errors.defaultCreditLimit ?? moneyError(draft.defaultCreditLimit, { allowZero: true })}
         >
           <MoneyInput
             id="defaultCreditLimit"
-            value={formatMoneyPlain(draft.defaultCreditLimit)}
-            onChange={(e) => set('defaultCreditLimit', Number(e.target.value))}
+            value={draft.defaultCreditLimit}
+            onChange={(e) => set('defaultCreditLimit', e.target.value)}
           />
         </Field>
 
         <Field
           label={t('owner.agingOrders')}
           htmlFor="orderAgingHours"
-          hint="কত ঘণ্টা পর অর্ডার পুরনো ধরা হবে"
+          hint={t('settings.agingHoursHint')}
           error={errors.orderAgingHours}
         >
           <Input
@@ -205,8 +235,8 @@ function SettingsForm({ initial }: { initial: Settings }) {
         <Switch
           checked={draft.reverseDeliveryChargeOnReturn}
           onChange={(checked) => set('reverseDeliveryChargeOnReturn', checked)}
-          label="ফেরত এলে ডেলিভারি চার্জও ফেরত দিন"
-          hint="বন্ধ রাখলে কুরিয়ার খরচ রিসেলারের কাছেই থাকবে"
+          label={t('settings.reverseDeliveryCharge')}
+          hint={t('settings.reverseDeliveryChargeHint')}
         />
       </Card>
 
@@ -215,8 +245,10 @@ function SettingsForm({ initial }: { initial: Settings }) {
           title={t('nav.notifications')}
           subtitle={
             smsBalance.data?.configured
-              ? `SMS ব্যালেন্স: ${smsBalance.data.balance ?? '—'}`
-              : 'SMS গেটওয়ে যুক্ত করা হয়নি'
+              ? `${t('settings.smsBalance')}: ${
+                  smsBalance.data.balance == null ? '—' : formatNumber(smsBalance.data.balance)
+                }`
+              : t('settings.smsNotConfigured')
           }
           /*
            * SMS has its own screen now, because it is the only channel that
@@ -233,35 +265,39 @@ function SettingsForm({ initial }: { initial: Settings }) {
           <Switch
             checked={draft.features.sms}
             onChange={(checked) => set('features', { ...draft.features, sms: checked })}
-            label="SMS"
-            hint="চালু করলে রিসেলাররা SMS ক্রেডিট কিনতে পারবে"
+            label={t('settings.featureSms')}
+            hint={t('settings.featureSmsHint')}
           />
           <Switch
             checked={draft.features.telegram}
             onChange={(checked) => set('features', { ...draft.features, telegram: checked })}
-            label="Telegram"
+            label={t('settings.featureTelegram')}
           />
           <Switch
             checked={draft.features.webPush}
             onChange={(checked) => set('features', { ...draft.features, webPush: checked })}
-            label="Web push"
+            label={t('settings.featureWebPush')}
           />
         </div>
 
         <Field
-          label="প্রতি SMS ক্রেডিটের দাম"
+          label={t('settings.smsPricePerCredit')}
           htmlFor="smsPricePerCredit"
-          error={errors.smsPricePerCredit}
+          error={errors.smsPricePerCredit ?? moneyError(draft.smsPricePerCredit, { allowZero: true })}
         >
           <MoneyInput
             id="smsPricePerCredit"
-            value={formatMoneyPlain(draft.smsPricePerCredit)}
-            onChange={(e) => set('smsPricePerCredit', Number(e.target.value))}
+            value={draft.smsPricePerCredit}
+            onChange={(e) => set('smsPricePerCredit', e.target.value)}
           />
         </Field>
       </Card>
 
-      <Button loading={save.isPending} onClick={() => save.mutate()}>
+      <Button
+        loading={save.isPending}
+        disabled={!creditLimitCheck.ok || !smsPriceCheck.ok}
+        onClick={() => save.mutate()}
+      >
         {t('app.save')}
       </Button>
     </>

@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils';
+import { t } from '@/lib/i18n/bn';
 
 /*
  * Skeletons rather than a spinner, because the target device is a cheap Android
@@ -33,7 +34,7 @@ export function StatSkeleton({ count = 4 }: { count?: number }) {
 /** A list of orders, deposits or notifications. */
 export function ListSkeleton({ rows = 5 }: { rows?: number }) {
   return (
-    <div className="space-y-3" aria-busy="true" aria-label="লোড হচ্ছে">
+    <div className="space-y-3" aria-busy="true" aria-label={t('app.loading')}>
       {Array.from({ length: rows }, (_, index) => (
         <div key={index} className="card flex items-center gap-3 p-4">
           <Skeleton className="h-9 w-9 shrink-0 rounded-full" />

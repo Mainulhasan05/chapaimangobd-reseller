@@ -16,10 +16,26 @@ const asyncHandler = require('../../utils/asyncHandler');
 const { authenticate, requireRole } = require('../../middleware/auth');
 const { upload, handleUploadErrors } = require('../../middleware/upload');
 const { ROLES } = require('../../domain/constants');
+const { createLimiter } = require('../../services/rateLimitStore');
 
 const router = express.Router();
 
 router.use(authenticate, requireRole(ROLES.OWNER));
+
+/*
+ * The owner is trusted, but a stolen session or a stuck retry loop is not, and
+ * each upload goes out to the image host. Generous: a catalog of a few dozen
+ * products, each with six photos, fits comfortably in an hour.
+ */
+const uploadLimiter = createLimiter({
+  name: 'upload-owner',
+  windowMs: 60 * 60 * 1000,
+  limit: 200,
+  keyGenerator: (req) => String(req.user._id),
+  // A JSON edit on the same route carries no file and is not counted.
+  skip: (req) => !req.is('multipart/form-data'),
+  message: 'Too many uploads, please try again later',
+});
 
 /* sources */
 router.get('/sources', asyncHandler(catalog.listSources));
@@ -35,6 +51,7 @@ router.delete('/sources/:id', asyncHandler(catalog.archiveSource));
 router.get('/products', asyncHandler(catalog.listProducts));
 router.post(
   '/products',
+  uploadLimiter,
   upload.array('images', 6),
   handleUploadErrors,
   validate({ body: schema.createProduct }),
@@ -42,6 +59,7 @@ router.post(
 );
 router.patch(
   '/products/:id',
+  uploadLimiter,
   upload.array('images', 6),
   handleUploadErrors,
   validate({ body: schema.updateProduct }),
@@ -151,12 +169,14 @@ router.patch('/settings', validate({ body: schema.updateSettings }), asyncHandle
  */
 router.post(
   '/settings/brand-logo',
+  uploadLimiter,
   upload.single('image'),
   handleUploadErrors,
   asyncHandler(settings.uploadBrandLogo)
 );
 router.delete('/settings/brand-logo', asyncHandler(settings.removeBrandLogo));
 router.get('/settings/sms-balance', asyncHandler(settings.smsBalance));
+router.get('/system/health', asyncHandler(settings.systemHealth));
 
 /*
  * sms

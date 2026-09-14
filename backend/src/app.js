@@ -6,10 +6,14 @@ const cors = require('cors');
 const cookieParser = require('cookie-parser');
 
 const env = require('./config/env');
-const images = require('./services/images');
+const { httpLogger } = require('./config/logger');
+const { databaseIsUp } = require('./config/db');
 const { notFoundHandler, errorHandler } = require('./middleware/error');
 
 const app = express();
+
+// First, so every later line, including an error, carries the request id.
+app.use(httpLogger);
 
 // The exact number of proxy hops. Guessing here either collapses every client
 // into one rate-limit bucket or lets X-Forwarded-For be attacker controlled.
@@ -28,23 +32,15 @@ app.use(express.json({ limit: '100kb' }));
 app.use(express.urlencoded({ extended: false, limit: '100kb' }));
 app.use(cookieParser());
 
-app.get('/api/health', (_req, res) => {
-  res.json({
-    ok: true,
-    data: {
-      status: 'up',
-      env: env.NODE_ENV,
-      integrations: {
-        storage: env.r2Configured,
-        // Where a public image goes: the host, the bucket, or nowhere yet.
-        publicImages: images.provider(),
-        imageHost: env.imgbbConfigured,
-        webPush: env.webPushConfigured,
-        sms: env.smsConfigured,
-        telegram: env.telegramConfigured,
-      },
-    },
-  });
+/*
+ * Public, because a load balancer probes it without credentials, and so it says
+ * only whether this instance can serve: is the database reachable. Which
+ * integrations are configured is a map for an attacker and lives behind the
+ * owner login at /api/owner/system/health instead.
+ */
+app.get('/api/health', async (_req, res) => {
+  const db = (await databaseIsUp()) ? 'up' : 'down';
+  res.status(db === 'up' ? 200 : 503).json({ ok: db === 'up', db });
 });
 
 app.use('/api/auth', require('./modules/auth/routes'));

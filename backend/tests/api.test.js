@@ -29,10 +29,13 @@ async function signIn({ phone, password }) {
   return agent;
 }
 
-test('health reports which integrations are wired up', async () => {
-  const res = await request(app).get('/api/health');
+test('the owner can see which integrations are wired up', async () => {
+  const owner = await f.makeOwner();
+  const agent = await signIn({ phone: owner.phone, password: owner.password });
+  const res = await agent.get('/api/owner/system/health');
   assert.equal(res.status, 200);
   assert.equal(res.body.data.status, 'up');
+  assert.equal(res.body.data.db, 'up');
   assert.equal(typeof res.body.data.integrations.sms, 'boolean');
 });
 

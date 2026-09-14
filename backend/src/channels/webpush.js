@@ -40,7 +40,10 @@ async function send({ userId, title, body, data }) {
       try {
         await webpush.sendNotification(
           { endpoint: sub.endpoint, keys: sub.keys },
-          payload
+          payload,
+          // The outbox holds a lease per message; a push service that never
+          // answers must not outlive it.
+          { timeout: 10000 }
         );
         sent += 1;
       } catch (err) {

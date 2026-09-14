@@ -215,7 +215,6 @@ export async function optimizeImages(
 ): Promise<OptimizeResult[]> {
   const results: OptimizeResult[] = [];
   for (const file of files) {
-    // eslint-disable-next-line no-await-in-loop
     results.push(await optimizeImage(file, preset));
   }
   return results;

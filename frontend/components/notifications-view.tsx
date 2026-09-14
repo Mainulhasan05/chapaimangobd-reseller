@@ -17,10 +17,19 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, errorMessage } from '@/lib/api';
 import { useSession } from '@/lib/session';
-import { t } from '@/lib/i18n/bn';
+import { t, type DictKey } from '@/lib/i18n/bn';
+import { syncPushRole } from '@/lib/push';
 import { cn } from '@/lib/utils';
 import { formatDateTime } from '@/lib/format';
-import { Alert, Badge, Card, CardHeader, EmptyState, PageHeader } from '@/components/ui/layout';
+import {
+  Alert,
+  Badge,
+  Card,
+  CardHeader,
+  EmptyState,
+  ErrorState,
+  PageHeader,
+} from '@/components/ui/layout';
 import { Button, Spinner } from '@/components/ui/button';
 
 /**
@@ -44,6 +53,15 @@ type NotificationRow = {
 };
 
 type PushState = 'unsupported' | 'ios-install' | 'default' | 'granted' | 'denied';
+
+/** What the browser permission means, in words, rather than `default` or `granted`. */
+const PUSH_STATE_LABEL: Record<PushState, DictKey> = {
+  unsupported: 'push.stateUnsupported',
+  'ios-install': 'push.stateIosInstall',
+  default: 'push.stateDefault',
+  granted: 'push.stateGranted',
+  denied: 'push.stateDenied',
+};
 
 /**
  * The glyph for an event.
@@ -136,7 +154,15 @@ export function NotificationsView({
           </div>
         )}
 
-        {!notifications.isLoading && rows.length === 0 && (
+        {notifications.isError && (
+          <ErrorState
+            onRetry={() => notifications.refetch()}
+            isRetrying={notifications.isFetching}
+            error={notifications.error}
+          />
+        )}
+
+        {notifications.isSuccess && rows.length === 0 && (
           <EmptyState icon={BellOff} title={t('app.none')} />
         )}
 
@@ -244,9 +270,13 @@ function PushCard({ base }: { base: '/reseller' | '/owner' }) {
       if (permission !== 'granted') return;
 
       const { publicKey } = await api.get<{ publicKey: string | null }>(`${base}/push/key`);
-      if (!publicKey) throw new Error('সার্ভারে পুশ কনফিগার করা হয়নি');
+      if (!publicKey) throw new Error(t('push.notConfigured'));
 
-      const registration = await navigator.serviceWorker.register('/sw.js');
+      await navigator.serviceWorker.register('/sw.js');
+      // Subscribing through the active worker, and telling it the role first, so
+      // a rotated subscription re-registers with this role's endpoint.
+      const registration = await navigator.serviceWorker.ready;
+      await syncPushRole(base === '/owner' ? 'owner' : 'reseller');
       const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: publicKey,
@@ -261,26 +291,28 @@ function PushCard({ base }: { base: '/reseller' | '/owner' }) {
   return (
     <Card className="mb-4">
       <CardHeader
-        title={t('nav.notifications')}
-        subtitle="ফোনে সাথে সাথে জানতে চালু করুন"
-        action={<Badge tone={state === 'granted' ? 'success' : 'neutral'}>{state}</Badge>}
+        title={t('push.title')}
+        subtitle={t('push.subtitle')}
+        action={
+          <Badge tone={state === 'granted' ? 'success' : state === 'denied' ? 'warning' : 'neutral'}>
+            {t(PUSH_STATE_LABEL[state])}
+          </Badge>
+        }
       />
 
       {error && <Alert tone="danger">{error}</Alert>}
 
       {state === 'ios-install' && (
-        <Alert tone="warning">
-          আইফোনে নোটিফিকেশন পেতে সাফারির শেয়ার মেনু থেকে Add to Home Screen করুন
-        </Alert>
+        <Alert tone="warning">{t('push.iosInstall')}</Alert>
       )}
 
       {state === 'denied' && (
-        <Alert tone="warning">ব্রাউজারের সেটিংস থেকে নোটিফিকেশন অনুমতি দিন</Alert>
+        <Alert tone="warning">{t('push.denied')}</Alert>
       )}
 
       {state === 'default' && (
         <Button size="sm" loading={enable.isPending} onClick={() => enable.mutate()}>
-          {t('nav.notifications')}
+          {t('push.enable')}
         </Button>
       )}
     </Card>
@@ -295,19 +327,19 @@ function TelegramCard() {
 
   return (
     <Card className="mb-4">
-      <CardHeader title="Telegram" subtitle="বিনামূল্যে এবং নির্ভরযোগ্য" />
+      <CardHeader title={t('telegram.title')} subtitle={t('telegram.subtitle')} />
 
       {link.error && <Alert tone="warning">{errorMessage(link.error)}</Alert>}
 
       {link.data?.deepLink ? (
         <a href={link.data.deepLink} target="_blank" rel="noreferrer">
           <Button size="sm" variant="outline">
-            Telegram
+            {t('telegram.open')}
           </Button>
         </a>
       ) : (
         <Button size="sm" variant="outline" loading={link.isPending} onClick={() => link.mutate()}>
-          {t('app.confirm')}
+          {t('telegram.connect')}
         </Button>
       )}
     </Card>

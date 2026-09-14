@@ -1,6 +1,6 @@
 # ChapaiMango Reseller — Order Management System
 
-> Status: approved, not yet implemented. This document is the reference for the whole build.
+> Status: implemented. **`docs/PLAN-2.md` and ADRs 0007–0016 amend this document** and win where they disagree.
 > Decisions here came out of a requirements interview and a design review verified against
 > the Next.js docs bundled in `frontend/node_modules/next/dist/docs/` and the MongoDB manual.
 > Change it deliberately, with an ADR in `docs/adr/`, not by drifting during implementation.

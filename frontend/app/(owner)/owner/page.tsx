@@ -139,7 +139,7 @@ export default function OwnerDashboardPage() {
           icon={Clock}
           label={t('owner.agingOrders')}
           value={formatNumber(data?.agingOrders ?? 0)}
-          hint={`${formatNumber(data?.agingThresholdHours ?? 24)}+ ঘণ্টা`}
+          hint={t('dash.agingHint').replace('{n}', formatNumber(data?.agingThresholdHours ?? 24))}
           tone={(data?.agingOrders ?? 0) > 0 ? 'danger' : 'neutral'}
           href="/owner/orders"
         />

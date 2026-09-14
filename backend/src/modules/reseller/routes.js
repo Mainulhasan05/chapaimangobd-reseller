@@ -11,12 +11,30 @@ const asyncHandler = require('../../utils/asyncHandler');
 const { authenticate, requireRole, loadReseller, requireKyc } = require('../../middleware/auth');
 const { upload, handleUploadErrors } = require('../../middleware/upload');
 const { ROLES, KYC_DOC_TYPE } = require('../../domain/constants');
+const { createLimiter } = require('../../services/rateLimitStore');
 
 const router = express.Router();
 
 // Everything below is a signed-in reseller acting on their own data. The scope is
 // applied per query, never inferred from a header the proxy could have set.
 router.use(authenticate, requireRole(ROLES.RESELLER), loadReseller);
+
+/*
+ * Every upload is a round trip to R2 or the image host and up to five megabytes
+ * per file held in memory, so a script looping on one of these costs real money
+ * and memory. Keyed by the signed-in user, not the address: a shop on a shared
+ * mobile connection must not be throttled by its neighbours. Thirty an hour is
+ * several KYC retries, a logo change and a day of deposits.
+ */
+const uploadLimiter = createLimiter({
+  name: 'upload-reseller',
+  windowMs: 60 * 60 * 1000,
+  limit: 30,
+  keyGenerator: (req) => String(req.user._id),
+  // A JSON edit on the same route carries no file and is not counted.
+  skip: (req) => !req.is('multipart/form-data'),
+  message: 'Too many uploads, please try again later',
+});
 
 /* profile and kyc */
 router.get('/profile', asyncHandler(controller.getProfile));
@@ -33,6 +51,7 @@ router.patch(
  */
 router.post(
   '/profile/logo',
+  uploadLimiter,
   upload.single('logo'),
   handleUploadErrors,
   asyncHandler(controller.uploadLogo)
@@ -42,6 +61,7 @@ router.delete('/profile/logo', asyncHandler(controller.removeLogo));
 const kycFields = Object.values(KYC_DOC_TYPE).map((name) => ({ name, maxCount: 1 }));
 router.post(
   '/kyc',
+  uploadLimiter,
   upload.fields(kycFields),
   handleUploadErrors,
   // multer .fields gives an object keyed by field name; flatten for the controller.
@@ -105,6 +125,7 @@ router.get('/wallet/ledger', asyncHandler(wallet.getLedger));
 router.get('/deposits', asyncHandler(wallet.listDeposits));
 router.post(
   '/deposits',
+  uploadLimiter,
   upload.single('screenshot'),
   handleUploadErrors,
   validate({ body: schema.createDeposit }),

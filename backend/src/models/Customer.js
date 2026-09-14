@@ -46,7 +46,7 @@ const money = () => ({
 const customerSchema = new mongoose.Schema(
   {
     // The identity. Normalised before it ever reaches here; see utils/phone.js.
-    phoneE164: { type: String, required: true, unique: true, index: true },
+    phoneE164: { type: String, required: true, unique: true },
 
     /*
      * Every name and address this number has ordered under, most used first.

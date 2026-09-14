@@ -12,6 +12,7 @@ import {
   Badge,
   Card,
   EmptyState,
+  ErrorState,
   PageHeader,
   TableWrap,
   Td,
@@ -36,7 +37,7 @@ export default function OwnerZonesPage() {
     <>
       <PageHeader
         title={t('nav.zones')}
-        subtitle="ক্রেতা জেলা বাছাই করলে এই চার্জ যোগ হবে"
+        subtitle={t('zone.help')}
         action={
           <Button onClick={() => setCreating(true)}>
             <Plus className="h-4 w-4" />
@@ -49,6 +50,10 @@ export default function OwnerZonesPage() {
         <Card className="flex justify-center py-10">
           <Spinner />
         </Card>
+      )}
+
+      {zones.isError && (
+        <ErrorState onRetry={() => zones.refetch()} isRetrying={zones.isFetching} error={zones.error} />
       )}
 
       {zones.data?.zones.length === 0 && (
@@ -159,7 +164,7 @@ function ZoneModal({ zone, onClose }: { zone: DeliveryZone | null; onClose: () =
       <Field
         label={t('order.district')}
         htmlFor="districts"
-        hint="প্রতি লাইনে একটি জেলা"
+        hint={t('zone.districtsHint')}
         error={errors.districts}
         required
       >

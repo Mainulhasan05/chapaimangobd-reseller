@@ -2,7 +2,8 @@
 
 import { Suspense, useState } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
+import type { Route } from 'next';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { Ban, ClipboardList, Eye, Plus } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -34,7 +35,6 @@ import { Button } from '@/components/ui/button';
 import { ListSkeleton } from '@/components/ui/skeleton';
 import { ConfirmOrderModal } from '@/components/confirm-order-modal';
 import { CancelOrderModal } from '@/components/cancel-order-modal';
-import { OrderDetail } from '@/components/order-detail';
 
 const PAGE_SIZE = 20;
 
@@ -73,7 +73,7 @@ function OrdersView() {
   const [term, setTerm] = useState('');
   const [confirming, setConfirming] = useState<Order | null>(null);
   const [cancelling, setCancelling] = useState<Order | null>(null);
-  const [viewing, setViewing] = useState<Order | null>(null);
+  const router = useRouter();
 
   const search = useDebounced(term);
 
@@ -97,6 +97,9 @@ function OrdersView() {
     },
     refetchInterval: 60_000,
   });
+
+  /** The order's own page, which is also where a notification lands. */
+  const detailHref = (order: Order) => `/reseller/orders/${order.id}` as Route;
 
   const loaded = orders.data?.pages.flatMap((page) => page.orders) ?? [];
   const total = orders.data?.pages[0]?.total ?? 0;
@@ -137,7 +140,7 @@ function OrdersView() {
 
   /** Everything here is also a full-width button on the phone card below. */
   const menuFor = (order: Order): MenuItem[] => [
-    { label: t('order.viewDetail'), icon: Eye, onSelect: () => setViewing(order) },
+    { label: t('order.viewDetail'), icon: Eye, onSelect: () => router.push(detailHref(order)) },
     ...(order.actions.includes('cancel')
       ? [
           {
@@ -219,7 +222,7 @@ function OrdersView() {
               <li key={order.id}>
                 <OrderCard
                   order={order}
-                  onView={() => setViewing(order)}
+                  href={detailHref(order)}
                   onConfirm={() => setConfirming(order)}
                   onCancel={() => setCancelling(order)}
                 />
@@ -268,13 +271,12 @@ function OrdersView() {
                 <Tr key={order.id}>
                   {columns.isVisible('code') && (
                     <Td>
-                      <button
-                        type="button"
-                        onClick={() => setViewing(order)}
+                      <Link
+                        href={detailHref(order)}
                         className="tabular font-semibold text-primary-ink underline-offset-2 hover:underline"
                       >
                         {order.orderCode}
-                      </button>
+                      </Link>
                       <div className="text-xs text-muted-foreground">
                         {formatAge(order.createdAt)}
                       </div>
@@ -369,7 +371,6 @@ function OrdersView() {
         }}
       />
       <CancelOrderModal order={cancelling} scope="reseller" onClose={() => setCancelling(null)} />
-      <OrderDetail order={viewing} onClose={() => setViewing(null)} showCost />
     </>
   );
 }
@@ -383,12 +384,12 @@ function OrdersView() {
  */
 function OrderCard({
   order,
-  onView,
+  href,
   onConfirm,
   onCancel,
 }: {
   order: Order;
-  onView: () => void;
+  href: Route;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
@@ -397,7 +398,7 @@ function OrderCard({
 
   return (
     <Card className="p-4">
-      <button type="button" onClick={onView} className="block w-full text-left">
+      <Link href={href} className="block w-full text-left">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="truncate font-medium">{order.customer.name}</p>
@@ -428,7 +429,7 @@ function OrderCard({
             <span className="block">{formatAge(order.createdAt)}</span>
           </p>
         </div>
-      </button>
+      </Link>
 
       {(canConfirm || canCancel) && (
         <div className="mt-3 flex gap-2 [&>button]:flex-1">

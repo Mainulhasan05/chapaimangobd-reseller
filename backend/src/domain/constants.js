@@ -32,6 +32,9 @@ const ORDER_ORIGIN = Object.freeze({ FORM: 'form', MANUAL: 'manual' });
 const LEDGER_KIND = Object.freeze({
   ORDER_COST_DEBIT: 'ORDER_COST_DEBIT',
   DELIVERY_DEBIT: 'DELIVERY_DEBIT',
+  // The owner changed the delivery charge after it was debited. Either sign:
+  // negative for a raise, positive for a cut. See docs/adr/0010.
+  DELIVERY_ADJUSTMENT: 'DELIVERY_ADJUSTMENT',
   COD_COLLECTION_CREDIT: 'COD_COLLECTION_CREDIT',
   DEPOSIT_CREDIT: 'DEPOSIT_CREDIT',
   WITHDRAWAL_DEBIT: 'WITHDRAWAL_DEBIT',
@@ -114,6 +117,9 @@ const EVENT_TYPE = Object.freeze({
   WITHDRAWAL_APPROVED: 'withdrawal.approved',
   WITHDRAWAL_REJECTED: 'withdrawal.rejected',
   BALANCE_NEAR_LIMIT: 'balance.near_limit',
+  // Owner alerts from the scheduled jobs (src/jobs). Phase C.
+  ALERT_LEDGER_DRIFT: 'alert.ledger_drift',
+  ALERT_DAILY_DIGEST: 'alert.daily_digest',
 });
 
 const values = (o) => Object.values(o);

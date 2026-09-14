@@ -3,12 +3,6 @@
 require('dotenv').config();
 const { z } = require('zod');
 
-const bool = (def) =>
-  z
-    .string()
-    .optional()
-    .transform((v) => (v === undefined ? def : v === 'true' || v === '1'));
-
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(4000),
@@ -16,17 +10,25 @@ const schema = z.object({
 
   MONGODB_URI: z.string().min(1, 'MONGODB_URI is required'),
 
-  JWT_ACCESS_SECRET: z.string().min(16, 'JWT_ACCESS_SECRET must be at least 16 chars'),
-  JWT_REFRESH_SECRET: z.string().min(16, 'JWT_REFRESH_SECRET must be at least 16 chars'),
+  // 32 characters is the floor for an HMAC key that is not brute forceable
+  // offline from a single captured token. The two must differ, or a refresh
+  // token would verify as an access token.
+  JWT_ACCESS_SECRET: z.string().min(32, 'JWT_ACCESS_SECRET must be at least 32 chars'),
+  JWT_REFRESH_SECRET: z.string().min(32, 'JWT_REFRESH_SECRET must be at least 32 chars'),
   ACCESS_TOKEN_TTL: z.string().default('15m'),
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(30),
 
-  COOKIE_SECURE: bool(false),
+  // Left unset, this follows NODE_ENV: on in production, off elsewhere. Setting
+  // it to false in production is refused at boot, see below.
+  COOKIE_SECURE: z.enum(['true', 'false', '1', '0']).optional(),
   COOKIE_DOMAIN: z.string().optional(),
 
   // Number of proxy hops in front of Express. Wrong values either collapse every
   // client into one rate-limit bucket or let X-Forwarded-For be attacker controlled.
   TRUST_PROXY: z.coerce.number().int().min(0).default(0),
+
+  // Ignored under NODE_ENV=test, where logging is silent.
+  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 
   // Cloudflare R2, which speaks the S3 API. The bucket is private; KYC scans and
   // deposit screenshots are only ever reachable through short-lived signed URLs.
@@ -75,6 +77,14 @@ const schema = z.object({
 
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_BOT_USERNAME: z.string().optional(),
+
+  // Scheduled jobs (nightly reconciliation, 09:00 digest, KYC purge) run only in
+  // a process with this set. Each job also takes a MongoDB lock, so turning it
+  // on for every instance is safe, just wasteful. See docs/adr/0012.
+  RUN_JOBS: z.enum(['true', 'false', '1', '0']).default('false'),
+  // The digest warns the owner when the gateway's remaining balance falls below
+  // this. Automas reports a count of messages, not taka, so this is a count.
+  SMS_LOW_BALANCE: z.coerce.number().int().min(0).default(200),
 });
 
 /**
@@ -96,6 +106,33 @@ if (!parsed.success) {
 }
 
 const env = parsed.data;
+
+/*
+ * Rules that span more than one variable. Each one is a way a production
+ * deployment can look healthy while being quietly insecure, so boot stops.
+ */
+const problems = [];
+if (env.JWT_ACCESS_SECRET === env.JWT_REFRESH_SECRET) {
+  problems.push('JWT_ACCESS_SECRET and JWT_REFRESH_SECRET must be different');
+}
+const cookieSecureSetting =
+  env.COOKIE_SECURE === undefined
+    ? undefined
+    : env.COOKIE_SECURE === 'true' || env.COOKIE_SECURE === '1';
+if (env.NODE_ENV === 'production' && cookieSecureSetting === false) {
+  // A session cookie sent over plain HTTP is a session anyone on the cafe wifi
+  // can take. There is no production setup where that is the right answer.
+  problems.push('COOKIE_SECURE cannot be false in production');
+}
+if (problems.length > 0) {
+  const lines = problems.map((p) => `  - ${p}`);
+  throw new Error(`Invalid environment configuration:\n${lines.join('\n')}`);
+}
+// Unset follows NODE_ENV: secure in production, plain elsewhere so localhost works.
+env.COOKIE_SECURE =
+  cookieSecureSetting === undefined ? env.NODE_ENV === 'production' : cookieSecureSetting;
+
+env.runJobs = env.RUN_JOBS === 'true' || env.RUN_JOBS === '1';
 
 env.isProd = env.NODE_ENV === 'production';
 env.isTest = env.NODE_ENV === 'test';

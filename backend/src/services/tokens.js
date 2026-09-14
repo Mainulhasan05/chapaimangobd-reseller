@@ -38,39 +38,61 @@ async function issueRefreshToken(user, { familyId, userAgent } = {}) {
   return { raw, expiresAt };
 }
 
+const revokeFamily = (familyId) =>
+  RefreshToken.updateMany({ familyId, revokedAt: null }, { $set: { revokedAt: new Date() } });
+
+/*
+ * Two tabs of the same browser refreshing at the same moment present the same
+ * token twice within milliseconds. That is not theft, and revoking the family
+ * for it would sign a reseller out every time they open a second tab. A replay
+ * inside this window is refused without revoking anything; outside it, it is
+ * treated as stolen.
+ */
+const REUSE_GRACE_MS = 10 * 1000;
+
 /**
  * Rotates a refresh token. Presenting a token that was already used means it was
  * stolen, so the entire family is revoked rather than just refusing this request.
+ *
+ * The token is consumed by one status-guarded update, so two concurrent calls
+ * cannot both pass: exactly one gets the document back and the other sees it
+ * already used. A read followed by a save let both through.
  */
-async function rotateRefreshToken(raw, { userAgent } = {}) {
-  const existing = await RefreshToken.findOne({ tokenHash: hashToken(raw) });
-  if (!existing) return { reason: 'unknown' };
+async function rotateRefreshToken(raw, { now = new Date() } = {}) {
+  const tokenHash = hashToken(raw);
 
+  const consumed = await RefreshToken.findOneAndUpdate(
+    { tokenHash, usedAt: null, revokedAt: null, expiresAt: { $gt: now } },
+    { $set: { usedAt: now } },
+    { new: true }
+  );
+  if (consumed) return { ok: true, userId: consumed.user, familyId: consumed.familyId };
+
+  // The guard failed. Work out why, from the document as it is now.
+  const existing = await RefreshToken.findOne({ tokenHash });
+  if (!existing) return { reason: 'unknown' };
   if (existing.revokedAt) return { reason: 'revoked' };
 
   if (existing.usedAt) {
-    await RefreshToken.updateMany(
-      { familyId: existing.familyId, revokedAt: null },
-      { $set: { revokedAt: new Date() } }
-    );
+    if (now.getTime() - existing.usedAt.getTime() < REUSE_GRACE_MS) {
+      return { reason: 'raced' };
+    }
+    await revokeFamily(existing.familyId);
     return { reason: 'reused', familyId: existing.familyId, user: existing.user };
   }
 
-  if (existing.expiresAt.getTime() < Date.now()) return { reason: 'expired' };
-
-  existing.usedAt = new Date();
-  await existing.save();
-
-  return { ok: true, userId: existing.user, familyId: existing.familyId };
+  return { reason: 'expired' };
 }
-
-const revokeFamily = (familyId) =>
-  RefreshToken.updateMany({ familyId, revokedAt: null }, { $set: { revokedAt: new Date() } });
 
 const revokeAllForUser = (userId) =>
   RefreshToken.updateMany({ user: userId, revokedAt: null }, { $set: { revokedAt: new Date() } });
 
-function cookieOptions(maxAgeMs, path = '/') {
+/**
+ * The attributes that identify a cookie to the browser. Clearing has to repeat
+ * them exactly: a clear with a different domain or path is a different cookie,
+ * and the session silently survives the logout.
+ */
+function cookieScope(path = '/') {
   return {
     httpOnly: true,
     secure: env.COOKIE_SECURE,
@@ -78,10 +100,11 @@ function cookieOptions(maxAgeMs, path = '/') {
     // which rewrites to this API. See docs/adr/0005.
     sameSite: 'lax',
     path,
-    maxAge: maxAgeMs,
     ...(env.COOKIE_DOMAIN ? { domain: env.COOKIE_DOMAIN } : {}),
   };
 }
+
+const cookieOptions = (maxAgeMs, path = '/') => ({ ...cookieScope(path), maxAge: maxAgeMs });
 
 function setAuthCookies(res, { accessToken, refreshToken, refreshExpiresAt }) {
   res.cookie(ACCESS_COOKIE, accessToken, cookieOptions(15 * 60 * 1000));
@@ -95,14 +118,15 @@ function setAuthCookies(res, { accessToken, refreshToken, refreshExpiresAt }) {
 }
 
 function clearAuthCookies(res) {
-  res.clearCookie(ACCESS_COOKIE, { path: '/' });
-  res.clearCookie(REFRESH_COOKIE, { path: REFRESH_PATH });
+  res.clearCookie(ACCESS_COOKIE, cookieScope('/'));
+  res.clearCookie(REFRESH_COOKIE, cookieScope(REFRESH_PATH));
 }
 
 module.exports = {
   ACCESS_COOKIE,
   REFRESH_COOKIE,
   REFRESH_PATH,
+  REUSE_GRACE_MS,
   signAccessToken,
   verifyAccessToken,
   issueRefreshToken,
@@ -111,5 +135,6 @@ module.exports = {
   revokeAllForUser,
   setAuthCookies,
   clearAuthCookies,
+  cookieScope,
   hashToken,
 };

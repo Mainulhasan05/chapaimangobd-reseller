@@ -15,8 +15,10 @@ const {
   startOfBusinessDay,
   endOfBusinessDay,
   agingCutoff,
+  formatDhakaDateTime,
   TZ,
 } = require('../../utils/dhakaTime');
+const { streamCsv, trustedFormula } = require('../../utils/csv');
 const { ORDER_STATUS, REVIEW_STATUS } = require('../../domain/constants');
 
 /**
@@ -126,23 +128,8 @@ async function ordersByDay(req, res) {
 
 /* ------------------------------------------------------------------- exports */
 
-const csvCell = (value) => {
-  if (value == null) return '';
-  const text = String(value);
-  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-};
-
-/**
- * Streams rather than buffering: a season of orders built in memory would take
- * down a small VPS. The byte-order mark is what stops Excel rendering Bengali
- * as mojibake, and long numbers are quoted so Excel does not mangle them.
- */
-function startCsv(res, filename, headers) {
-  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-  res.write('﻿');
-  res.write(`${headers.join(',')}\n`);
-}
+// Cell escaping, formula-injection defence and the streaming itself live in
+// utils/csv.js.
 
 async function exportOrders(req, res) {
   const filter = {};
@@ -153,7 +140,7 @@ async function exportOrders(req, res) {
     if (req.query.to) filter.createdAt.$lt = endOfBusinessDay(req.query.to);
   }
 
-  startCsv(res, 'orders.csv', [
+  const headers = [
     'Order Code',
     'Date',
     'Status',
@@ -168,19 +155,19 @@ async function exportOrders(req, res) {
     'Delivery',
     'Customer Total',
     'Wallet Debit',
-  ]);
+  ];
 
   const cursor = Order.find(filter)
     .sort({ createdAt: -1 })
     .populate('reseller', 'shopName')
     .cursor();
 
-  for await (const order of cursor) {
+  const toRow = (order) => {
     const items = order.items
       .map((i) => `${i.productNameBn} x ${fromMilli(i.qtyMilli)}${i.unit}`)
       .join(' | ');
 
-    const row = [
+    return [
       order.orderCode,
       order.businessDate,
       order.status,
@@ -188,7 +175,7 @@ async function exportOrders(req, res) {
       order.reseller ? order.reseller.shopName : '',
       order.customer.name,
       // Quoted so Excel keeps the leading zero on a Bangladeshi mobile number.
-      `="${order.customer.phoneE164}"`,
+      trustedFormula(`="${order.customer.phoneE164}"`),
       order.customer.district,
       items,
       toTaka(order.totals.costSubtotalPoisha),
@@ -197,10 +184,9 @@ async function exportOrders(req, res) {
       toTaka(order.totals.customerTotalPoisha),
       toTaka(order.totals.walletDebitPoisha),
     ];
-    res.write(`${row.map(csvCell).join(',')}\n`);
-  }
+  };
 
-  res.end();
+  await streamCsv(req, res, { filename: 'orders.csv', headers, cursor, toRow });
 }
 
 async function exportLedger(req, res) {
@@ -212,7 +198,7 @@ async function exportLedger(req, res) {
     if (req.query.to) filter.createdAt.$lt = endOfBusinessDay(req.query.to);
   }
 
-  startCsv(res, 'ledger.csv', [
+  const headers = [
     'Seq',
     'Date',
     'Shop',
@@ -221,28 +207,26 @@ async function exportLedger(req, res) {
     'Balance After',
     'Reference',
     'Note',
-  ]);
+  ];
 
   const cursor = LedgerEntry.find(filter)
     .sort({ createdAt: 1 })
     .populate('reseller', 'shopName')
     .cursor();
 
-  for await (const entry of cursor) {
-    const row = [
-      entry.seq,
-      entry.createdAt.toISOString(),
-      entry.reseller && entry.reseller.shopName ? entry.reseller.shopName : '',
-      entry.kind,
-      toTaka(entry.amountPoisha),
-      toTaka(entry.balanceAfterPoisha),
-      `${entry.refType}:${entry.refId || ''}`,
-      entry.note,
-    ];
-    res.write(`${row.map(csvCell).join(',')}\n`);
-  }
+  const toRow = (entry) => [
+    entry.seq,
+    // Dhaka wall-clock time. UTC put every early-morning entry on the day before.
+    formatDhakaDateTime(entry.createdAt),
+    entry.reseller && entry.reseller.shopName ? entry.reseller.shopName : '',
+    entry.kind,
+    toTaka(entry.amountPoisha),
+    toTaka(entry.balanceAfterPoisha),
+    `${entry.refType}:${entry.refId || ''}`,
+    entry.note,
+  ];
 
-  res.end();
+  await streamCsv(req, res, { filename: 'ledger.csv', headers, cursor, toRow });
 }
 
 module.exports = { dashboard, productsSold, ordersByDay, exportOrders, exportLedger };

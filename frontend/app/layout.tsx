@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { Noto_Sans_Bengali } from 'next/font/google';
+import { t } from '@/lib/i18n/bn';
 import { Providers } from './providers';
 import './globals.css';
 
@@ -22,11 +23,11 @@ const bengali = Noto_Sans_Bengali({
 });
 
 export const metadata: Metadata = {
-  title: 'চাঁপাই ম্যাঙ্গো',
-  description: 'রিসেলার অর্ডার ম্যানেজমেন্ট সিস্টেম',
-  applicationName: 'চাঁপাই ম্যাঙ্গো',
+  title: t('app.name'),
+  description: t('app.description'),
+  applicationName: t('app.name'),
   // Apple ignores the manifest for the home screen icon and the standalone hint.
-  appleWebApp: { capable: true, title: 'চাঁপাই ম্যাঙ্গো', statusBarStyle: 'default' },
+  appleWebApp: { capable: true, title: t('app.name'), statusBarStyle: 'default' },
   // Telephone numbers are already rendered as tel: links where they should be;
   // left to itself Safari also linkifies order codes and amounts.
   formatDetection: { telephone: false },

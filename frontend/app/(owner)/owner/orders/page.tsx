@@ -1,6 +1,9 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import type { Route } from 'next';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ban, ClipboardList, Eye, PackageCheck, Truck } from 'lucide-react';
 import { api, errorMessage } from '@/lib/api';
@@ -36,12 +39,10 @@ import {
 import { Segmented, SearchInput, SortSelect, Toolbar, ToolbarSpacer } from '@/components/ui/toolbar';
 import { Button } from '@/components/ui/button';
 import { ListSkeleton, TableSkeleton } from '@/components/ui/skeleton';
-import { Field, Input } from '@/components/ui/form';
-import { Modal } from '@/components/ui/modal';
 import { useToast } from '@/components/ui/toast';
 import { AcceptOrderModal } from '@/components/accept-order-modal';
 import { CancelOrderModal } from '@/components/cancel-order-modal';
-import { OrderDetail } from '@/components/order-detail';
+import { ShipModal } from '@/components/ship-order-modal';
 import {
   firstProduct,
   OrderItems,
@@ -88,11 +89,11 @@ const COLUMNS: ColumnDef<SortKey>[] = [
 export default function OwnerOrdersPage() {
   const queryClient = useQueryClient();
   const toast = useToast();
+  const router = useRouter();
 
   const [status, setStatus] = useState<string>('confirmed');
   const [aging, setAging] = useState(false);
   const [term, setTerm] = useState('');
-  const [viewing, setViewing] = useState<Order | null>(null);
   const [accepting, setAccepting] = useState<Order | null>(null);
   const [cancelling, setCancelling] = useState<Order | null>(null);
   const [shipping, setShipping] = useState<Order | null>(null);
@@ -133,6 +134,9 @@ export default function OwnerOrdersPage() {
 
   const loaded = orders.data?.pages.flatMap((page) => page.orders) ?? [];
   const total = orders.data?.pages[0]?.total ?? 0;
+
+  /** The order's own page, which is also where a notification lands. */
+  const detailHref = (order: Order) => `/owner/orders/${order.id}` as Route;
 
   const shopName = (order: Order) =>
     typeof order.reseller === 'object' ? order.reseller.shopName : '';
@@ -212,7 +216,7 @@ export default function OwnerOrdersPage() {
 
   /** The row overflow menu. Everything in it is also a button on the phone card. */
   const menuFor = (order: Order): MenuItem[] => [
-    { label: t('order.viewDetail'), icon: Eye, onSelect: () => setViewing(order) },
+    { label: t('order.viewDetail'), icon: Eye, onSelect: () => router.push(detailHref(order)) },
     ...(order.actions.includes('accept')
       ? [{ label: t('order.accept'), icon: PackageCheck, onSelect: () => setAccepting(order) }]
       : []),
@@ -377,11 +381,7 @@ export default function OwnerOrdersPage() {
             {rows.map((order) => (
               <li key={order.id}>
                 <Card className="p-4">
-                  <button
-                    type="button"
-                    onClick={() => setViewing(order)}
-                    className="block w-full text-left"
-                  >
+                  <Link href={detailHref(order)} className="block w-full text-left">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="truncate font-semibold">{order.customer.name}</p>
@@ -428,7 +428,7 @@ export default function OwnerOrdersPage() {
                         </span>
                       </p>
                     </div>
-                  </button>
+                  </Link>
 
                   <div className="mt-3 flex flex-wrap gap-2 [&>button]:flex-1">
                     {order.actions.includes('accept') && (
@@ -519,13 +519,12 @@ export default function OwnerOrdersPage() {
 
                   {columns.isVisible('code') && (
                     <Td>
-                      <button
-                        type="button"
-                        onClick={() => setViewing(order)}
+                      <Link
+                        href={detailHref(order)}
                         className="tabular rounded-md bg-subtle px-1.5 py-0.5 font-semibold text-primary-ink transition-colors hover:bg-primary-softer"
                       >
                         {order.orderCode}
-                      </button>
+                      </Link>
                       {/*
                        * Cash on delivery is the owner's exposure on this parcel,
                        * so it sits with the code rather than three columns away
@@ -657,73 +656,9 @@ export default function OwnerOrdersPage() {
         </>
       )}
 
-      <OrderDetail order={viewing} onClose={() => setViewing(null)} showCost />
       <AcceptOrderModal order={accepting} onClose={() => setAccepting(null)} />
       <CancelOrderModal order={cancelling} scope="owner" onClose={() => setCancelling(null)} />
       <ShipModal order={shipping} onClose={() => setShipping(null)} />
     </>
-  );
-}
-
-function ShipModal({ order, onClose }: { order: Order | null; onClose: () => void }) {
-  const queryClient = useQueryClient();
-  const toast = useToast();
-  const [courierName, setCourierName] = useState('');
-  const [trackingNumber, setTrackingNumber] = useState('');
-
-  const ship = useMutation({
-    mutationFn: () => api.post(`/owner/orders/${order!.id}/ship`, { courierName, trackingNumber }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['owner'] });
-      setCourierName('');
-      setTrackingNumber('');
-      onClose();
-      toast(t('order.shippedToast'));
-    },
-  });
-
-  if (!order) return null;
-
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      title={`${t('order.ship')} · ${order.orderCode}`}
-      dirty={courierName.trim().length > 0 || trackingNumber.trim().length > 0}
-      footer={
-        <>
-          <Button variant="outline" onClick={onClose}>
-            {t('app.cancel')}
-          </Button>
-          <Button
-            loading={ship.isPending}
-            disabled={courierName.trim().length < 2}
-            onClick={() => ship.mutate()}
-          >
-            {t('order.ship')}
-          </Button>
-        </>
-      }
-    >
-      {ship.error && <Alert tone="danger">{errorMessage(ship.error)}</Alert>}
-
-      <Field label={t('order.courier')} htmlFor="courierName" required>
-        <Input id="courierName" value={courierName} onChange={(e) => setCourierName(e.target.value)} />
-      </Field>
-
-      <Field
-        label={t('order.trackingNumber')}
-        htmlFor="trackingNumber"
-        hint={t('app.optional')}
-        className="mb-0"
-      >
-        <Input
-          id="trackingNumber"
-          className="tabular"
-          value={trackingNumber}
-          onChange={(e) => setTrackingNumber(e.target.value)}
-        />
-      </Field>
-    </Modal>
   );
 }

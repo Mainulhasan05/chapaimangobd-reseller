@@ -46,7 +46,11 @@ async function decrement(session, lines) {
   return taken;
 }
 
-/** Puts stock back. Used when an order is cancelled before it was packed. */
+/**
+ * Puts stock back. Used by every cancel of an order that took stock (any status
+ * from confirmed), and by a return when the owner ticks "put back in stock".
+ * See docs/adr/0008.
+ */
 async function restore(session, lines) {
   for (const line of lines) {
     // eslint-disable-next-line no-await-in-loop

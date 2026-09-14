@@ -1,4 +1,5 @@
 import type { MetadataRoute } from 'next';
+import { t } from '@/lib/i18n/bn';
 
 /**
  * The manifest that makes this installable.
@@ -14,12 +15,14 @@ import type { MetadataRoute } from 'next';
  */
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'চাঁপাই ম্যাঙ্গো',
-    short_name: 'চাঁপাই ম্যাঙ্গো',
-    description: 'রিসেলার অর্ডার ম্যানেজমেন্ট সিস্টেম',
+    name: t('app.name'),
+    short_name: t('app.name'),
+    description: t('app.description'),
     lang: 'bn',
     dir: 'ltr',
-    start_url: '/reseller',
+    // Role neutral: the owner installs this too. `/` sends a signed-in person to
+    // their own dashboard (see proxy.ts) and anyone else to the landing page.
+    start_url: '/',
     scope: '/',
     display: 'standalone',
     orientation: 'portrait',

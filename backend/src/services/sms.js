@@ -1,5 +1,6 @@
 'use strict';
 
+const { logger } = require('../config/logger');
 const SmsLog = require('../models/SmsLog');
 const ResellerProfile = require('../models/ResellerProfile');
 const gateway = require('../channels/sms');
@@ -35,8 +36,7 @@ async function record(row) {
   try {
     return await SmsLog.create(row);
   } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error('[sms] could not write the log row', err.message);
+    logger.error({ err, purpose: row.purpose }, 'sms: could not write the log row');
     return null;
   }
 }

@@ -3,7 +3,7 @@ import Image from 'next/image';
 import type { Metadata } from 'next';
 import { ArrowRight, BadgeCheck, Link2, PackageCheck, Share2, Tag, Truck, Wallet } from 'lucide-react';
 import { t } from '@/lib/i18n/bn';
-import { formatMoney, formatNumber } from '@/lib/format';
+import { formatMoney, formatNumber, formatQuantity } from '@/lib/format';
 import { Logo } from '@/components/ui/logo';
 
 /**
@@ -23,7 +23,7 @@ import { Logo } from '@/components/ui/logo';
  * interactive widget, the FAQ, is a native `<details>` rather than state.
  */
 
-const SITE = 'চাঁপাই ম্যাঙ্গো';
+const SITE = t('app.name');
 
 export const metadata: Metadata = {
   title: `${SITE} · ${t('landing.title')}`,
@@ -229,7 +229,7 @@ function Earnings() {
               label={t('landing.mathYourPrice')}
               value={`${formatMoney(EXAMPLE.sell)} / ${t('landing.mathPerKg')}`}
             />
-            <MathRow label={t('landing.mathQty')} value={`${formatNumber(EXAMPLE.qty)} কেজি`} />
+            <MathRow label={t('landing.mathQty')} value={formatQuantity(EXAMPLE.qty, 'kg')} />
           </dl>
 
           {/* The answer, on the brand fill. Dark text on mango, at about 8:1. */}

@@ -4,6 +4,7 @@ import type { Metadata } from 'next';
 import type { PublicShop, DeliveryZone } from '@/lib/types';
 import { OrderForm } from '@/components/order-form';
 import { Logo } from '@/components/ui/logo';
+import { t } from '@/lib/i18n/bn';
 import { Globe, MapPin, MessageCircle, Phone } from 'lucide-react';
 
 /**
@@ -42,7 +43,7 @@ export async function generateMetadata({
   // params is a Promise in Next 16; synchronous access was removed, not deprecated.
   const { slug } = await params;
   const shop = await loadShop(slug);
-  if (!shop) return { title: 'দোকান' };
+  if (!shop) return { title: t('shop.metaTitle') };
 
   /*
    * This link's whole life is being pasted into a chat, so the preview card is
@@ -53,7 +54,7 @@ export async function generateMetadata({
     title: shop.shop.name,
     openGraph: {
       title: shop.shop.name,
-      description: 'সরাসরি অর্ডার করুন',
+      description: t('shop.metaDescription'),
       images: shop.shop.logoUrl ? [{ url: shop.shop.logoUrl }] : undefined,
     },
   };

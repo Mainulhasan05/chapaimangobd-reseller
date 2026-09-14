@@ -10,6 +10,7 @@ import {
   Alert,
   Card,
   EmptyState,
+  ErrorState,
   PageHeader,
   TableWrap,
   Td,
@@ -43,7 +44,7 @@ export default function OwnerSourcesPage() {
     <>
       <PageHeader
         title={t('nav.sources')}
-        subtitle="যেখান থেকে পণ্য সংগ্রহ করা হয়"
+        subtitle={t('source.help')}
         action={
           <Button onClick={() => setCreating(true)}>
             <Plus className="h-4 w-4" />
@@ -56,6 +57,14 @@ export default function OwnerSourcesPage() {
         <Card className="flex justify-center py-10">
           <Spinner />
         </Card>
+      )}
+
+      {sources.isError && (
+        <ErrorState
+          onRetry={() => sources.refetch()}
+          isRetrying={sources.isFetching}
+          error={sources.error}
+        />
       )}
 
       {sources.data?.sources.length === 0 && (

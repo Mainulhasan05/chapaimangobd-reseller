@@ -14,8 +14,17 @@ const S = ORDER_STATUS;
  *   confirm         cost debit plus delivery debit
  *   codCollection   credit of what the courier collected, cash on delivery only
  *   reverseOpen     reverse every entry the order has posted so far
- *   reverseOnReturn reverse the cost debit, and the delivery debit only if the
- *                   owner setting says so, since the courier was paid regardless
+ *   reverseOnReturn reverse the cost debit, and the delivery debit together with
+ *                   its adjustments only if the owner setting says so, since the
+ *                   courier was paid regardless
+ *
+ * Every reversal ignores the credit limit: a limit governs new commitments, never
+ * the undoing of old ones. See docs/adr/0008.
+ *
+ * `stock` names what the transition does to stock:
+ *   decrement          take it, inside the confirm transaction
+ *   restore            put it back, whenever the order had taken it
+ *   restoreIfRequested put it back only when the owner ticks "put back in stock"
  */
 const TRANSITIONS = {
   confirm: {
@@ -58,7 +67,8 @@ const TRANSITIONS = {
   cancel: {
     to: S.CANCELLED,
     // The reseller may pull back their own order until the owner has accepted it.
-    // After that it is the owner call, because stock may already be committed.
+    // After that it is the owner call. Every status from confirmed has taken
+    // stock, so every one of them gives it back; pending never took any.
     from: {
       [ROLES.RESELLER]: [S.PENDING, S.CONFIRMED],
       [ROLES.OWNER]: [S.PENDING, S.CONFIRMED, S.ACCEPTED, S.PACKED],
@@ -69,10 +79,12 @@ const TRANSITIONS = {
   },
   return: {
     to: S.RETURNED,
-    from: { [ROLES.OWNER]: [S.SHIPPED, S.DELIVERED] },
+    // Only a parcel still with the courier can come back. Delivered is terminal:
+    // a problem after delivery is a manual ledger entry with a note.
+    from: { [ROLES.OWNER]: [S.SHIPPED] },
     ledger: 'reverseOnReturn',
-    // Mangoes that have travelled are gone. A return never restores stock.
-    stock: 'none',
+    // Travelled mangoes are usually gone, so the owner decides per return.
+    stock: 'restoreIfRequested',
     timestampField: 'closedAt',
   },
 };
@@ -84,6 +96,21 @@ const TERMINAL = new Set([S.CANCELLED, S.RETURNED, S.DELIVERED]);
  * stock, so cancelling it must not try to reverse or restore anything.
  */
 const wasCommitted = (status) => status !== S.PENDING;
+
+/**
+ * The owner learns the real courier cost at accept or ship, so the charge stays
+ * editable until the parcel has left. See docs/adr/0010.
+ */
+const DELIVERY_CHARGE_EDITABLE = Object.freeze([S.PENDING, S.CONFIRMED, S.ACCEPTED, S.PACKED]);
+
+function assertDeliveryChargeEditable(order) {
+  if (!DELIVERY_CHARGE_EDITABLE.includes(order.status)) {
+    throw conflict(
+      'DELIVERY_CHARGE_LOCKED',
+      `The delivery charge cannot be changed on an order that is ${order.status}`
+    );
+  }
+}
 
 function getTransition(action) {
   const t = TRANSITIONS[action];
@@ -122,6 +149,8 @@ module.exports = {
   TRANSITIONS,
   TERMINAL,
   wasCommitted,
+  DELIVERY_CHARGE_EDITABLE,
+  assertDeliveryChargeEditable,
   getTransition,
   assertCanTransition,
   availableActions,

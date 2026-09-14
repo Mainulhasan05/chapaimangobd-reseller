@@ -152,8 +152,8 @@ async function main() {
     NODE_ENV: 'development',
     PORT: String(API_PORT),
     MONGODB_URI: uri,
-    JWT_ACCESS_SECRET: 'smoke-access-secret-long-enough',
-    JWT_REFRESH_SECRET: 'smoke-refresh-secret-long-enough',
+    JWT_ACCESS_SECRET: 'smoke-access-secret-long-enough-for-boot',
+    JWT_REFRESH_SECRET: 'smoke-refresh-secret-long-enough-for-boot',
     COOKIE_SECURE: 'false',
     APP_URL: WEB,
     OWNER_NAME: 'Owner',
@@ -193,7 +193,7 @@ async function runFlow() {
 
   // 1. The rewrite reaches the API without any CORS setup.
   const health = await anon.get('/api/health');
-  if (health.status !== 200 || health.body.data.status !== 'up') fail('health check failed');
+  if (health.status !== 200 || health.body.db !== 'up') fail('health check failed');
   log('health reachable at the web origin, so the rewrite works');
 
   // 2. The public shop renders server side, in Bengali.

@@ -4,26 +4,17 @@ import { MapPin } from 'lucide-react';
 import { t, tStatus } from '@/lib/i18n/bn';
 import { formatMoney, formatQuantity, formatDateTime } from '@/lib/format';
 import type { Order } from '@/lib/types';
-import { Modal } from '@/components/ui/modal';
 import { Badge, statusTone } from '@/components/ui/layout';
 
 /**
- * Read-only view of one order. `showCost` is what separates the reseller and
- * owner view from anything a customer could ever be shown.
+ * Read-only view of one order, without a frame. Rendered by the order pages at
+ * `/owner/orders/[id]` and `/reseller/orders/[id]`, which is where list rows,
+ * customer histories and notifications all lead. `showCost` is what separates
+ * the reseller and owner view from anything a customer could ever be shown.
  */
-export function OrderDetail({
-  order,
-  onClose,
-  showCost,
-}: {
-  order: Order | null;
-  onClose: () => void;
-  showCost?: boolean;
-}) {
-  if (!order) return null;
-
+export function OrderDetailBody({ order, showCost }: { order: Order; showCost?: boolean }) {
   return (
-    <Modal open wide onClose={onClose} title={order.orderCode}>
+    <>
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <Badge tone={statusTone(order.status)} dot>
           {tStatus(order.status)}
@@ -111,7 +102,7 @@ export function OrderDetail({
           ))}
         </ol>
       </section>
-    </Modal>
+    </>
   );
 }
 

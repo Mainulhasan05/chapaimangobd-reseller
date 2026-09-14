@@ -7,6 +7,7 @@ import { api, errorMessage, fieldErrors } from '@/lib/api';
 import { useDebounced } from '@/lib/use-debounced';
 import { t, tUnit } from '@/lib/i18n/bn';
 import { formatMoney, formatMoneyPlain, formatNumber } from '@/lib/format';
+import { checkMoney, moneyError } from '@/lib/money';
 import type { OwnerProduct } from '@/lib/types';
 import {
   Alert,
@@ -14,6 +15,7 @@ import {
   Card,
   ColumnToggle,
   EmptyState,
+  ErrorState,
   PageHeader,
   SortTh,
   TableWrap,
@@ -134,6 +136,14 @@ export default function OwnerProductsPage() {
         <Card className="flex justify-center py-10">
           <Spinner />
         </Card>
+      )}
+
+      {products.isError && (
+        <ErrorState
+          onRetry={() => products.refetch()}
+          isRetrying={products.isFetching}
+          error={products.error}
+        />
       )}
 
       {products.isSuccess && rows.length === 0 && (
@@ -314,6 +324,9 @@ function ProductModal({ product, onClose }: { product: OwnerProduct | null; onCl
   });
 
   const errors = fieldErrors(save.error);
+  const pricesValid =
+    checkMoney(draft.costPrice, { allowZero: true }).ok &&
+    (draft.maxSellPrice.trim() === '' || checkMoney(draft.maxSellPrice).ok);
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) =>
     setDraft((prev) => ({ ...prev, [key]: value }));
 
@@ -328,7 +341,7 @@ function ProductModal({ product, onClose }: { product: OwnerProduct | null; onCl
           <Button variant="outline" onClick={onClose}>
             {t('app.cancel')}
           </Button>
-          <Button loading={save.isPending} onClick={() => save.mutate()}>
+          <Button loading={save.isPending} disabled={!pricesValid} onClick={() => save.mutate()}>
             {t('app.save')}
           </Button>
         </>
@@ -365,9 +378,9 @@ function ProductModal({ product, onClose }: { product: OwnerProduct | null; onCl
         </Field>
 
         <Field
-          label="ধাপ"
+          label={t('catalog.step')}
           htmlFor="step"
-          hint="যত পরিমাণের গুণিতকে অর্ডার নেওয়া হবে"
+          hint={t('catalog.stepHint')}
           error={errors.step}
         >
           <Input
@@ -393,7 +406,7 @@ function ProductModal({ product, onClose }: { product: OwnerProduct | null; onCl
           />
         </Field>
 
-        <Field label={t('catalog.costPrice')} htmlFor="costPrice" error={errors.costPrice} required>
+        <Field label={t('catalog.costPrice')} htmlFor="costPrice" error={errors.costPrice ?? moneyError(draft.costPrice, { allowZero: true })} required>
           <MoneyInput
             id="costPrice"
             value={draft.costPrice}
@@ -405,7 +418,7 @@ function ProductModal({ product, onClose }: { product: OwnerProduct | null; onCl
           label={t('catalog.maxSellPrice')}
           htmlFor="maxSellPrice"
           hint={t('app.optional')}
-          error={errors.maxSellPrice}
+          error={errors.maxSellPrice ?? moneyError(draft.maxSellPrice)}
         >
           <MoneyInput
             id="maxSellPrice"
