@@ -5,7 +5,13 @@ const SmsLog = require('../models/SmsLog');
 const ResellerProfile = require('../models/ResellerProfile');
 const gateway = require('../channels/sms');
 const { getSettings } = require('./settings');
-const { SMS_STATUS, SMS_BLOCK_REASON, SMS_PURPOSE } = require('../domain/constants');
+const {
+  SMS_STATUS,
+  SMS_BLOCK_REASON,
+  SMS_PURPOSE,
+  SMS_PAYER,
+  SMS_CATEGORY,
+} = require('../domain/constants');
 
 /**
  * The only way an SMS leaves this platform.
@@ -48,6 +54,15 @@ const outcome = (status, log, extra = {}) => ({
   ...extra,
 });
 
+/** The log category a purpose implies, when the caller does not name one. */
+const CATEGORY_BY_PURPOSE = {
+  [SMS_PURPOSE.NOTIFICATION]: SMS_CATEGORY.NOTIFICATION,
+  [SMS_PURPOSE.TEST]: SMS_CATEGORY.TEST,
+  [SMS_PURPOSE.MANUAL]: SMS_CATEGORY.MANUAL,
+  [SMS_PURPOSE.OTP]: SMS_CATEGORY.OTP,
+  [SMS_PURPOSE.OWNER_ALERT]: SMS_CATEGORY.OWNER_ALERT,
+};
+
 /**
  * Sends one SMS and records it.
  *
@@ -66,17 +81,37 @@ async function send({
   outboxMessage = null,
   /** Set by the owner's test send, the one path allowed past the master switch. */
   ignoreFeatureFlag = false,
+  /*
+   * `owner` marks a message the business pays for: OTP, owner alerts, customer
+   * SMS. It ignores the master switch and can never spend reseller credits,
+   * because the switch exists to stop resellers' spending, not the login form.
+   * See docs/adr/0013. Left out, it is inferred from `charge`.
+   */
+  payer = null,
+  category = null,
+  /**
+   * What the log row says instead of the text, for a message whose content is
+   * a secret. An OTP is sent in full and recorded masked, so the SMS panel is
+   * not a list of working codes.
+   */
+  logText = null,
 }) {
   const body = (text || '').trim().slice(0, MAX_TEXT);
+  const ownerPaid = payer === SMS_PAYER.OWNER;
+  if (ownerPaid && charge) {
+    throw new Error('sms: an owner-paid message cannot charge a reseller');
+  }
 
   const base = {
     toPhoneE164: phoneE164 || null,
     toLocal: null,
     senderId: null,
-    text: body,
+    text: logText == null ? body : String(logText).slice(0, MAX_TEXT),
     encoding: gateway.encodingOf(body),
     segments: gateway.segmentCount(body || ' '),
     purpose,
+    payer: payer || (charge ? SMS_PAYER.RESELLER : SMS_PAYER.OWNER),
+    category: category || CATEGORY_BY_PURPOSE[purpose] || null,
     eventType,
     user: user ? user._id || user : null,
     reseller: charge ? charge._id : null,
@@ -102,7 +137,7 @@ async function send({
    * making for one query on a path that is about to make a network call anyway.
    */
   const settings = await getSettings({ fresh: true });
-  if (!settings.features.sms && !ignoreFeatureFlag) {
+  if (!settings.features.sms && !ignoreFeatureFlag && !ownerPaid) {
     return blocked(SMS_BLOCK_REASON.FEATURE_OFF, 'SMS is switched off by the owner');
   }
 
@@ -196,4 +231,10 @@ async function balance() {
   return gateway.checkBalance();
 }
 
-module.exports = { send, balance, MAX_TEXT };
+/**
+ * An SMS the business pays for (docs/adr/0013): OTP, owner alerts. Needs only a
+ * configured gateway. Same return and throw contract as `send`.
+ */
+const sendOwnerPaid = (options) => send({ ...options, charge: null, payer: SMS_PAYER.OWNER });
+
+module.exports = { send, sendOwnerPaid, balance, MAX_TEXT };

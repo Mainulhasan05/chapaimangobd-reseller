@@ -6,6 +6,7 @@ const { logger } = require('./config/logger');
 const { connect } = require('./config/db');
 const app = require('./app');
 const { startOutboxWorker, stopOutboxWorker } = require('./services/outbox');
+const { startJobs, stopJobs } = require('./jobs');
 
 // Long enough for an in-flight order confirm to commit, short enough that a
 // deploy does not stall waiting on a phone with a dead connection.
@@ -32,7 +33,9 @@ async function shutdown(signal, exitCode = 0) {
   force.unref();
 
   try {
-    stopOutboxWorker();
+    // Timers stop now; the promise settles once a digest or a send already in
+    // progress finishes, which is awaited below, before the database closes.
+    const background = Promise.all([stopJobs(), stopOutboxWorker()]);
     if (server) {
       await new Promise((resolve) => {
         server.close(resolve);
@@ -40,6 +43,7 @@ async function shutdown(signal, exitCode = 0) {
         if (typeof server.closeIdleConnections === 'function') server.closeIdleConnections();
       });
     }
+    await background;
     await mongoose.disconnect();
     logger.info('shutdown complete');
   } catch (err) {
@@ -70,6 +74,8 @@ async function main() {
   logger.info('db connected');
 
   startOutboxWorker();
+  // Scheduled jobs only where RUN_JOBS=true. See src/jobs/index.js.
+  startJobs();
 
   server = app.listen(env.PORT, () => {
     logger.info({ port: env.PORT, env: env.NODE_ENV }, `listening on http://localhost:${env.PORT}`);

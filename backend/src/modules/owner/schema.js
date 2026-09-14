@@ -124,7 +124,39 @@ const acceptBody = z.object({
     .max(20),
 });
 
+/*
+ * A return is whole-order. `restock` is the owner's "put back in stock" box,
+ * off unless ticked, because mangoes that have travelled are usually gone.
+ * See docs/adr/0008.
+ */
+const returnBody = transitionBody.extend({
+  restock: z.boolean().optional().default(false),
+});
+
 const overrideDeliveryCharge = z.object({ deliveryCharge: money });
+
+// One shape for both roles, defined beside the reseller's order schemas.
+const { editCustomer } = require('../reseller/schema');
+
+/* audit */
+
+const dhakaDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD');
+
+/**
+ * The owner's audit log viewer. Cursor paginated on (createdAt, _id) descending,
+ * because the log only grows and page numbers over a growing log skip and repeat
+ * rows. Dates are Dhaka calendar days.
+ */
+const listAudit = z.object({
+  actor: objectId.optional(),
+  targetType: z.string().trim().max(60).optional(),
+  targetId: objectId.optional(),
+  action: z.string().trim().max(80).optional(),
+  from: dhakaDate.optional(),
+  to: dhakaDate.optional(),
+  cursor: z.string().max(200).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
 
 /* finance */
 const manualEntry = z.object({
@@ -219,7 +251,10 @@ module.exports = {
   shipOrder,
   transitionBody,
   acceptBody,
+  returnBody,
   overrideDeliveryCharge,
+  editCustomer,
+  listAudit,
   manualEntry,
   approveWithdrawal,
   listFinance,

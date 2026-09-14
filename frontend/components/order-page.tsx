@@ -11,6 +11,7 @@ import { Card, EmptyState, ErrorState, PageHeader } from '@/components/ui/layout
 import { Button } from '@/components/ui/button';
 import { ListSkeleton } from '@/components/ui/skeleton';
 import { OrderDetailBody } from '@/components/order-detail';
+import { canEditDeliveryCharge } from '@/components/delivery-charge-field';
 
 /**
  * Where an order's own cache entry lives.
@@ -34,11 +35,14 @@ export function OrderPage({
   id,
   backHref,
   actions,
+  onEditDeliveryCharge,
 }: {
   scope: 'owner' | 'reseller';
   id: string;
   backHref: Route;
   actions: (order: Order) => React.ReactNode;
+  /** Owner only. Offered while the order has not shipped. */
+  onEditDeliveryCharge?: (order: Order) => void;
 }) {
   const query = useQuery({
     queryKey: orderQueryKey(scope, id),
@@ -110,7 +114,15 @@ export function OrderPage({
       )}
 
       <Card className="mx-auto max-w-3xl">
-        <OrderDetailBody order={order} showCost />
+        <OrderDetailBody
+          order={order}
+          showCost
+          onEditDeliveryCharge={
+            onEditDeliveryCharge && canEditDeliveryCharge(order)
+              ? () => onEditDeliveryCharge(order)
+              : undefined
+          }
+        />
       </Card>
     </>
   );

@@ -73,6 +73,23 @@ const manualOrder = z.object({
 
 const cancelOrder = z.object({ reason: z.string().trim().min(3).max(500) });
 
+/**
+ * Correcting where an order goes. Every field optional, at least one present.
+ * The same bounds a new order takes, so an edit cannot store what a submission
+ * would have refused. Shared with the owner route.
+ */
+const editCustomer = z
+  .object({
+    name: z.string().trim().min(2).max(120).optional(),
+    phone: z.string().min(6).max(20).optional(),
+    address: z.string().trim().min(5).max(500).optional(),
+    district: z.string().trim().min(2).max(80).optional(),
+  })
+  .strict()
+  .refine((body) => Object.values(body).some((v) => v !== undefined), {
+    message: 'Change at least one of name, phone, address or district',
+  });
+
 const createDeposit = z.object({
   amount: money.refine((v) => v > 0, 'Amount must be greater than zero'),
   method: z.enum(values(DEPOSIT_METHOD)),
@@ -109,6 +126,7 @@ module.exports = {
   confirmOrder,
   manualOrder,
   cancelOrder,
+  editCustomer,
   createDeposit,
   createWithdrawal,
   purchaseSms,

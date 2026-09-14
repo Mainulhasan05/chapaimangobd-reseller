@@ -13,6 +13,7 @@ const ResellerProfile = require('../src/models/ResellerProfile');
 const Order = require('../src/models/Order');
 const Deposit = require('../src/models/Deposit');
 const LedgerEntry = require('../src/models/LedgerEntry');
+const otp = require('../src/services/otp');
 
 const { toPoisha, toTaka } = require('../src/utils/money');
 const { KYC_STATUS, PAYMENT_MODE, REVIEW_STATUS } = require('../src/domain/constants');
@@ -39,11 +40,19 @@ test('the owner can see which integrations are wired up', async () => {
   assert.equal(typeof res.body.data.integrations.sms, 'boolean');
 });
 
+/** Registration proves the phone first (docs/adr/0014); this fetches the code. */
+async function registrationCode(phone) {
+  const sent = await request(app).post('/api/auth/register/otp').send({ phone });
+  assert.equal(sent.status, 200, `otp failed: ${JSON.stringify(sent.body)}`);
+  const { normalizeBdPhone } = require('../src/utils/phone');
+  return otp.__lastCodeFor(normalizeBdPhone(phone), 'register');
+}
+
 test('registration creates a reseller with a slug and an unverified status', async () => {
   const phone = f.nextPhone();
   const res = await request(app)
     .post('/api/auth/register')
-    .send({ name: 'Rifat Mango Ghor', phone, password: 'password123' });
+    .send({ name: 'Rifat Mango Ghor', phone, password: 'password123', otp: await registrationCode(phone) });
 
   assert.equal(res.status, 201);
   assert.equal(res.body.data.user.role, 'reseller');
@@ -55,11 +64,14 @@ test('registration creates a reseller with a slug and an unverified status', asy
 
 test('the same phone cannot register twice, in any format', async () => {
   const phone = '01712345678';
-  await request(app).post('/api/auth/register').send({ name: 'First', phone, password: 'password123' });
+  const first = await request(app)
+    .post('/api/auth/register')
+    .send({ name: 'First', phone, password: 'password123', otp: await registrationCode(phone) });
+  assert.equal(first.status, 201);
 
   const res = await request(app)
     .post('/api/auth/register')
-    .send({ name: 'Second', phone: '+880 1712-345678', password: 'password123' });
+    .send({ name: 'Second', phone: '+880 1712-345678', password: 'password123', otp: '123456' });
 
   assert.equal(res.status, 400);
   assert.equal(res.body.error.code, 'PHONE_TAKEN');

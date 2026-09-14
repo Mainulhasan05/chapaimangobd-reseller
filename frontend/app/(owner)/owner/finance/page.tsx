@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDownToLine, ArrowUpFromLine } from 'lucide-react';
-import { api, errorMessage } from '@/lib/api';
+import { api, ApiError, errorMessage } from '@/lib/api';
 import { t } from '@/lib/i18n/bn';
 import { formatMoney, formatDateTime } from '@/lib/format';
 import {
@@ -24,6 +24,7 @@ import { Segmented, Toolbar, ToolbarSpacer } from '@/components/ui/toolbar';
 import { Button, Spinner } from '@/components/ui/button';
 import { Field, Input, Textarea } from '@/components/ui/form';
 import { Modal } from '@/components/ui/modal';
+import { useToast } from '@/components/ui/toast';
 
 type ResellerRef = { shopName: string; slug: string; user?: { name: string; phoneE164: string } };
 
@@ -301,11 +302,30 @@ function Deposits({ status }: { status: string }) {
   );
 }
 
+/**
+ * What a failed withdrawal decision says.
+ *
+ * Approval can fail after the request was fine: a confirm since then may have
+ * spent the balance, and a withdrawal never creates debt (docs/adr/0009). The
+ * generic wording would leave the owner wondering whose balance and what now,
+ * so this one says the request is still pending and what the choices are.
+ */
+const withdrawalError = (error: unknown): string =>
+  error instanceof ApiError && error.code === 'INSUFFICIENT_BALANCE'
+    ? t('finance.withdrawalShort')
+    : errorMessage(error);
+
 function Withdrawals({ status }: { status: string }) {
   const [approving, setApproving] = useState<WithdrawalRow | null>(null);
   const [rejecting, setRejecting] = useState<WithdrawalRow | null>(null);
   const [payoutReference, setPayoutReference] = useState('');
   const decide = useDecision('withdrawals');
+  const toast = useToast();
+
+  const closeApproval = () => {
+    setPayoutReference('');
+    setApproving(null);
+  };
 
   const withdrawals = useQuery({
     queryKey: ['owner', 'withdrawals', status],
@@ -337,7 +357,9 @@ function Withdrawals({ status }: { status: string }) {
 
   return (
     <>
-      {decide.error && <Alert tone="danger">{errorMessage(decide.error)}</Alert>}
+      {decide.error && !approving && (
+        <Alert tone="danger">{withdrawalError(decide.error)}</Alert>
+      )}
 
       <ul className="space-y-3 sm:hidden">
         {withdrawals.data.withdrawals.map((row) => (
@@ -433,22 +455,32 @@ function Withdrawals({ status }: { status: string }) {
 
       <Modal
         open={Boolean(approving)}
-        onClose={() => setApproving(null)}
+        onClose={closeApproval}
         title={t('wallet.withdrawRequest')}
         footer={
           <>
-            <Button variant="outline" onClick={() => setApproving(null)}>
+            <Button variant="outline" onClick={closeApproval}>
               {t('app.cancel')}
             </Button>
             <Button
               variant="success"
               loading={decide.isPending}
               onClick={() => {
-                if (approving) {
-                  decide.mutate({ id: approving.id, decision: 'approve', payoutReference });
-                }
-                setPayoutReference('');
-                setApproving(null);
+                if (!approving) return;
+                // The sheet stays open until the API answers, so a refusal is
+                // read next to the request it refers to rather than after it
+                // has vanished from under the owner's thumb.
+                decide.reset();
+                decide.mutate(
+                  { id: approving.id, decision: 'approve', payoutReference },
+                  {
+                    onSuccess: () => {
+                      closeApproval();
+                      toast(t('finance.withdrawalApproved'));
+                    },
+                    onError: (error) => toast(withdrawalError(error), 'danger'),
+                  }
+                );
               }}
             >
               {t('owner.approve')}
@@ -456,6 +488,9 @@ function Withdrawals({ status }: { status: string }) {
           </>
         }
       >
+        {decide.error && decide.variables?.id === approving?.id && (
+          <Alert tone="danger">{withdrawalError(decide.error)}</Alert>
+        )}
         <p className="mb-4 text-sm text-muted-foreground">
           {approving && `${formatMoney(approving.amount)} → ${approving.destinationNumber}`}
         </p>

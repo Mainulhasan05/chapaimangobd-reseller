@@ -22,7 +22,13 @@ const kycSubmissionSchema = new mongoose.Schema(
       {
         _id: false,
         type: { type: String, enum: values(KYC_DOC_TYPE), required: true },
-        storageKey: { type: String, required: true },
+        // Removed by the retention job, which sets `purgedAt` on the submission.
+        storageKey: {
+          type: String,
+          required() {
+            return !this.ownerDocument().purgedAt;
+          },
+        },
         format: { type: String },
         bytes: { type: Number },
       },
@@ -43,5 +49,16 @@ const kycSubmissionSchema = new mongoose.Schema(
 );
 
 kycSubmissionSchema.index({ status: 1, createdAt: -1 });
+
+/*
+ * At most one submission waiting per reseller. The controller refuses a second
+ * one up front with KYC_ALREADY_PENDING; this is what holds when two uploads
+ * race past that check. Existing data must not hold two pending rows for one
+ * reseller before `npm run db:sync-indexes`, or the index build fails.
+ */
+kycSubmissionSchema.index(
+  { reseller: 1 },
+  { unique: true, partialFilterExpression: { status: REVIEW_STATUS.PENDING }, name: 'one_pending_per_reseller' }
+);
 
 module.exports = mongoose.model('KycSubmission', kycSubmissionSchema);

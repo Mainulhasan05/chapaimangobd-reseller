@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { Route } from 'next';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Ban, ClipboardList, Eye, PackageCheck, Truck } from 'lucide-react';
+import { Ban, ClipboardList, Eye, PackageCheck, Truck, Undo2 } from 'lucide-react';
 import { api, errorMessage } from '@/lib/api';
 import { useDebounced } from '@/lib/use-debounced';
 import { t, tStatus } from '@/lib/i18n/bn';
@@ -43,6 +43,7 @@ import { useToast } from '@/components/ui/toast';
 import { AcceptOrderModal } from '@/components/accept-order-modal';
 import { CancelOrderModal } from '@/components/cancel-order-modal';
 import { ShipModal } from '@/components/ship-order-modal';
+import { ReturnOrderModal } from '@/components/return-order-modal';
 import {
   firstProduct,
   OrderItems,
@@ -66,13 +67,14 @@ const FILTERS = [
 /**
  * Only actions the API will accept appear, driven by the server transition table.
  *
- * These are the ones that need nothing but a click. Accept, ship and cancel each
- * ask a question first, so they open a form instead and are listed separately.
+ * These are the ones that need nothing but a click. Accept, ship, cancel and
+ * return each ask a question first, so they open a form instead and are listed
+ * separately. Return asks whether the stock goes back, which is a decision about
+ * one crate, so it is never offered in bulk.
  */
 const ACTION_LABELS: Record<string, string> = {
   pack: t('order.pack'),
   deliver: t('order.deliver'),
-  return: t('order.return'),
 };
 
 type SortKey = 'code' | 'reseller' | 'customer' | 'items' | 'amount' | 'status';
@@ -97,6 +99,7 @@ export default function OwnerOrdersPage() {
   const [accepting, setAccepting] = useState<Order | null>(null);
   const [cancelling, setCancelling] = useState<Order | null>(null);
   const [shipping, setShipping] = useState<Order | null>(null);
+  const [returning, setReturning] = useState<Order | null>(null);
 
   const search = useDebounced(term);
 
@@ -226,6 +229,9 @@ export default function OwnerOrdersPage() {
     })),
     ...(order.actions.includes('ship')
       ? [{ label: t('order.ship'), icon: Truck, onSelect: () => setShipping(order) }]
+      : []),
+    ...(order.actions.includes('return')
+      ? [{ label: t('order.return'), icon: Undo2, onSelect: () => setReturning(order) }]
       : []),
     ...(order.actions.includes('cancel')
       ? [
@@ -437,7 +443,6 @@ export default function OwnerOrdersPage() {
                     {actionsFor(order).map((action) => (
                       <Button
                         key={action}
-                        variant={action === 'return' ? 'outline' : 'primary'}
                         loading={transition.isPending && transition.variables?.id === order.id}
                         onClick={() => transition.mutate({ id: order.id, action })}
                       >
@@ -446,6 +451,11 @@ export default function OwnerOrdersPage() {
                     ))}
                     {order.actions.includes('ship') && (
                       <Button onClick={() => setShipping(order)}>{t('order.ship')}</Button>
+                    )}
+                    {order.actions.includes('return') && (
+                      <Button variant="outline" onClick={() => setReturning(order)}>
+                        {t('order.return')}
+                      </Button>
                     )}
                     {order.actions.includes('cancel') && (
                       <Button variant="outline" onClick={() => setCancelling(order)}>
@@ -659,6 +669,7 @@ export default function OwnerOrdersPage() {
       <AcceptOrderModal order={accepting} onClose={() => setAccepting(null)} />
       <CancelOrderModal order={cancelling} scope="owner" onClose={() => setCancelling(null)} />
       <ShipModal order={shipping} onClose={() => setShipping(null)} />
+      <ReturnOrderModal order={returning} onClose={() => setReturning(null)} />
     </>
   );
 }

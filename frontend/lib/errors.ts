@@ -10,6 +10,8 @@
  * degrades to English rather than to nothing.
  */
 
+import { formatMoney } from './format';
+
 export type ErrorCopy = {
   /** What the user reads. Plain language, says what to do next where possible. */
   message: string;
@@ -48,7 +50,24 @@ const COPY: Record<string, ErrorCopy> = {
   UNAUTHENTICATED: { message: 'আপনি লগইন করা নেই। আবার লগইন করুন।' },
   FORBIDDEN: { message: 'এই কাজটি করার অনুমতি আপনার নেই।' },
   PHONE_TAKEN: { message: 'এই মোবাইল নম্বর দিয়ে আগেই অ্যাকাউন্ট খোলা হয়েছে। লগইন করুন।' },
+  ACCOUNT_LOCKED: {
+    message: 'অনেকবার ভুল পাসওয়ার্ড দেওয়া হয়েছে। ১৫ মিনিট পর আবার চেষ্টা করুন, অথবা পাসওয়ার্ড ভুলে গেলে নতুন করে সেট করুন।',
+  },
+  SESSION_REFRESHING: { message: 'লগইন নবায়ন হচ্ছে। আবার চেষ্টা করুন।' },
+  WRONG_PASSWORD: { message: 'পাসওয়ার্ড সঠিক নয়।' },
+  SAME_PASSWORD: { message: 'নতুন পাসওয়ার্ড বর্তমানটির চেয়ে আলাদা হতে হবে।' },
+  SAME_PHONE: { message: 'এটি আপনার বর্তমান নম্বরই।' },
+
+  /* one-time codes */
+  OTP_INVALID: { message: 'কোডটি সঠিক নয়। SMS-এ আসা ৬ সংখ্যার কোডটি আবার দেখে লিখুন।' },
+  OTP_EXPIRED: { message: 'কোডটির মেয়াদ শেষ বা বাতিল হয়েছে। নতুন কোড চান।' },
+  OTP_SEND_LIMIT: { message: 'এই নম্বরে এক ঘণ্টায় ৩টির বেশি কোড পাঠানো যায় না। পরে চেষ্টা করুন।' },
+  SMS_UNAVAILABLE: {
+    message: 'এই মুহূর্তে SMS পাঠানো যাচ্ছে না। একটু পরে চেষ্টা করুন।',
+    hint: 'The SMS gateway is not configured or rejected the message.',
+  },
   INVALID_PHONE: { message: 'সঠিক বাংলাদেশি মোবাইল নম্বর দিন, যেমন ০১৭১২৩৪৫৬৭৮।' },
+  /* Every limiter in the API answers 429 with this code, whatever its message. */
   RATE_LIMITED: { message: 'অনেকবার চেষ্টা করা হয়েছে। কিছুক্ষণ অপেক্ষা করে আবার চেষ্টা করুন।' },
 
   /* shop identity */
@@ -80,7 +99,12 @@ const COPY: Record<string, ErrorCopy> = {
   CREDIT_LIMIT_EXCEEDED: {
     message: 'আপনার ক্রেডিট সীমা শেষ। অর্ডার নিশ্চিত করতে আগে টাকা জমা দিন।',
   },
-  INSUFFICIENT_BALANCE: { message: 'আপনার ব্যালেন্স যথেষ্ট নয়।' },
+  /*
+   * 400 when a reseller asks for more than their balance, 409 when the owner
+   * approves a withdrawal the balance no longer covers. Worded for both readers;
+   * the owner's finance page adds what happens to the request. See docs/adr/0009.
+   */
+  INSUFFICIENT_BALANCE: { message: 'ব্যালেন্সে এই পরিমাণ টাকা নেই। টাকা উত্তোলন কখনো ব্যালেন্সের বেশি হতে পারে না।' },
   INVALID_AMOUNT: { message: 'সঠিক টাকার পরিমাণ লিখুন।' },
   ZERO_AMOUNT: { message: 'টাকার পরিমাণ শূন্যের বেশি হতে হবে।' },
   WITHDRAWAL_PENDING: { message: 'আপনার একটি উত্তোলনের অনুরোধ এখনো অপেক্ষায় আছে।' },
@@ -88,7 +112,12 @@ const COPY: Record<string, ErrorCopy> = {
 
   /* orders */
   ALREADY_HANDLED: { message: 'এই অর্ডারটি এর মধ্যেই পরিবর্তন করা হয়েছে। পাতা রিফ্রেশ করুন।' },
-  INVALID_TRANSITION: { message: 'অর্ডারের বর্তমান অবস্থা থেকে এই কাজটি করা যাবে না।' },
+  INVALID_TRANSITION: {
+    message: 'অর্ডারের বর্তমান অবস্থা থেকে এই কাজটি করা যাবে না। পাতা রিফ্রেশ করে অবস্থা দেখে নিন।',
+  },
+  DELIVERY_CHARGE_LOCKED: {
+    message: 'অর্ডারটি পাঠানো হয়ে গেছে, তাই ডেলিভারি চার্জ আর বদলানো যাবে না।',
+  },
   UNKNOWN_TRANSITION: { message: 'অর্ডারের এই কাজটি চেনা যায়নি।' },
   ORDER_CODE: { message: 'অর্ডার নম্বর তৈরি করা যায়নি। আবার চেষ্টা করুন।' },
 
@@ -103,6 +132,17 @@ const COPY: Record<string, ErrorCopy> = {
     message: 'এই সুবিধাটি এখনো চালু করা হয়নি।',
     hint: 'A required integration (Cloudinary, SMS or Telegram) has no credentials.',
   },
+
+  /* malformed requests, which a person should never cause */
+  BAD_JSON: {
+    message: 'পাঠানো তথ্য পড়া যায়নি। পাতা রিফ্রেশ করে আবার চেষ্টা করুন।',
+    hint: 'The request body was not valid JSON.',
+  },
+  PAYLOAD_TOO_LARGE: { message: 'পাঠানো তথ্য অনেক বড়। কম তথ্য বা ছোট ফাইল দিয়ে আবার চেষ্টা করুন।' },
+  UNSUPPORTED_ENCODING: { message: 'পাঠানো তথ্যের ধরন সার্ভার চেনে না। আবার চেষ্টা করুন।' },
+  UNSUPPORTED_CHARSET: { message: 'পাঠানো তথ্যের ধরন সার্ভার চেনে না। আবার চেষ্টা করুন।' },
+  REQUEST_ABORTED: { message: 'অনুরোধটি মাঝপথে থেমে গেছে। আবার চেষ্টা করুন।' },
+  BAD_REQUEST: { message: 'অনুরোধটি সঠিক নয়। পাতা রিফ্রেশ করে আবার চেষ্টা করুন।' },
 
   /* generic */
   VALIDATION_FAILED: { message: 'কিছু তথ্য সঠিক নয়। নিচে দেখুন।' },
@@ -128,6 +168,25 @@ const FIELD_COPY: Record<string, string> = {
   'Phone number is required': 'মোবাইল নম্বর লিখুন',
   'Use at least 8 characters': 'অন্তত ৮টি অক্ষর দিন',
   'Enter a valid Bangladeshi mobile number': 'সঠিক বাংলাদেশি মোবাইল নম্বর দিন',
+  'Enter the 6 digit code': '৬ সংখ্যার কোডটি লিখুন',
+  'Wrong code': 'কোডটি সঠিক নয়',
+  'Code expired': 'কোডের মেয়াদ শেষ, নতুন কোড চান',
+  'Wrong password': 'পাসওয়ার্ড সঠিক নয়',
+  'Same as current password': 'বর্তমান পাসওয়ার্ডের চেয়ে আলাদা দিন',
+  'Same as current': 'এটি আপনার বর্তমান নম্বর',
 };
 
-export const translateField = (text: string): string => FIELD_COPY[text] ?? text;
+/** Field messages that carry a figure, so they cannot be matched by exact text. */
+const FIELD_PATTERNS: [RegExp, (match: RegExpMatchArray) => string][] = [
+  // A withdrawal above the balance: "At most 120.5 taka".
+  [/^At most (-?\d+(?:\.\d+)?) taka$/, (m) => `সর্বোচ্চ ${formatMoney(Number(m[1]))} তোলা যাবে`],
+];
+
+export const translateField = (text: string): string => {
+  if (FIELD_COPY[text]) return FIELD_COPY[text];
+  for (const [pattern, build] of FIELD_PATTERNS) {
+    const match = text.match(pattern);
+    if (match) return build(match);
+  }
+  return text;
+};

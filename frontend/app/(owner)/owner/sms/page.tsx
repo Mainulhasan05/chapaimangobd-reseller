@@ -74,6 +74,8 @@ const PURPOSE_LABEL: Record<string, DictKey> = {
   notification: 'sms.purposeNotification',
   test: 'sms.purposeTest',
   manual: 'sms.purposeManual',
+  otp: 'sms.purposeOtp',
+  owner_alert: 'sms.purposeOwnerAlert',
 };
 
 const REASON_LABEL: Record<string, DictKey> = {

@@ -5,8 +5,9 @@ const { orderSearchFilter } = require('../../utils/orderSearch');
 const orderService = require('../../services/orderService');
 const { getSettings } = require('../../services/settings');
 const audit = require('../../services/audit');
+const { editCustomer } = require('../shared/orderCustomer.controller');
 const { ok } = require('../../middleware/error');
-const { notFound, conflict } = require('../../utils/errors');
+const { notFound } = require('../../utils/errors');
 const { toPoisha } = require('../../utils/money');
 const { startOfBusinessDay, endOfBusinessDay, agingCutoff } = require('../../utils/dhakaTime');
 const present = require('../../utils/present');
@@ -86,16 +87,21 @@ function transition(action) {
         // Which orchard each line comes from. Only `accept` asks for these, and
         // the transition table is what says so.
         sources: req.body.sources,
+        // Only `return` reads this: whether the parcel goes back on the shelf.
+        restock: req.body.restock === true,
       },
     });
 
     if (action === 'cancel' || action === 'return') {
+      const after = { status: order.status, reason: req.body.reason };
+      if (action === 'return') after.restocked = order.restockedOnReturn;
+
       await audit.record({
         actor: req.user._id,
         action: `order.${action}`,
         targetType: 'Order',
         targetId: order._id,
-        after: { status: order.status, reason: req.body.reason },
+        after,
         ip: req.ip,
       });
     }
@@ -105,42 +111,46 @@ function transition(action) {
 }
 
 /**
- * The zone charge is a default, not a rule. Only adjustable before the wallet has
- * been debited, because afterwards the ledger entry and the order would disagree.
+ * The zone charge is a default, not a rule. Editable until the order ships; once
+ * the wallet has been debited the difference posts as its own ledger entry, and
+ * the original debit is never touched. See docs/adr/0010.
  */
 async function overrideDeliveryCharge(req, res) {
   const deliveryChargePoisha = toPoisha(req.body.deliveryCharge, 'deliveryCharge');
 
-  const order = await Order.findById(req.params.id);
-  if (!order) throw notFound('Order not found');
-  if (order.status !== ORDER_STATUS.PENDING) {
-    throw conflict(
-      'ALREADY_CHARGED',
-      'The delivery charge can only be changed before the reseller confirms'
-    );
-  }
-
-  order.deliveryChargePoisha = deliveryChargePoisha;
-  order.totals.walletDebitPoisha = order.totals.costSubtotalPoisha + deliveryChargePoisha;
-  order.totals.customerTotalPoisha = order.totals.sellSubtotalPoisha + deliveryChargePoisha;
-  await order.save();
-
-  await audit.record({
-    actor: req.user._id,
-    action: 'order.delivery_charge',
-    targetType: 'Order',
-    targetId: order._id,
-    after: { deliveryChargePoisha },
-    ip: req.ip,
+  const { order, beforePoisha, entry } = await orderService.changeDeliveryCharge({
+    orderId: req.params.id,
+    deliveryChargePoisha,
+    actorUser: req.user,
   });
 
-  return ok(res, { order: present.order(order) });
+  if (beforePoisha !== deliveryChargePoisha) {
+    await audit.record({
+      actor: req.user._id,
+      action: 'order.delivery_charge',
+      targetType: 'Order',
+      targetId: order._id,
+      before: { deliveryChargePoisha: beforePoisha, status: order.status },
+      after: {
+        deliveryChargePoisha,
+        ledgerEntry: entry ? entry._id : null,
+        adjustmentPoisha: entry ? entry.amountPoisha : 0,
+      },
+      ip: req.ip,
+    });
+  }
+
+  return ok(res, {
+    order: { ...present.order(order), actions: availableActions(order, ROLES.OWNER) },
+    adjustment: entry ? present.ledgerEntry(entry) : null,
+  });
 }
 
 module.exports = {
   listOrders,
   getOrder,
   overrideDeliveryCharge,
+  editCustomer: editCustomer(ROLES.OWNER),
   accept: transition('accept'),
   pack: transition('pack'),
   ship: transition('ship'),

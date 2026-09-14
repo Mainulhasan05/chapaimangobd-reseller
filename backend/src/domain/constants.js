@@ -100,6 +100,11 @@ const SMS_PURPOSE = Object.freeze({
   TEST: 'test',
   // The owner typing a message by hand. Charged to nobody.
   MANUAL: 'manual',
+  // A one-time code for sign-in, registration or a phone change. Owner-paid,
+  // not gated by the master switch. See docs/adr/0013.
+  OTP: 'otp',
+  // A security alert to the owner, such as a sign-in from a new device. Owner-paid.
+  OWNER_ALERT: 'owner_alert',
 });
 
 const EVENT_TYPE = Object.freeze({
@@ -120,7 +125,59 @@ const EVENT_TYPE = Object.freeze({
   // Owner alerts from the scheduled jobs (src/jobs). Phase C.
   ALERT_LEDGER_DRIFT: 'alert.ledger_drift',
   ALERT_DAILY_DIGEST: 'alert.daily_digest',
+  // The owner signed in from a device not trusted before. Phase D, docs/adr/0014.
+  ALERT_NEW_DEVICE: 'alert.new_device',
+  // Phase E. The other party changed an order's delivery name, phone or address.
+  ORDER_CUSTOMER_EDITED: 'order.customer_edited',
+  // Phase E. The owner switched a reseller account off or back on. docs/adr/0011.
+  RESELLER_DEACTIVATED: 'reseller.deactivated',
+  RESELLER_REACTIVATED: 'reseller.reactivated',
 });
+
+/**
+ * Who pays for an SMS, which decides which switch governs it (docs/adr/0013).
+ * Owner-paid messages ignore `features.sms` and reseller credits; reseller-paid
+ * messages need both.
+ */
+const SMS_PAYER = Object.freeze({ OWNER: 'owner', RESELLER: 'reseller' });
+
+/** What an SMS was, for the log. Coarser than the event type, finer than the payer. */
+const SMS_CATEGORY = Object.freeze({
+  OTP: 'otp',
+  OWNER_ALERT: 'owner_alert',
+  NOTIFICATION: 'notification',
+  TEST: 'test',
+  MANUAL: 'manual',
+  CUSTOMER: 'customer',
+});
+
+/** What a one-time code proves. A code issued for one purpose never verifies another. */
+const OTP_PURPOSE = Object.freeze({
+  REGISTER: 'register',
+  RESET_PASSWORD: 'reset_password',
+  CHANGE_PHONE: 'change_phone',
+  OWNER_DEVICE: 'owner_device',
+});
+
+/**
+ * The actor behind a change nobody clicked, such as the pending orders a
+ * deactivation cancels. Deliberately not a member of ROLES: no account can hold
+ * it, and the transition table keys on it only for what the system may do.
+ */
+const SYSTEM_ACTOR = 'system';
+
+/** Why a shop is not taking orders. See docs/adr/0011 and domain/shop.js. */
+const SHOP_CLOSED_REASON = Object.freeze({
+  // The owner deactivated the reseller.
+  INACTIVE: 'inactive',
+  // KYC is not approved yet.
+  KYC: 'kyc',
+  // The reseller switched their form off.
+  CLOSED: 'closed',
+});
+
+/** Written as the cancel reason on every pending order a deactivation cancels. */
+const RESELLER_DEACTIVATED_REASON = 'reseller_deactivated';
 
 const values = (o) => Object.values(o);
 
@@ -139,5 +196,11 @@ module.exports = {
   SMS_STATUS,
   SMS_BLOCK_REASON,
   SMS_PURPOSE,
+  SMS_PAYER,
+  SMS_CATEGORY,
+  OTP_PURPOSE,
+  SYSTEM_ACTOR,
+  SHOP_CLOSED_REASON,
+  RESELLER_DEACTIVATED_REASON,
   values,
 };

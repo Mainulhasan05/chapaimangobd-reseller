@@ -9,7 +9,10 @@ import {
   Ban,
   CheckCheck,
   ClipboardList,
+  ListChecks,
   PackageCheck,
+  ShieldAlert,
+  TriangleAlert,
   Truck,
   Undo2,
   Wallet,
@@ -85,6 +88,9 @@ const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   'withdrawal.approved': Wallet,
   'withdrawal.rejected': Ban,
   'balance.near_limit': Wallet,
+  'alert.ledger_drift': TriangleAlert,
+  'alert.daily_digest': ListChecks,
+  'alert.new_device': ShieldAlert,
 };
 
 /** Events that are bad news, and should not be drawn in the same ink as the rest. */
@@ -95,7 +101,33 @@ const NEGATIVE = new Set([
   'deposit.rejected',
   'withdrawal.rejected',
   'balance.near_limit',
+  'alert.ledger_drift',
+  'alert.new_device',
 ]);
+
+/**
+ * Where a row leads, or null when there is nowhere worth going.
+ *
+ * An order notification opens that order. The rest go to the one screen that
+ * answers them: ledger drift to the reports page, where the receivables table
+ * flags the drifting wallets and the reconcile button explains them; the
+ * morning digest to the dashboard, which lists the aging orders; a reseller near
+ * their limit to the wallet, where a deposit is one tap away. Everything else
+ * has no single destination, and a link that lands somewhere unrelated is
+ * worse than no link. Keep in step with `targetFor` in `public/sw.js`.
+ */
+function hrefFor(row: NotificationRow, base: '/reseller' | '/owner', ordersHref: Route): Route | null {
+  if (row.data?.orderId) return `${ordersHref}/${row.data.orderId}` as Route;
+
+  if (base === '/owner') {
+    if (row.eventType === 'alert.ledger_drift') return '/owner/reports';
+    if (row.eventType === 'alert.daily_digest') return '/owner';
+  }
+
+  if (base === '/reseller' && row.eventType === 'balance.near_limit') return '/reseller/wallet';
+
+  return null;
+}
 
 export function NotificationsView({
   base,
@@ -168,7 +200,7 @@ export function NotificationsView({
 
         <ul className="divide-y divide-border">
           {rows.map((row) => (
-            <Row key={row._id} row={row} ordersHref={ordersHref} />
+            <Row key={row._id} row={row} href={hrefFor(row, base, ordersHref)} />
           ))}
         </ul>
       </Card>
@@ -176,7 +208,7 @@ export function NotificationsView({
   );
 }
 
-function Row({ row, ordersHref }: { row: NotificationRow; ordersHref: Route }) {
+function Row({ row, href }: { row: NotificationRow; href: Route | null }) {
   const Icon = ICONS[row.eventType] ?? ClipboardList;
   const negative = NEGATIVE.has(row.eventType);
 
@@ -196,7 +228,10 @@ function Row({ row, ordersHref }: { row: NotificationRow; ordersHref: Route }) {
         <span className={cn('block', row.readAt ? 'text-muted-foreground' : 'font-semibold')}>
           {row.title}
         </span>
-        {row.body && <span className="block text-sm text-muted-foreground">{row.body}</span>}
+        {/* The morning digest is several lines, one per problem, joined by newlines. */}
+        {row.body && (
+          <span className="block whitespace-pre-line text-sm text-muted-foreground">{row.body}</span>
+        )}
         <span className="block text-xs text-muted-foreground">{formatDateTime(row.createdAt)}</span>
       </span>
 
@@ -213,15 +248,11 @@ function Row({ row, ordersHref }: { row: NotificationRow; ordersHref: Route }) {
     !row.readAt && 'bg-primary-softer'
   );
 
-  /*
-   * An order notification is a prompt to do something about that order, so the
-   * row goes there. The rest have no single destination worth guessing at, and
-   * a link that lands somewhere unrelated is worse than no link.
-   */
+  // See `hrefFor` for where each kind of row leads.
   return (
     <li>
-      {row.data?.orderId ? (
-        <Link href={`${ordersHref}/${row.data.orderId}` as Route} className={cn(className, 'hover:bg-muted')}>
+      {href ? (
+        <Link href={href} className={cn(className, 'hover:bg-muted')}>
           {inner}
         </Link>
       ) : (

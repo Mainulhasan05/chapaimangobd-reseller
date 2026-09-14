@@ -4,11 +4,16 @@ const crypto = require('node:crypto');
 const jwt = require('jsonwebtoken');
 const env = require('../config/env');
 const RefreshToken = require('../models/RefreshToken');
+const TrustedDevice = require('../models/TrustedDevice');
 
 const ACCESS_COOKIE = 'cm_at';
 const REFRESH_COOKIE = 'cm_rt';
 // Scoped so the refresh token is not sent on every single API call.
 const REFRESH_PATH = '/api/auth';
+// The owner's remembered device. Only ever read by the login endpoints, so it
+// shares the refresh token's path. See docs/adr/0014.
+const DEVICE_COOKIE = 'cm_dv';
+const DEVICE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 const signAccessToken = (user) =>
   jwt.sign({ sub: String(user._id), role: user.role }, env.JWT_ACCESS_SECRET, {
@@ -122,8 +127,55 @@ function clearAuthCookies(res) {
   res.clearCookie(REFRESH_COOKIE, cookieScope(REFRESH_PATH));
 }
 
+/* ------------------------------------------------------ trusted devices -- */
+
+/**
+ * Remembers this browser for the user for thirty days. The cookie carries a
+ * random token; the database keeps its hash, bound to the user.
+ */
+async function trustDevice(res, user, { userAgent, ip } = {}) {
+  const raw = crypto.randomBytes(32).toString('base64url');
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + DEVICE_TTL_MS);
+
+  await TrustedDevice.create({
+    user: user._id,
+    tokenHash: hashToken(raw),
+    userAgent: userAgent ? String(userAgent).slice(0, 300) : null,
+    ip: ip || null,
+    lastUsedAt: now,
+    expiresAt,
+  });
+
+  res.cookie(DEVICE_COOKIE, raw, cookieOptions(DEVICE_TTL_MS, REFRESH_PATH));
+  return expiresAt;
+}
+
+/**
+ * The live trusted device this request's cookie names for this user, or null.
+ * A cookie issued to another account matches nothing, because the lookup is by
+ * user as well as by hash.
+ */
+async function findTrustedDevice(req, user, { now = new Date() } = {}) {
+  const raw = req.cookies && req.cookies[DEVICE_COOKIE];
+  if (!raw || typeof raw !== 'string') return null;
+
+  return TrustedDevice.findOneAndUpdate(
+    { tokenHash: hashToken(raw), user: user._id, expiresAt: { $gt: now } },
+    { $set: { lastUsedAt: now } },
+    { new: true }
+  );
+}
+
+const forgetDevicesForUser = (userId) => TrustedDevice.deleteMany({ user: userId });
+
 module.exports = {
   ACCESS_COOKIE,
+  DEVICE_COOKIE,
+  DEVICE_TTL_MS,
+  trustDevice,
+  findTrustedDevice,
+  forgetDevicesForUser,
   REFRESH_COOKIE,
   REFRESH_PATH,
   REUSE_GRACE_MS,

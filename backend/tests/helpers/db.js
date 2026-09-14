@@ -11,6 +11,18 @@ process.env.JWT_REFRESH_SECRET = 'test-refresh-secret-long-enough-for-zod';
 process.env.COOKIE_SECURE = 'false';
 process.env.OWNER_PHONE = '01700000000';
 process.env.OWNER_PASSWORD = 'ownerpass123';
+/*
+ * Never a real SMS gateway from a test run, whatever a local .env holds. Set
+ * empty rather than deleted, because dotenv fills in anything that is unset.
+ * A test that needs the gateway sets `env.smsConfigured` and stubs fetch.
+ */
+process.env.AUTOMAS_API_KEY = '';
+process.env.AUTOMAS_SENDER_ID = '';
+process.env.SMS_API_KEY = '';
+process.env.SMS_SENDER_ID = '';
+// Signing the owner in takes a password alone here; tests/identity.test.js
+// turns the new-device code back on for the tests that are about it.
+process.env.OWNER_DEVICE_OTP = 'false';
 
 const fs = require('node:fs');
 const path = require('node:path');

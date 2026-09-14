@@ -2,6 +2,8 @@
 
 const Order = require('../../models/Order');
 const orderService = require('../../services/orderService');
+const audit = require('../../services/audit');
+const { editCustomer } = require('../shared/orderCustomer.controller');
 const { ok } = require('../../middleware/error');
 const { notFound } = require('../../utils/errors');
 const { normalizeBdPhone } = require('../../utils/phone');
@@ -109,6 +111,16 @@ async function cancelOrder(req, res) {
     payload: { reason: req.body.reason },
   });
 
+  // The reseller pulling back an order is recorded the same way the owner's is.
+  await audit.record({
+    actor: req.user._id,
+    action: 'order.cancel',
+    targetType: 'Order',
+    targetId: order._id,
+    after: { status: order.status, reason: req.body.reason, role: ROLES.RESELLER },
+    ip: req.ip,
+  });
+
   return ok(res, { order: present.order(order) });
 }
 
@@ -169,4 +181,5 @@ module.exports = {
   confirmOrder,
   createManualOrder,
   cancelOrder,
+  editCustomer: editCustomer(ROLES.RESELLER),
 };

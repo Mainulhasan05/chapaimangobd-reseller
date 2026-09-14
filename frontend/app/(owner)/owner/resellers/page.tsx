@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Store, TrendingDown, Users } from 'lucide-react';
+import { Copy, KeyRound, Store, TrendingDown, Users } from 'lucide-react';
 import { api, errorMessage } from '@/lib/api';
 import { useDebounced } from '@/lib/use-debounced';
 import { t, type DictKey } from '@/lib/i18n/bn';
@@ -36,6 +36,7 @@ import { Modal } from '@/components/ui/modal';
 import { Switch } from '@/components/ui/switch';
 import { ListSkeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
+import { copyText } from '@/lib/share';
 
 type SortKey = 'shop' | 'person' | 'kyc' | 'balance' | 'limit';
 
@@ -468,6 +469,8 @@ function ResellerModal({
             />
           )}
         </div>
+
+        <PasswordReset resellerId={reseller.id} />
       </section>
 
       <section className="mb-6 border-t border-border pt-5">
@@ -614,5 +617,78 @@ function ResellerModal({
         )}
       </section>
     </Modal>
+  );
+}
+
+/**
+ * The fallback for a reseller who cannot receive an SMS code (docs/adr/0014).
+ *
+ * Asks first, because it signs the reseller out everywhere. The temporary
+ * password is shown once, here, and never again: the server keeps only its
+ * hash, so closing the sheet without copying it means resetting again.
+ */
+function PasswordReset({ resellerId }: { resellerId: string }) {
+  const toast = useToast();
+  const [confirming, setConfirming] = useState(false);
+
+  const reset = useMutation({
+    mutationFn: () =>
+      api.post<{ temporaryPassword: string }>(`/owner/resellers/${resellerId}/password-reset`),
+    onSuccess: () => setConfirming(false),
+  });
+
+  const temporary = reset.data?.temporaryPassword;
+
+  return (
+    <div className="border-t border-border pt-3">
+      {reset.error && <Alert tone="danger">{errorMessage(reset.error)}</Alert>}
+
+      {temporary ? (
+        <Alert tone="success" title={t('reseller.temporaryPassword')} icon={KeyRound}>
+          <div className="mt-2 flex items-center gap-2">
+            <code className="tabular min-w-0 flex-1 select-all break-all rounded-lg bg-surface px-3 py-2 text-base font-semibold tracking-wider text-foreground">
+              {temporary}
+            </code>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={async () => {
+                const copied = await copyText(temporary);
+                toast(copied ? t('app.copied') : t('app.copyFailed'), copied ? 'success' : 'danger');
+              }}
+            >
+              <Copy className="h-4 w-4" />
+              {t('app.copy')}
+            </Button>
+          </div>
+          <p className="mt-2 text-xs">{t('reseller.temporaryPasswordHelp')}</p>
+        </Alert>
+      ) : confirming ? (
+        <div role="alertdialog" aria-labelledby="reset-password-title">
+          <Alert tone="warning" title={t('reseller.resetPasswordTitle')}>
+            <span id="reset-password-title">{t('reseller.resetPasswordHelp')}</span>
+          </Alert>
+          <div className="flex gap-2 [&>button]:flex-1">
+            <Button variant="outline" onClick={() => setConfirming(false)}>
+              {t('app.cancel')}
+            </Button>
+            <Button variant="danger" loading={reset.isPending} onClick={() => reset.mutate()}>
+              {t('reseller.resetPasswordConfirm')}
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-medium">{t('reseller.resetPassword')}</p>
+            <p className="text-xs text-muted-foreground">{t('reseller.resetPasswordHint')}</p>
+          </div>
+          <Button size="sm" variant="outline" onClick={() => setConfirming(true)}>
+            <KeyRound className="h-4 w-4" />
+            {t('reseller.resetPassword')}
+          </Button>
+        </div>
+      )}
+    </div>
   );
 }

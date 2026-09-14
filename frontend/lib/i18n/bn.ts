@@ -85,6 +85,64 @@ export const bn = {
   'auth.phonePrefix': 'বাংলাদেশি নম্বর ০১৩ থেকে ০১৯ দিয়ে শুরু হয়',
   'auth.phoneCounter': '{n}/১১ সংখ্যা',
 
+  /* phase d: identity */
+  'auth.forgotPassword': 'পাসওয়ার্ড ভুলে গেছেন?',
+  'auth.invalidCredentials': 'মোবাইল নম্বর বা পাসওয়ার্ড সঠিক নয়',
+  'auth.suspended': 'এই অ্যাকাউন্টটি বন্ধ রাখা হয়েছে',
+  'auth.sendCode': 'কোড পাঠান',
+  'auth.otp': 'SMS কোড',
+  'auth.otpHint': 'SMS-এ আসা ৬ সংখ্যার কোড',
+  'auth.otpSentTo': '{phone} নম্বরে একটি কোড পাঠানো হয়েছে',
+  'auth.resendCode': 'আবার কোড পাঠান',
+  'auth.resendIn': '{n} সেকেন্ড পর আবার পাঠানো যাবে',
+  'auth.changeNumber': 'নম্বর বদলান',
+  'auth.registerStepPhone': 'প্রথমে আপনার মোবাইল নম্বরে একটি কোড পাঠিয়ে নম্বরটি যাচাই করা হবে',
+  'auth.registerStepDetails': 'কোড আর আপনার তথ্য দিন',
+  'auth.deviceTitle': 'নতুন ডিভাইস যাচাই',
+  'auth.deviceHelp':
+    'এই ডিভাইস থেকে আগে লগইন করা হয়নি। {phone} নম্বরে পাঠানো কোডটি দিন। এরপর ৩০ দিন এই ডিভাইসে কোড লাগবে না।',
+  'auth.verify': 'যাচাই করুন',
+  'auth.backToLogin': 'লগইনে ফিরে যান',
+  'auth.forgotTitle': 'নতুন পাসওয়ার্ড সেট করুন',
+  'auth.forgotHelp': 'অ্যাকাউন্টের মোবাইল নম্বর দিন। নম্বরটি নিবন্ধিত থাকলে SMS-এ একটি কোড যাবে।',
+  'auth.forgotCodeHelp': 'নম্বরটি নিবন্ধিত থাকলে SMS-এ একটি কোড গেছে। কোড আর নতুন পাসওয়ার্ড দিন।',
+  'auth.newPassword': 'নতুন পাসওয়ার্ড',
+  'auth.currentPassword': 'বর্তমান পাসওয়ার্ড',
+  'auth.resetSubmit': 'পাসওয়ার্ড সেট করুন',
+  'auth.resetDone': 'পাসওয়ার্ড বদলানো হয়েছে। নতুন পাসওয়ার্ড দিয়ে লগইন করুন।',
+
+  'nav.account': 'অ্যাকাউন্ট',
+  'account.title': 'আমার অ্যাকাউন্ট',
+  'account.subtitle': 'পাসওয়ার্ড আর লগইনের মোবাইল নম্বর',
+  'account.passwordTitle': 'পাসওয়ার্ড বদলান',
+  'account.passwordHelp': 'বদলালে এই ডিভাইস ছাড়া অন্য সব ফোন ও ব্রাউজার থেকে লগআউট হয়ে যাবে',
+  'account.passwordSubmit': 'পাসওয়ার্ড বদলান',
+  'account.passwordChanged': 'পাসওয়ার্ড বদলানো হয়েছে',
+  'account.phoneTitle': 'মোবাইল নম্বর বদলান',
+  'account.phoneCurrent': 'বর্তমান নম্বর',
+  'account.phoneHelp':
+    'নতুন নম্বরে একটি কোড যাবে। বদলানোর পর সব জায়গা থেকে লগআউট হবে, নতুন নম্বর দিয়ে আবার লগইন করতে হবে।',
+  'account.newPhone': 'নতুন মোবাইল নম্বর',
+  'account.passwordForPhone': 'নিশ্চিত করতে পাসওয়ার্ড দিন',
+  'account.phoneSubmit': 'নম্বর বদলান',
+  'account.phoneChanged': 'নম্বর বদলানো হয়েছে। নতুন নম্বর দিয়ে লগইন করুন।',
+  'account.mustChangeTitle': 'নিজের পাসওয়ার্ড সেট করুন',
+  'account.mustChangeHelp':
+    'মালিক আপনার জন্য একটি অস্থায়ী পাসওয়ার্ড দিয়েছেন। কাজ চালিয়ে যেতে আগে নিজের একটি পাসওয়ার্ড সেট করুন।',
+  'account.temporaryPassword': 'অস্থায়ী পাসওয়ার্ড',
+
+  'reseller.resetPassword': 'পাসওয়ার্ড রিসেট',
+  'reseller.resetPasswordHint': 'রিসেলার SMS কোড না পেলে এটি ব্যবহার করুন',
+  'reseller.resetPasswordTitle': 'পাসওয়ার্ড রিসেট করবেন?',
+  'reseller.resetPasswordHelp':
+    'একটি অস্থায়ী পাসওয়ার্ড তৈরি হবে, রিসেলারের সব ডিভাইস থেকে লগআউট হবে, আর পরের লগইনে নিজের পাসওয়ার্ড দিতে হবে।',
+  'reseller.resetPasswordConfirm': 'রিসেট করুন',
+  'reseller.temporaryPassword': 'অস্থায়ী পাসওয়ার্ড',
+  'reseller.temporaryPasswordHelp': 'এটি শুধু একবার দেখানো হবে। রিসেলারকে জানিয়ে দিন।',
+
+  'sms.purposeOtp': 'ওটিপি কোড',
+  'sms.purposeOwnerAlert': 'মালিকের সতর্কতা',
+
   'nav.dashboard': 'ড্যাশবোর্ড',
   'nav.orders': 'অর্ডার',
   'nav.catalog': 'পণ্য তালিকা',
@@ -207,6 +265,46 @@ export const bn = {
   'order.minQtyHelp': 'সর্বনিম্ন অর্ডারের চেয়ে কম দেওয়া যাবে না',
   'order.searchHelp': 'অর্ডার কোড, ক্রেতার নাম বা মোবাইল নম্বর দিয়ে খুঁজুন',
   'order.viewDetail': 'বিস্তারিত দেখুন',
+
+  /* Returns: whole order, from shipped only, stock back only when ticked. */
+  'order.returnTitle': 'অর্ডার ফেরত এসেছে',
+  'order.returnHelp':
+    'কুরিয়ার পুরো পার্সেলটি ফেরত দিয়েছে। অর্ডারটি ফেরত হিসেবে বন্ধ হবে এবং রিসেলারের ওয়ালেটের হিসাব উল্টে দেওয়া হবে। এটি পরে আর বদলানো যাবে না।',
+  'order.returnReason': 'ফেরতের কারণ',
+  'order.restock': 'পণ্য আবার স্টকে তুলুন',
+  'order.restockHint':
+    'চালু করলে এই অর্ডারের পরিমাণ আবার স্টকে যোগ হবে। পথে ঘুরে আসা আম সাধারণত বিক্রির মতো থাকে না, তাই ভালো অবস্থায় থাকলে তবেই চালু করুন।',
+  'order.returnedToast': 'অর্ডার ফেরত হিসেবে চিহ্নিত হয়েছে',
+  'order.restocked': 'পণ্য স্টকে ফেরত তোলা হয়েছে',
+  'order.notRestocked': 'পণ্য স্টকে ফেরত তোলা হয়নি',
+  'order.paymentModeChanged': 'পেমেন্ট পদ্ধতি {from} থেকে {to} করা হয়েছে',
+
+  /* The delivery charge, editable until the parcel ships. See docs/adr/0010. */
+  'order.deliveryChargeEdit': 'ডেলিভারি চার্জ বদলান',
+  'order.deliveryChargeHint': 'বর্তমান চার্জ {amount}। কুরিয়ারের আসল খরচ জানলে বদলে দিন।',
+  'order.deliveryAdjustNotice':
+    'অর্ডারটি আগেই নিশ্চিত হয়েছে, তাই রিসেলারের ওয়ালেটে {amount} ডেলিভারি সমন্বয় আলাদা করে যোগ হবে। আগের কাটা টাকা বদলাবে না।',
+  'order.deliveryChargeSaved': 'ডেলিভারি চার্জ বদলানো হয়েছে',
+  'order.deliveryAdjustPosted': 'ডেলিভারি চার্জ বদলানো হয়েছে, ওয়ালেটে {amount} সমন্বয় হয়েছে',
+
+  /* Ledger entry kinds, as a person reads them. Keys match the API exactly. */
+  'ledger.kind.ORDER_COST_DEBIT': 'অর্ডারের ক্রয়মূল্য',
+  'ledger.kind.DELIVERY_DEBIT': 'ডেলিভারি চার্জ',
+  'ledger.kind.DELIVERY_ADJUSTMENT': 'ডেলিভারি চার্জ সমন্বয়',
+  'ledger.kind.COD_COLLECTION_CREDIT': 'ক্যাশ অন ডেলিভারির আদায়',
+  'ledger.kind.DEPOSIT_CREDIT': 'টাকা জমা',
+  'ledger.kind.WITHDRAWAL_DEBIT': 'টাকা উত্তোলন',
+  'ledger.kind.SMS_PURCHASE_DEBIT': 'SMS ক্রেডিট কেনা',
+  'ledger.kind.MANUAL_CREDIT': 'হাতে সমন্বয় (যোগ)',
+  'ledger.kind.MANUAL_DEBIT': 'হাতে সমন্বয় (কাটা)',
+  'ledger.kind.REVERSAL': 'আগের হিসাব ফেরত',
+
+  'finance.withdrawalShort':
+    'রিসেলারের ব্যালেন্সে এখন এই পরিমাণ টাকা নেই। উত্তোলনের অনুরোধটি অপেক্ষায় থাকল: বাতিল করুন, অথবা ব্যালেন্স বাড়লে আবার অনুমোদন দিন।',
+  'finance.withdrawalApproved': 'উত্তোলন অনুমোদিত হয়েছে',
+
+  'reports.drift': 'হিসাবে গরমিল',
+  'reports.driftHint': 'ওয়ালেটের ব্যালেন্স লেজারের সাথে মিলছে না। হিসাব মিলিয়ে দেখুন।',
 
   'catalog.sellPrice': 'আপনার বিক্রয়মূল্য',
   'catalog.costPrice': 'ক্রয়মূল্য',
@@ -648,4 +746,10 @@ export function tUnit(unit: string): string {
 export function tStatus(status: string): string {
   const key = `order.${status}` as DictKey;
   return key in bn ? bn[key] : status;
+}
+
+/** A ledger entry kind, such as `DELIVERY_ADJUSTMENT`. Unknown kinds show as they are. */
+export function tLedgerKind(kind: string): string {
+  const key = `ledger.kind.${kind}` as DictKey;
+  return key in bn ? bn[key] : kind;
 }

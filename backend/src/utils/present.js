@@ -70,6 +70,7 @@ const order = (o) => ({
   shippedAt: o.shippedAt,
   deliveredAt: o.deliveredAt,
   cancelReason: o.cancelReason,
+  restockedOnReturn: Boolean(o.restockedOnReturn),
   createdAt: o.createdAt,
 });
 

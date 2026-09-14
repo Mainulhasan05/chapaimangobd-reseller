@@ -217,4 +217,42 @@ async function rebuild({ onProgress } = {}) {
   return { orders: processed, customers: await Customer.countDocuments() };
 }
 
-module.exports = { recordOrder, recordOutcome, summaryForReseller, rebuild, MAX_VARIANTS };
+/**
+ * Rebuilds the records for a few numbers from their orders, the same way
+ * `rebuild` does for all of them.
+ *
+ * Used when an order's customer details are corrected after the fact: a new
+ * phone moves the order from one buyer to another, and a corrected name or
+ * address replaces a variant. Incrementing and decrementing variant counts by
+ * hand would drift; replaying the handful of orders a number has is exact.
+ * Never throws, like everything else here.
+ */
+async function refreshPhones(phones) {
+  const unique = [...new Set((phones || []).filter(Boolean))];
+
+  for (const phoneE164 of unique) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await Customer.deleteOne({ phoneE164 });
+      const cursor = Order.find({ 'customer.phoneE164': phoneE164 }).sort({ createdAt: 1 }).cursor();
+      // eslint-disable-next-line no-await-in-loop
+      for await (const order of cursor) {
+        // eslint-disable-next-line no-await-in-loop
+        await recordOrder(order);
+        // eslint-disable-next-line no-await-in-loop
+        if (COUNTER_FOR_STATUS[order.status]) await recordOutcome(order);
+      }
+    } catch (err) {
+      logger.error({ err, phoneE164 }, 'customers: refreshPhones failed');
+    }
+  }
+}
+
+module.exports = {
+  recordOrder,
+  recordOutcome,
+  summaryForReseller,
+  rebuild,
+  refreshPhones,
+  MAX_VARIANTS,
+};

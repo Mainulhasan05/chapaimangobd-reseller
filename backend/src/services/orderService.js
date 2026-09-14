@@ -22,10 +22,21 @@ const {
   ROLES,
   EVENT_TYPE,
   KYC_STATUS,
+  SYSTEM_ACTOR,
+  RESELLER_DEACTIVATED_REASON,
 } = require('../domain/constants');
-const { assertCanTransition } = require('../domain/orderStateMachine');
+const {
+  assertCanTransition,
+  assertDeliveryChargeEditable,
+  assertCustomerEditable,
+  SYSTEM_CANCELLABLE,
+  getTransition,
+  wasCommitted,
+} = require('../domain/orderStateMachine');
+const { shopAvailability } = require('../domain/shop');
 const { generateOrderCode } = require('../utils/orderCode');
 const { businessDate } = require('../utils/dhakaTime');
+const { toTaka } = require('../utils/money');
 const { conflict, notFound, badRequest, forbidden } = require('../utils/errors');
 
 /* ------------------------------------------------------------------ creation */
@@ -39,8 +50,14 @@ const { conflict, notFound, badRequest, forbidden } = require('../utils/errors')
  * retries the POST itself.
  */
 async function createPendingOrder({ resellerProfile, paymentMode, customer, items, submissionId }) {
-  if (resellerProfile.kycStatus !== KYC_STATUS.APPROVED || !resellerProfile.formActive) {
-    throw forbidden('This shop is not accepting orders right now');
+  // The same answer the shop page gives, so the page never invites an order this
+  // refuses. A deactivated reseller's shop is closed whatever the profile says.
+  const account = await User.findById(resellerProfile.user).select('isActive');
+  const availability = shopAvailability(resellerProfile, account);
+  if (!availability.acceptingOrders) {
+    const err = conflict('SHOP_NOT_ACCEPTING', 'This shop is not accepting orders right now');
+    err.fields = { reason: availability.reason };
+    throw err;
   }
 
   if (submissionId) {
@@ -52,21 +69,37 @@ async function createPendingOrder({ resellerProfile, paymentMode, customer, item
   const { zone, chargePoisha } = await pricing.resolveDeliveryZone(customer.district);
   const totals = pricing.computeTotals(lines, chargePoisha);
 
-  const order = await createWithUniqueCode({
-    reseller: resellerProfile._id,
-    origin: ORDER_ORIGIN.FORM,
-    paymentMode,
-    submissionId: submissionId || null,
-    businessDate: businessDate(),
-    customer,
-    items: lines,
-    deliveryZone: zone ? zone._id : null,
-    deliveryZoneName: zone ? zone.name : null,
-    deliveryChargePoisha: chargePoisha,
-    totals,
-    status: ORDER_STATUS.PENDING,
-    statusHistory: [{ status: ORDER_STATUS.PENDING, at: new Date() }],
-  });
+  let order;
+  try {
+    order = await createWithUniqueCode({
+      reseller: resellerProfile._id,
+      origin: ORDER_ORIGIN.FORM,
+      paymentMode,
+      submissionId: submissionId || null,
+      businessDate: businessDate(),
+      customer,
+      items: lines,
+      deliveryZone: zone ? zone._id : null,
+      deliveryZoneName: zone ? zone.name : null,
+      deliveryChargePoisha: chargePoisha,
+      totals,
+      status: ORDER_STATUS.PENDING,
+      statusHistory: [{ status: ORDER_STATUS.PENDING, at: new Date() }],
+    });
+  } catch (err) {
+    /*
+     * Two identical submissions raced past the lookup above, and the unique
+     * index let exactly one of them in. The loser is the same customer pressing
+     * the same button, so it gets the winner's order, not an error.
+     */
+    const isSameSubmission =
+      submissionId && err && err.code === 11000 && err.keyPattern && err.keyPattern.submissionId;
+    if (!isSameSubmission) throw err;
+
+    const existing = await Order.findOne({ reseller: resellerProfile._id, submissionId });
+    if (!existing) throw err;
+    return { order: existing, duplicate: true };
+  }
 
   /*
    * Outside the transaction and never able to fail it. The customer record is a
@@ -111,20 +144,22 @@ async function createWithUniqueCode(doc, session, attempts = 5) {
  */
 async function confirmOrder({ orderId, resellerProfile, actorUser, itemOverrides = [], paymentMode }) {
   const result = await withTransaction(async (session) => {
-    // The status predicate is the lock. A second tab gets null and a clean 409.
+    const scope = { _id: orderId, reseller: resellerProfile._id };
+
+    // Validated before the claim, so an order in the wrong state gets the same
+    // INVALID_TRANSITION answer every other lifecycle action gives.
+    const current = await Order.findOne(scope).session(session);
+    if (!current) throw notFound('Order not found');
+    assertCanTransition(current, 'confirm', ROLES.RESELLER);
+
+    // The status predicate is the lock. A second tab racing this one gets null
+    // and a clean 409.
     const claimed = await Order.findOneAndUpdate(
-      { _id: orderId, reseller: resellerProfile._id, status: ORDER_STATUS.PENDING },
+      { ...scope, status: ORDER_STATUS.PENDING },
       { $set: { status: ORDER_STATUS.CONFIRMED } },
       { new: true, session }
     );
-
-    if (!claimed) {
-      const exists = await Order.findOne({ _id: orderId, reseller: resellerProfile._id }).session(session);
-      if (!exists) throw notFound('Order not found');
-      throw conflict('ALREADY_HANDLED', `This order is already ${exists.status}`);
-    }
-
-    assertCanTransition({ status: ORDER_STATUS.PENDING }, 'confirm', ROLES.RESELLER);
+    if (!claimed) throw conflict('ALREADY_HANDLED', 'This order was just changed by someone else');
 
     // Re-price from live catalog data. The owner may have raised the cost price
     // since the customer submitted, and the floor must hold against today's cost.
@@ -150,8 +185,20 @@ async function confirmOrder({ orderId, resellerProfile, actorUser, itemOverrides
     claimed.items = lines;
     claimed.totals = totals;
     claimed.confirmedAt = now;
-    if (paymentMode) claimed.paymentMode = paymentMode;
-    claimed.statusHistory.push({ status: ORDER_STATUS.CONFIRMED, at: now, by: actorUser._id });
+
+    /*
+     * The customer may have picked cash on delivery and then paid by bKash
+     * before the reseller got to the order. The reseller may correct that here,
+     * and only here: from confirm onwards the mode is fixed. See docs/adr/0007.
+     */
+    const historyEntry = { status: ORDER_STATUS.CONFIRMED, at: now, by: actorUser._id };
+    if (paymentMode && paymentMode !== claimed.paymentMode) {
+      historyEntry.paymentModeFrom = claimed.paymentMode;
+      historyEntry.paymentModeTo = paymentMode;
+      historyEntry.note = `Payment mode changed from ${claimed.paymentMode} to ${paymentMode}`;
+      claimed.paymentMode = paymentMode;
+    }
+    claimed.statusHistory.push(historyEntry);
     await claimed.save({ session });
 
     await postConfirmationEntries(session, claimed, actorUser);
@@ -261,6 +308,75 @@ async function createManualOrder({ resellerProfile, actorUser, paymentMode, cust
   return order;
 }
 
+/* ------------------------------------------------------------ delivery charge */
+
+/**
+ * The zone charge is a default, not a rule. The owner learns the real courier
+ * cost at accept or ship, so it stays editable until the parcel has left.
+ * See docs/adr/0010.
+ *
+ * Before confirm this only rewrites the order. After confirm the delivery debit
+ * has already posted and is never edited, so the difference posts as its own
+ * DELIVERY_ADJUSTMENT entry: negative for a raise, positive for a cut. The
+ * guarded update and the entry are one transaction, so a confirm racing this
+ * change sees either the old charge with no adjustment or the new charge with
+ * one, never a mixture.
+ *
+ * An adjustment bypasses the credit limit. It is the owner recording what the
+ * courier actually charged, not the reseller taking on a new commitment.
+ *
+ * @returns {Promise<{ order: object, beforePoisha: number, entry: object|null }>}
+ */
+async function changeDeliveryCharge({ orderId, deliveryChargePoisha, actorUser }) {
+  return withTransaction(async (session) => {
+    const current = await Order.findById(orderId).session(session);
+    if (!current) throw notFound('Order not found');
+    assertDeliveryChargeEditable(current);
+
+    const beforePoisha = current.deliveryChargePoisha;
+    const deltaPoisha = deliveryChargePoisha - beforePoisha;
+    if (deltaPoisha === 0) return { order: current, beforePoisha, entry: null };
+
+    const charged = wasCommitted(current.status);
+
+    // Guarded on the status and the charge that were read, so a ship or a second
+    // owner tab landing in between turns this into a clean 409 instead of an
+    // adjustment computed against a stale charge.
+    const update = {
+      $set: {
+        deliveryChargePoisha,
+        'totals.walletDebitPoisha': current.totals.costSubtotalPoisha + deliveryChargePoisha,
+        'totals.customerTotalPoisha': current.totals.sellSubtotalPoisha + deliveryChargePoisha,
+      },
+    };
+    if (charged) update.$inc = { deliveryAdjustmentCount: 1 };
+
+    const updated = await Order.findOneAndUpdate(
+      { _id: current._id, status: current.status, deliveryChargePoisha: beforePoisha },
+      update,
+      { new: true, session }
+    );
+    if (!updated) throw conflict('ALREADY_HANDLED', 'This order was just changed by someone else');
+
+    let entry = null;
+    if (charged) {
+      entry = await ledger.postEntry(session, {
+        reseller: updated.reseller,
+        kind: LEDGER_KIND.DELIVERY_ADJUSTMENT,
+        amountPoisha: -deltaPoisha,
+        idempotencyKey: ledger.keys.deliveryAdjustment(updated._id, updated.deliveryAdjustmentCount),
+        refType: 'order',
+        refId: updated._id,
+        note: `Delivery for ${updated.orderCode} changed from ${toTaka(beforePoisha)} to ${toTaka(deliveryChargePoisha)} taka`,
+        createdBy: actorUser ? actorUser._id : null,
+        bypassCreditLimit: true,
+      });
+    }
+
+    return { order: updated, beforePoisha, entry };
+  });
+}
+
 /* ---------------------------------------------------------------- transitions */
 
 const EVENT_FOR_ACTION = {
@@ -310,11 +426,17 @@ async function transitionOrder({ orderId, action, actorUser, role, resellerProfi
     );
     if (!claimed) throw conflict('ALREADY_HANDLED', 'This order was just changed by someone else');
 
-    await applyLedgerEffect(session, claimed, transition, actorUser, settings);
+    // Pending never posted an entry and never took stock; every later status did.
+    const committed = wasCommitted(current.status);
 
-    if (transition.stock === 'restore' && claimed.confirmedAt) {
-      await stock.restore(session, claimed.items);
-    }
+    await applyLedgerEffect(session, claimed, transition, actorUser, settings, committed);
+
+    const restock =
+      committed &&
+      (transition.stock === 'restore' ||
+        (transition.stock === 'restoreIfRequested' && payload.restock === true));
+    if (restock) await stock.restore(session, claimed.items);
+    if (action === 'return') claimed.restockedOnReturn = restock;
 
     /*
      * The name is copied onto the line, not just the id. From here on the order
@@ -419,7 +541,7 @@ async function resolveSources(session, order, assignments) {
 }
 
 /** Applies whatever the transition table says this change does to the ledger. */
-async function applyLedgerEffect(session, order, transition, actorUser, settings) {
+async function applyLedgerEffect(session, order, transition, actorUser, settings, committed) {
   if (!transition.ledger) return;
 
   if (transition.ledger === 'codCollection') {
@@ -435,22 +557,24 @@ async function applyLedgerEffect(session, order, transition, actorUser, settings
       refId: order._id,
       note: `Cash collected for ${order.orderCode}`,
       createdBy: actorUser._id,
-      enforceCreditLimit: false,
     });
     return;
   }
 
   // An order that never reached confirmed has no entries to reverse.
-  if (!order.confirmedAt) return;
+  if (!committed) return;
 
   const open = await ledger.entriesFor('order', order._id, session);
 
   for (const entry of open) {
-    // A returned parcel still cost a courier fee, so the delivery debit stands
-    // unless the owner has chosen otherwise.
+    // A returned parcel still cost a courier fee, so the delivery charge stands
+    // unless the owner has chosen otherwise. The charge is the original debit
+    // plus every adjustment to it, and they stand or fall together.
+    const isDeliveryCharge =
+      entry.kind === LEDGER_KIND.DELIVERY_DEBIT || entry.kind === LEDGER_KIND.DELIVERY_ADJUSTMENT;
     const keepDeliveryCharge =
       transition.ledger === 'reverseOnReturn' &&
-      entry.kind === LEDGER_KIND.DELIVERY_DEBIT &&
+      isDeliveryCharge &&
       !settings.reverseDeliveryChargeOnReturn;
 
     if (keepDeliveryCharge) continue;
@@ -462,6 +586,162 @@ async function applyLedgerEffect(session, order, transition, actorUser, settings
       createdBy: actorUser._id,
     });
   }
+}
+
+/* ------------------------------------------------------------- system cancels */
+
+/**
+ * Cancels every pending order of one reseller, as the system rather than as a
+ * person. Used by deactivation (docs/adr/0011) and runs inside the caller's
+ * transaction, so the account flip and the cancels commit or vanish together.
+ *
+ * Which statuses qualify comes from the transition table, and the table itself
+ * refuses at load to let the system cancel anything that had committed money or
+ * stock. That is why nothing here reverses an entry or restores stock: there is
+ * provably nothing to reverse. A confirm racing this write conflicts with it and
+ * the transaction retries, so an order is either confirmed or cancelled, never
+ * confirmed and then silently cancelled.
+ *
+ * Customer counters and notifications are the caller's job, after commit.
+ *
+ * @returns {Promise<Array<{ _id: object, orderCode: string }>>} what was cancelled
+ */
+async function cancelPendingForReseller(
+  session,
+  resellerId,
+  { reason = RESELLER_DEACTIVATED_REASON, now = new Date() } = {}
+) {
+  const transition = getTransition('cancel');
+
+  const candidates = await Order.find(
+    { reseller: resellerId, status: { $in: SYSTEM_CANCELLABLE } },
+    { _id: 1, status: 1, orderCode: 1 }
+  ).session(session);
+  if (candidates.length === 0) return [];
+
+  candidates.forEach((order) => assertCanTransition(order, 'cancel', SYSTEM_ACTOR));
+
+  await Order.updateMany(
+    { _id: { $in: candidates.map((o) => o._id) }, status: { $in: SYSTEM_CANCELLABLE } },
+    {
+      $set: {
+        status: transition.to,
+        [transition.timestampField]: now,
+        cancelReason: reason,
+        // Nobody clicked this. The owner who deactivated is in the audit log.
+        cancelledBy: null,
+      },
+      $push: { statusHistory: { status: transition.to, at: now, note: reason } },
+    },
+    { session }
+  );
+
+  return candidates.map((o) => ({ _id: o._id, orderCode: o.orderCode }));
+}
+
+/* ------------------------------------------------------------- customer edit */
+
+/** The customer fields an edit may touch. Items and quantities never. */
+const CUSTOMER_EDIT_FIELDS = Object.freeze(['name', 'phoneE164', 'address', 'district']);
+/** The subset the customer projection is built from; district is not in it. */
+const PROJECTED_FIELDS = new Set(['name', 'phoneE164', 'address']);
+
+/**
+ * Corrects where a parcel goes and who to ring, until it has shipped.
+ * PLAN-2 decision 9.
+ *
+ * The update is guarded on the status that was read and on the old value of
+ * every changed field, so two people correcting the same order at once get a
+ * clean 409 rather than one silently overwriting the other, and the `before`
+ * in the audit is exactly what was replaced.
+ *
+ * The delivery charge is never moved here. A new district may belong to a
+ * different zone, and the caller is told so; changing the charge is the owner's
+ * decision through its own endpoint, which posts the ledger adjustment.
+ *
+ * @param {object} args
+ * @param {object} args.changes any of name, phoneE164 (already normalised), address, district
+ * @returns {Promise<{ order, changed: string[], before, after, deliveryZoneChanged: boolean, zone }>}
+ */
+async function editCustomer({ orderId, role, resellerProfile, actorUser, changes }) {
+  const scope = { _id: orderId };
+  if (role === ROLES.RESELLER) scope.reseller = resellerProfile._id;
+
+  const current = await Order.findOne(scope);
+  if (!current) throw notFound('Order not found');
+  assertCustomerEditable(current);
+
+  const before = {};
+  const after = {};
+  CUSTOMER_EDIT_FIELDS.forEach((field) => {
+    if (changes[field] === undefined || changes[field] === current.customer[field]) return;
+    before[field] = current.customer[field];
+    after[field] = changes[field];
+  });
+  const changed = Object.keys(after);
+
+  if (changed.length === 0) {
+    return { order: current, changed, before, after, deliveryZoneChanged: false, zone: null };
+  }
+
+  // Refuses a district nobody delivers to, exactly as a new order would.
+  let zone = null;
+  let deliveryZoneChanged = false;
+  if (after.district !== undefined) {
+    ({ zone } = await pricing.resolveDeliveryZone(after.district));
+    deliveryZoneChanged = String(zone._id) !== String(current.deliveryZone || '');
+  }
+
+  const guard = { ...scope, status: current.status };
+  const $set = {};
+  changed.forEach((field) => {
+    guard[`customer.${field}`] = before[field];
+    $set[`customer.${field}`] = after[field];
+  });
+
+  const updated = await Order.findOneAndUpdate(
+    guard,
+    {
+      $set,
+      $push: {
+        statusHistory: {
+          status: current.status,
+          at: new Date(),
+          by: actorUser._id,
+          event: 'customer_edited',
+          note: `Customer details changed: ${changed.join(', ')}`,
+        },
+      },
+    },
+    { new: true }
+  );
+  if (!updated) throw conflict('ALREADY_HANDLED', 'This order was just changed by someone else');
+
+  // The projection is rebuilt for every number involved: a changed phone moves
+  // this order from one buyer to another, and a changed name or address
+  // changes the variants the buyer is recorded under.
+  if (changed.some((field) => PROJECTED_FIELDS.has(field))) {
+    await customers.refreshPhones([before.phoneE164, updated.customer.phoneE164]);
+  }
+
+  // The other party is told. The reseller promised the customer a delivery;
+  // the owner is the one packing it. Either needs the corrected details.
+  const data = {
+    orderId: updated._id,
+    orderCode: updated.orderCode,
+    changed,
+    zoneChanged: deliveryZoneChanged || undefined,
+  };
+  if (role === ROLES.OWNER) {
+    const profile = await ResellerProfile.findById(updated.reseller);
+    await notifyReseller(profile, EVENT_TYPE.ORDER_CUSTOMER_EDITED, { data });
+  } else {
+    await notifyOwner(EVENT_TYPE.ORDER_CUSTOMER_EDITED, {
+      data: { ...data, shopName: resellerProfile?.shopName },
+    });
+  }
+
+  return { order: updated, changed, before, after, deliveryZoneChanged, zone };
 }
 
 /* -------------------------------------------------------------- notifications */
@@ -489,7 +769,10 @@ module.exports = {
   createPendingOrder,
   createManualOrder,
   confirmOrder,
+  changeDeliveryCharge,
   transitionOrder,
+  cancelPendingForReseller,
+  editCustomer,
   agingOrders,
   postConfirmationEntries,
   LedgerEntry,

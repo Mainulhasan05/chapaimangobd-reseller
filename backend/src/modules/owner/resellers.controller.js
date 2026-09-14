@@ -1,5 +1,8 @@
 'use strict';
 
+const crypto = require('node:crypto');
+const bcrypt = require('bcryptjs');
+
 const ResellerProfile = require('../../models/ResellerProfile');
 const User = require('../../models/User');
 const KycSubmission = require('../../models/KycSubmission');
@@ -12,6 +15,9 @@ const { ok } = require('../../middleware/error');
 const { notFound } = require('../../utils/errors');
 const { toPoisha, toTaka } = require('../../utils/money');
 const present = require('../../utils/present');
+const ledger = require('../../services/ledger');
+const resellerLifecycle = require('../../services/resellerLifecycle');
+const tokens = require('../../services/tokens');
 const { KYC_STATUS, REVIEW_STATUS, EVENT_TYPE, ORDER_STATUS } = require('../../domain/constants');
 
 async function listResellers(req, res) {
@@ -90,11 +96,24 @@ async function updateReseller(req, res) {
   if (req.body.creditLimit !== undefined) {
     profile.creditLimitPoisha = toPoisha(req.body.creditLimit, 'creditLimit');
   }
+  const smsBefore = profile.channelPrefs.sms;
   if (req.body.smsEnabled !== undefined) profile.channelPrefs.sms = req.body.smsEnabled;
   await profile.save();
 
+  /*
+   * Deactivation closes the shop and cancels pending orders in one transaction;
+   * reactivation restores the form. Both audit themselves. deactivatedAt starts
+   * the KYC retention clock (docs/adr/0016), and a repeat does not restart it.
+   * See docs/adr/0011 and services/resellerLifecycle.js.
+   */
+  let lifecycle = null;
   if (req.body.isActive !== undefined) {
-    await User.updateOne({ _id: profile.user }, { $set: { isActive: req.body.isActive } });
+    lifecycle = await resellerLifecycle.setActive({
+      profileId: profile._id,
+      isActive: req.body.isActive,
+      actorUser: req.user,
+      ip: req.ip,
+    });
   }
 
   if (before.creditLimitPoisha !== profile.creditLimitPoisha) {
@@ -109,7 +128,37 @@ async function updateReseller(req, res) {
     });
   }
 
-  return ok(res, { reseller: { id: profile._id, ...present.wallet(profile) } });
+  // Reseller-paid SMS spends the reseller's credits, so switching it is recorded.
+  if (smsBefore !== profile.channelPrefs.sms) {
+    await audit.record({
+      actor: req.user._id,
+      action: 'reseller.sms_enabled',
+      targetType: 'ResellerProfile',
+      targetId: profile._id,
+      before: { smsEnabled: smsBefore },
+      after: { smsEnabled: profile.channelPrefs.sms },
+      ip: req.ip,
+    });
+  }
+
+  // Re-read: the lifecycle change wrote the form flag and the account directly.
+  const [fresh, account] = await Promise.all([
+    ResellerProfile.findById(profile._id),
+    User.findById(profile.user).select('isActive deactivatedAt'),
+  ]);
+
+  return ok(res, {
+    reseller: {
+      id: fresh._id,
+      ...present.wallet(fresh),
+      isActive: account ? account.isActive : null,
+      deactivatedAt: account ? account.deactivatedAt : null,
+      formActive: fresh.formActive,
+      smsEnabled: fresh.channelPrefs.sms,
+    },
+    // Order codes of the pending orders this request cancelled, if any.
+    cancelledOrders: (lifecycle && lifecycle.cancelledOrders) || [],
+  });
 }
 
 /* ----------------------------------------------------------------- kyc queue */
@@ -206,32 +255,102 @@ async function decideKyc(req, res) {
   return ok(res, { kycStatus: profile.kycStatus });
 }
 
-/** Total owed across every reseller, computed from the ledger, not the cache. */
+/**
+ * Total owed across every reseller, summed from the ledger rather than read from
+ * the cached balance, so this report doubles as a permanent reconciliation
+ * check. A reseller whose cache disagrees is flagged, not hidden. See docs/adr/0002.
+ */
 async function receivables(_req, res) {
-  const profiles = await ResellerProfile.find({ balancePoisha: { $lt: 0 } })
-    .sort({ balancePoisha: 1 })
-    .populate('user', 'name phoneE164');
+  const [owing, openOrders] = await Promise.all([
+    ledger.ledgerBalances({ owingOnly: true }),
+    Order.countDocuments({
+      status: { $in: [ORDER_STATUS.CONFIRMED, ORDER_STATUS.ACCEPTED, ORDER_STATUS.PACKED] },
+    }),
+  ]);
 
-  const totalOwedPoisha = profiles.reduce((sum, p) => sum + Math.abs(p.balancePoisha), 0);
-  const openOrders = await Order.countDocuments({
-    status: { $in: [ORDER_STATUS.CONFIRMED, ORDER_STATUS.ACCEPTED, ORDER_STATUS.PACKED] },
-  });
+  const profiles = await ResellerProfile.find({ _id: { $in: owing.map((r) => r.reseller) } }).populate(
+    'user',
+    'name phoneE164'
+  );
+  const profileById = new Map(profiles.map((p) => [String(p._id), p]));
+
+  const totalOwedPoisha = owing.reduce((sum, r) => sum - r.balancePoisha, 0);
 
   return ok(res, {
     totalOwed: toTaka(totalOwedPoisha),
     openOrders,
-    resellers: profiles.map((p) => ({
-      id: p._id,
-      shopName: p.shopName,
-      user: p.user,
-      owed: toTaka(Math.abs(p.balancePoisha)),
-      creditLimit: toTaka(p.creditLimitPoisha),
-      atLimit: p.balancePoisha <= -p.creditLimitPoisha,
-    })),
+    resellers: owing
+      .filter((r) => profileById.has(String(r.reseller)))
+      .map((r) => {
+        const p = profileById.get(String(r.reseller));
+        return {
+          id: p._id,
+          shopName: p.shopName,
+          user: p.user,
+          owed: toTaka(-r.balancePoisha),
+          creditLimit: toTaka(p.creditLimitPoisha),
+          atLimit: r.balancePoisha <= -p.creditLimitPoisha,
+          // The cached balance disagrees with the ledger: run a reconcile.
+          drift: p.balancePoisha !== r.balancePoisha,
+        };
+      }),
   });
 }
 
+/* ------------------------------------------------------- password reset -- */
+
+/*
+ * No 0/o, 1/l/i: the owner reads this aloud down a phone line, and a character
+ * that can be heard two ways is a support call.
+ */
+const TEMP_ALPHABET = 'abcdefghjkmnpqrstuvwxyz23456789';
+const TEMP_LENGTH = 10;
+
+const temporaryPassword = () =>
+  Array.from({ length: TEMP_LENGTH }, () => TEMP_ALPHABET[crypto.randomInt(TEMP_ALPHABET.length)]).join('');
+
+/**
+ * The fallback when a reseller cannot receive an SMS (docs/adr/0014). Issues a
+ * temporary password, returned once and never stored in the clear, ends every
+ * session the reseller has, and makes them choose their own at next sign-in.
+ */
+async function resetPassword(req, res) {
+  const profile = await ResellerProfile.findById(req.params.id);
+  if (!profile) throw notFound('Reseller not found');
+
+  const password = temporaryPassword();
+  const result = await User.updateOne(
+    { _id: profile.user },
+    {
+      $set: {
+        passwordHash: await bcrypt.hash(password, 12),
+        mustChangePassword: true,
+        passwordChangedAt: new Date(),
+        failedLoginCount: 0,
+        lastFailedLoginAt: null,
+        lockedUntil: null,
+      },
+    }
+  );
+  if (result.matchedCount === 0) throw notFound('Reseller account not found');
+
+  await tokens.revokeAllForUser(profile.user);
+
+  // The password itself never goes into the audit log.
+  await audit.record({
+    actor: req.user._id,
+    action: 'reseller.password_reset',
+    targetType: 'User',
+    targetId: profile.user,
+    after: { mustChangePassword: true },
+    ip: req.ip,
+  });
+
+  return ok(res, { temporaryPassword: password });
+}
+
 module.exports = {
+  resetPassword,
   listResellers,
   getReseller,
   updateReseller,

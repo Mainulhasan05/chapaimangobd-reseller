@@ -9,6 +9,7 @@ const User = require('../../models/User');
 const LedgerEntry = require('../../models/LedgerEntry');
 
 const ledger = require('../../services/ledger');
+const finance = require('../../services/finance');
 const { withTransaction } = require('../../services/tx');
 const { notify } = require('../../services/notify');
 const audit = require('../../services/audit');
@@ -67,48 +68,25 @@ async function getDepositScreenshot(req, res) {
 }
 
 /**
- * Two independent guards. The status predicate stops a second click, and the
- * ledger idempotency key is what actually protects the money if it slips past.
+ * The status flip and the ledger credit are one transaction in
+ * services/finance.js. Audit and notification run only after it commits.
  */
 async function decideDeposit(req, res) {
   const approve = req.params.decision === 'approve';
 
-  const deposit = await Deposit.findOneAndUpdate(
-    { _id: req.params.id, status: REVIEW_STATUS.PENDING },
-    {
-      $set: {
-        status: approve ? REVIEW_STATUS.APPROVED : REVIEW_STATUS.REJECTED,
-        reviewedBy: req.user._id,
-        reviewedAt: new Date(),
-        rejectionReason: approve ? undefined : req.body.reason,
-      },
-    },
-    { new: true }
-  );
-  if (!deposit) throw notFound('No pending deposit with that id');
-
-  if (approve) {
-    const entry = await withTransaction((session) =>
-      ledger.postEntry(session, {
-        reseller: deposit.reseller,
-        kind: LEDGER_KIND.DEPOSIT_CREDIT,
-        amountPoisha: deposit.amountPoisha,
-        idempotencyKey: ledger.keys.depositCredit(deposit._id),
-        refType: 'deposit',
-        refId: deposit._id,
-        note: `Deposit via ${deposit.method}`,
-        createdBy: req.user._id,
-        enforceCreditLimit: false,
-      })
-    );
-    await Deposit.updateOne({ _id: deposit._id }, { $set: { ledgerEntry: entry._id } });
-  }
+  const { deposit } = await finance.decideDeposit({
+    depositId: req.params.id,
+    approve,
+    actorUser: req.user,
+    reason: req.body.reason,
+  });
 
   await audit.record({
     actor: req.user._id,
     action: approve ? 'deposit.approve' : 'deposit.reject',
     targetType: 'Deposit',
     targetId: deposit._id,
+    before: { status: REVIEW_STATUS.PENDING },
     after: { status: deposit.status, amountPoisha: deposit.amountPoisha },
     ip: req.ip,
   });
@@ -154,56 +132,27 @@ async function listWithdrawals(req, res) {
   });
 }
 
+/**
+ * Approval can fail with INSUFFICIENT_BALANCE when the balance was spent after
+ * the request. The transaction then leaves the withdrawal pending, untouched.
+ */
 async function decideWithdrawal(req, res) {
   const approve = req.params.decision === 'approve';
 
-  const withdrawal = await Withdrawal.findOneAndUpdate(
-    { _id: req.params.id, status: REVIEW_STATUS.PENDING },
-    {
-      $set: {
-        status: approve ? REVIEW_STATUS.APPROVED : REVIEW_STATUS.REJECTED,
-        reviewedBy: req.user._id,
-        reviewedAt: new Date(),
-        payoutReference: approve ? req.body.payoutReference : undefined,
-        rejectionReason: approve ? undefined : req.body.reason,
-      },
-    },
-    { new: true }
-  );
-  if (!withdrawal) throw notFound('No pending withdrawal with that id');
-
-  if (approve) {
-    try {
-      const entry = await withTransaction((session) =>
-        ledger.postEntry(session, {
-          reseller: withdrawal.reseller,
-          kind: LEDGER_KIND.WITHDRAWAL_DEBIT,
-          amountPoisha: -withdrawal.amountPoisha,
-          idempotencyKey: ledger.keys.withdrawalDebit(withdrawal._id),
-          refType: 'withdrawal',
-          refId: withdrawal._id,
-          note: `Payout via ${withdrawal.method}`,
-          createdBy: req.user._id,
-          // Paying out may not push a reseller into debt on our books.
-          enforceCreditLimit: true,
-        })
-      );
-      await Withdrawal.updateOne({ _id: withdrawal._id }, { $set: { ledgerEntry: entry._id } });
-    } catch (err) {
-      // The approval must not stand if the money did not move.
-      await Withdrawal.updateOne(
-        { _id: withdrawal._id },
-        { $set: { status: REVIEW_STATUS.PENDING, reviewedAt: null, payoutReference: null } }
-      );
-      throw err;
-    }
-  }
+  const { withdrawal } = await finance.decideWithdrawal({
+    withdrawalId: req.params.id,
+    approve,
+    actorUser: req.user,
+    reason: req.body.reason,
+    payoutReference: req.body.payoutReference,
+  });
 
   await audit.record({
     actor: req.user._id,
     action: approve ? 'withdrawal.approve' : 'withdrawal.reject',
     targetType: 'Withdrawal',
     targetId: withdrawal._id,
+    before: { status: REVIEW_STATUS.PENDING },
     after: { status: withdrawal.status, amountPoisha: withdrawal.amountPoisha },
     ip: req.ip,
   });
@@ -239,7 +188,8 @@ async function manualEntry(req, res) {
       refType: 'manual',
       note,
       createdBy: req.user._id,
-      enforceCreditLimit: false,
+      // The owner correcting the books is not the reseller taking on credit.
+      bypassCreditLimit: true,
     })
   );
 

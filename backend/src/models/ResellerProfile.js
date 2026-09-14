@@ -73,6 +73,13 @@ const resellerProfileSchema = new mongoose.Schema(
 
     smsCredits: { type: Number, default: 0, min: 0 },
     formActive: { type: Boolean, default: false },
+    /*
+     * What `formActive` was when the owner deactivated the reseller, so that
+     * reactivating puts the shop back exactly as the reseller left it rather
+     * than opening a form they had closed. Null while the account is active.
+     * See docs/adr/0011 and services/resellerLifecycle.js.
+     */
+    formActiveBeforeDeactivation: { type: Boolean, default: null },
 
     channelPrefs: {
       webPush: { type: Boolean, default: true },

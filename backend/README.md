@@ -68,7 +68,8 @@ there. It is safe to run repeatedly; a second run reports everything up to date.
   ping. Point the load balancer at it.
 - `GET /api/owner/system/health` (owner login) additionally reports the
   environment and which integrations are configured.
-- `SIGTERM` / `SIGINT` stop accepting connections, stop the outbox worker, close
+- `SIGTERM` / `SIGINT` stop accepting connections, stop the outbox worker and
+  the job scheduler (waiting for a send or job already in progress), close
   MongoDB and exit, with a 10 second hard limit.
 - Logs are one JSON line per event (pino). Every request gets an id, taken from
   an incoming `X-Request-Id` or generated, and echoed back in the `X-Request-Id`
@@ -130,9 +131,49 @@ Integrations are optional and the app reports which are live at
   so it stays dark until the owner turns it on.
 - **Telegram** needs a bot token and username.
 
+Background work:
+
+- `RUN_JOBS` (default `false`) enables the scheduled jobs in this process. Set it
+  on at least one instance in production, or reconciliation, the digest and the
+  KYC purge never run. Safe to set on every instance.
+- `SMS_LOW_BALANCE` (default `200`) is the gateway balance below which the
+  digest warns the owner. Automas reports remaining **messages**, not taka, so
+  this is a message count.
+
 `TRUST_PROXY` must equal the exact number of proxy hops in front of Express.
 Guessing collapses every client into one rate-limit bucket, or lets
 `X-Forwarded-For` be attacker controlled.
+
+## Running more than one instance
+
+Every piece of shared state lives in MongoDB (docs/adr/0012), so any number of
+API processes can run behind a load balancer with no extra infrastructure:
+
+- **Rate limits** are counted in the `ratelimithits` collection
+  (`services/rateLimitStore.js`), one atomic update per request, with a TTL
+  index that removes a window once it ends. Every limiter is built through
+  `createLimiter`, so none falls back to a per-process memory store. Limits:
+  login and register 20 per 15 minutes per IP; refresh 60 per 15 minutes per
+  IP; public order 10 per 10 minutes per IP and shop, **and** 60 per 10 minutes
+  per shop whatever the IP; tracking 30 per 10 minutes; shop browsing 120 a
+  minute; uploads 30 an hour per reseller and 200 an hour for the owner.
+- **The outbox** (`services/outbox.js`) claims each message with an atomic
+  lease, so two workers never send the same one. Each channel records its own
+  outcome, so a failed Telegram is retried without resending the web push.
+  Retries back off exponentially; after 5 attempts a message is marked `dead`
+  and appears in the owner's next daily digest. Every instance runs the worker.
+- **Scheduled jobs** (`src/jobs/`) run only where `RUN_JOBS=true`, and each
+  run also takes a lock document in `joblocks` for its slot, so turning the
+  flag on everywhere still runs each job once:
+
+  | Job | Dhaka time | What it does |
+  |---|---|---|
+  | `nightlyReconcile` | 02:00 | Replays every wallet's ledger; alerts the owner (in-app, push, Telegram) on any drift. |
+  | `kycPurge` | 03:00 | Deletes R2 scans of rejected KYC 90 days after review, and of approved KYC one year after the reseller was deactivated; sets `purgedAt` (docs/adr/0016). |
+  | `dailyDigest` | 09:00 | One owner alert listing confirmed orders older than the aging threshold, resellers within 10% of their credit limit, outbox messages dead-lettered in the last day, and a low SMS gateway balance. Sends `balance.near_limit` to each affected reseller, once per Dhaka day. Silent when there is nothing to report. |
+
+  A job that fails logs the error on its lock document (`lastError`) and does
+  not claim its slot, so another instance's timer may still run it.
 
 ## Shape of the code
 
@@ -142,6 +183,7 @@ src/
   models/      one file per collection
   domain/      constants and the order state machine
   services/    ledger, orders, pricing, stock, notifications, outbox
+  jobs/        scheduled jobs, their MongoDB locks and the Dhaka-time scheduler
   channels/    web push, telegram, sms adapters
   middleware/  auth, validation, uploads, error envelope
   modules/     auth, public, reseller, owner route groups

@@ -8,6 +8,7 @@ import {
   LayoutDashboard,
   Package,
   Store,
+  UserCog,
   Wallet,
 } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -47,6 +48,7 @@ const NAV: NavItem[] = [
   { href: '/reseller/customers', labelKey: 'nav.customers', icon: Contact, section: 'nav.groupDaily' },
   { href: '/reseller/shop', labelKey: 'nav.myShop', icon: Store, section: 'nav.groupSetup' },
   { href: '/reseller/kyc', labelKey: 'nav.kyc', icon: BadgeCheck, section: 'nav.groupSetup' },
+  { href: '/reseller/account', labelKey: 'nav.account', icon: UserCog, section: 'nav.groupSetup' },
 ];
 
 export default function ResellerLayout({ children }: { children: React.ReactNode }) {

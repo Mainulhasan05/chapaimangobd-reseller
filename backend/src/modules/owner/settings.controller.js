@@ -56,6 +56,27 @@ async function update(req, res) {
 
   const settings = await updateSettings(patch);
 
+  /*
+   * Every setting that actually moved, before and after, keyed as stored. The
+   * SMS master switch is left to its own action below, which the SMS panel
+   * writes too, so one flip is one entry whichever route made it.
+   */
+  const read = (doc, key) => key.split('.').reduce((acc, k) => (acc == null ? acc : acc[k]), doc);
+  const changedKeys = Object.keys(patch).filter(
+    (key) => key !== 'features.sms' && read(before, key) !== read(settings, key)
+  );
+  if (changedKeys.length > 0) {
+    await audit.record({
+      actor: req.user._id,
+      action: 'settings.update',
+      targetType: 'Setting',
+      targetId: settings._id,
+      before: Object.fromEntries(changedKeys.map((key) => [key, read(before, key) ?? null])),
+      after: Object.fromEntries(changedKeys.map((key) => [key, read(settings, key) ?? null])),
+      ip: req.ip,
+    });
+  }
+
   // Turning SMS on starts spending real money, so it is worth a record.
   if (body.features && body.features.sms !== undefined) {
     await audit.record({
@@ -97,15 +118,37 @@ async function uploadBrandLogo(req, res) {
   // brand with no mark at all.
   if (previous) await imageService.remove(previous);
 
+  await audit.record({
+    actor: req.user._id,
+    action: 'settings.brand_logo',
+    targetType: 'Setting',
+    targetId: settings._id,
+    before: { brandLogoUrl: before.brandLogoUrl || null },
+    after: { brandLogoUrl: settings.brandLogoUrl || null },
+    ip: req.ip,
+  });
+
   return ok(res, { settings: shape(settings) });
 }
 
-async function removeBrandLogo(_req, res) {
+async function removeBrandLogo(req, res) {
   const before = await getSettings({ fresh: true });
   const previous = before.brandLogo;
 
   const settings = await updateSettings({ brandLogo: null, brandLogoUrl: null });
   if (previous) await imageService.remove(previous);
+
+  if (before.brandLogoUrl) {
+    await audit.record({
+      actor: req.user._id,
+      action: 'settings.brand_logo',
+      targetType: 'Setting',
+      targetId: settings._id,
+      before: { brandLogoUrl: before.brandLogoUrl },
+      after: { brandLogoUrl: null },
+      ip: req.ip,
+    });
+  }
 
   return ok(res, { settings: shape(settings) });
 }

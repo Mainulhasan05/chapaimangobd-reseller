@@ -5,6 +5,7 @@ const ResellerProduct = require('../../models/ResellerProduct');
 const Product = require('../../models/Product');
 const DeliveryZone = require('../../models/DeliveryZone');
 const Order = require('../../models/Order');
+const User = require('../../models/User');
 
 const orderService = require('../../services/orderService');
 const { getSettings } = require('../../services/settings');
@@ -15,20 +16,31 @@ const { normalizeOrderCode } = require('../../utils/orderCode');
 const { toMilli, fromMilli } = require('../../utils/quantity');
 const { toTaka } = require('../../utils/money');
 const present = require('../../utils/present');
-const { KYC_STATUS } = require('../../domain/constants');
+const { SHOP_CLOSED_REASON } = require('../../domain/constants');
+const { shopAvailability } = require('../../domain/shop');
 
 /** The shop a customer sees. Reseller branding, with a small powered-by line. */
 async function getShop(req, res) {
   const profile = await ResellerProfile.findOne({ slug: req.params.slug });
   if (!profile) throw notFound('Shop not found');
 
-  if (profile.kycStatus !== KYC_STATUS.APPROVED || !profile.formActive) {
+  const account = await User.findById(profile.user).select('isActive');
+  const availability = shopAvailability(profile, account);
+
+  /*
+   * A shop that never opened, or that its reseller closed, stays a 404 as it
+   * always was. A deactivated reseller's shop is different: its link has been
+   * shared with customers, so it still renders its branding with a clear "not
+   * taking orders" instead of looking like a broken link. No products are
+   * listed, because none can be ordered. See docs/adr/0011.
+   */
+  if (!availability.acceptingOrders && availability.reason !== SHOP_CLOSED_REASON.INACTIVE) {
     throw notFound('This shop is not open right now');
   }
 
-  const listings = await ResellerProduct.find({ reseller: profile._id, isListed: true }).sort({
-    sortOrder: 1,
-  });
+  const listings = availability.acceptingOrders
+    ? await ResellerProduct.find({ reseller: profile._id, isListed: true }).sort({ sortOrder: 1 })
+    : [];
 
   const products = await Product.find({
     _id: { $in: listings.map((l) => l.product) },
@@ -88,6 +100,9 @@ async function getShop(req, res) {
       poweredBy: settings.poweredByText,
       brandLogoUrl: settings.brandLogoUrl || undefined,
     },
+    acceptingOrders: availability.acceptingOrders,
+    // null while open; 'inactive' when the owner has deactivated the reseller.
+    reason: availability.reason,
     products: items,
   });
 }

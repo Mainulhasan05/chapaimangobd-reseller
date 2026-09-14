@@ -1,6 +1,6 @@
 'use strict';
 
-const { ORDER_STATUS, ROLES } = require('./constants');
+const { ORDER_STATUS, ROLES, SYSTEM_ACTOR } = require('./constants');
 const { conflict, forbidden } = require('../utils/errors');
 
 const S = ORDER_STATUS;
@@ -69,9 +69,12 @@ const TRANSITIONS = {
     // The reseller may pull back their own order until the owner has accepted it.
     // After that it is the owner call. Every status from confirmed has taken
     // stock, so every one of them gives it back; pending never took any.
+    // The system cancels only what never committed anything: the pending orders
+    // of a reseller being deactivated. See docs/adr/0011.
     from: {
       [ROLES.RESELLER]: [S.PENDING, S.CONFIRMED],
       [ROLES.OWNER]: [S.PENDING, S.CONFIRMED, S.ACCEPTED, S.PACKED],
+      [SYSTEM_ACTOR]: [S.PENDING],
     },
     ledger: 'reverseOpen',
     stock: 'restore',
@@ -110,6 +113,32 @@ function assertDeliveryChargeEditable(order) {
       `The delivery charge cannot be changed on an order that is ${order.status}`
     );
   }
+}
+
+/**
+ * Where the parcel goes and who to ring can be corrected by the owner or the
+ * reseller until it has left with the courier. Items and quantities are never
+ * edited: that is a cancel and a new order. PLAN-2 decision 9.
+ */
+const CUSTOMER_EDITABLE = Object.freeze([S.PENDING, S.CONFIRMED, S.ACCEPTED, S.PACKED]);
+
+function assertCustomerEditable(order) {
+  if (!CUSTOMER_EDITABLE.includes(order.status)) {
+    throw conflict(
+      'CUSTOMER_LOCKED',
+      `The customer details cannot be changed on an order that is ${order.status}`
+    );
+  }
+}
+
+/**
+ * The statuses the system may cancel from, checked once at load: a system
+ * cancel posts nothing and restores nothing, so it must never be allowed to
+ * reach an order that had already committed money or stock.
+ */
+const SYSTEM_CANCELLABLE = Object.freeze([...TRANSITIONS.cancel.from[SYSTEM_ACTOR]]);
+if (SYSTEM_CANCELLABLE.some(wasCommitted)) {
+  throw new Error('orderStateMachine: the system may only cancel orders that never committed');
 }
 
 function getTransition(action) {
@@ -151,6 +180,9 @@ module.exports = {
   wasCommitted,
   DELIVERY_CHARGE_EDITABLE,
   assertDeliveryChargeEditable,
+  CUSTOMER_EDITABLE,
+  assertCustomerEditable,
+  SYSTEM_CANCELLABLE,
   getTransition,
   assertCanTransition,
   availableActions,

@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Field, Select } from '@/components/ui/form';
 import { Modal } from '@/components/ui/modal';
 import { useToast } from '@/components/ui/toast';
+import { DeliveryChargeField, useDeliveryCharge } from '@/components/delivery-charge-field';
 
 /**
  * Accepting an order, which is where the owner says where each line comes from.
@@ -42,17 +43,28 @@ export function AcceptOrderModal({ order, onClose }: { order: Order | null; onCl
 
   const available = sources.data?.sources.filter((source) => !source.isArchived) ?? [];
 
+  // Accept is often when the owner first learns what the courier will charge.
+  const charge = useDeliveryCharge(order);
+
   const accept = useMutation({
-    mutationFn: () =>
-      api.post(`/owner/orders/${order!.id}/accept`, {
+    mutationFn: async () => {
+      // The charge first, so the accept that follows is taken against the final
+      // figure. If the accept then fails, the charge change still stands, and
+      // pressing the button again sends it as a no-op.
+      await charge.apply();
+      return api.post(`/owner/orders/${order!.id}/accept`, {
         sources: order!.items.map((item) => ({ itemId: item.id, sourceId: chosen[item.id] })),
-      }),
+      });
+    },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['owner'] });
       setChosen({});
+      charge.reset();
       onClose();
       toast(t('order.acceptedToast'));
     },
+    // A failure after the charge went through still changed the order.
+    onError: () => queryClient.invalidateQueries({ queryKey: ['owner'] }),
   });
 
   if (!order) return null;
@@ -70,7 +82,7 @@ export function AcceptOrderModal({ order, onClose }: { order: Order | null; onCl
       open
       onClose={onClose}
       title={`${t('order.acceptTitle')} · ${order.orderCode}`}
-      dirty={Object.keys(chosen).length > 0}
+      dirty={Object.keys(chosen).length > 0 || charge.changed}
       footer={
         <>
           <Button variant="outline" onClick={onClose}>
@@ -78,7 +90,7 @@ export function AcceptOrderModal({ order, onClose }: { order: Order | null; onCl
           </Button>
           <Button
             loading={accept.isPending}
-            disabled={!complete || available.length === 0}
+            disabled={!complete || available.length === 0 || !charge.check.ok}
             onClick={() => accept.mutate()}
           >
             {t('order.accept')}
@@ -155,6 +167,10 @@ export function AcceptOrderModal({ order, onClose }: { order: Order | null; onCl
           {!complete && (
             <p className="mt-4 text-xs text-muted-foreground">{t('order.sourceMissing')}</p>
           )}
+
+          <div className="mt-5 border-t border-border pt-4">
+            <DeliveryChargeField order={order} state={charge} id="accept-delivery-charge" className="mb-0" />
+          </div>
         </>
       )}
     </Modal>

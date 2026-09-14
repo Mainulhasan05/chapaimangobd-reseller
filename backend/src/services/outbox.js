@@ -10,7 +10,7 @@ const User = require('../models/User');
 const webpush = require('../channels/webpush');
 const telegram = require('../channels/telegram');
 const smsService = require('./sms');
-const { NOTIFICATION_CHANNEL, SMS_PURPOSE } = require('../domain/constants');
+const { NOTIFICATION_CHANNEL, SMS_PURPOSE, ROLES } = require('../domain/constants');
 
 const { OUTBOX_STATUS, CHANNEL_STATUS, toChannelState } = OutboxMessage;
 
@@ -87,6 +87,22 @@ async function deliverOne(channel, { user, title, body, data, message }) {
  * a permanently rejected number from being re-queued five times.
  */
 async function sendSms(user, title, body, message) {
+  /*
+   * An SMS addressed to the owner is an owner alert, and the business pays for
+   * those: it goes out whatever the master switch says (docs/adr/0013).
+   */
+  if (user.role === ROLES.OWNER) {
+    await smsService.sendOwnerPaid({
+      phoneE164: user.phoneE164,
+      text: body ? `${title}. ${body}` : title,
+      purpose: SMS_PURPOSE.OWNER_ALERT,
+      eventType: message.eventType,
+      user,
+      outboxMessage: message._id,
+    });
+    return;
+  }
+
   const profile = await ResellerProfile.findOne({ user: user._id });
 
   await smsService.send({

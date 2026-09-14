@@ -27,7 +27,26 @@ export type User = {
   role: Role;
   isActive: boolean;
   lastLoginAt?: string;
+  /** Set after the owner issued a temporary password. The shell sends them to Account. */
+  mustChangePassword?: boolean;
 };
+
+/**
+ * What `/auth/login` returns: a session, or, for the owner on a device not
+ * trusted yet, a challenge that needs the SMS code first. See docs/adr/0014.
+ */
+export type LoginChallenge = {
+  requiresOtp: true;
+  challengeId: string;
+  /** The number the code went to, masked, e.g. 017*****678. */
+  phoneHint: string;
+  expiresAt: string;
+};
+
+export type LoginResult = { user: User; requiresOtp?: undefined } | LoginChallenge;
+
+/** Every endpoint that sends a code answers with when it stops working. */
+export type OtpSent = { sent: true; expiresAt?: string };
 
 /**
  * A publicly visible image, as the API presents it.
@@ -149,14 +168,35 @@ export type Order = {
   deliveryCharge: number;
   totals: OrderTotals;
   status: OrderStatus;
-  statusHistory: { status: OrderStatus; at: string; note?: string }[];
+  statusHistory: StatusHistoryEntry[];
   courier?: { name?: string; trackingNumber?: string };
   confirmedAt?: string;
+  acceptedAt?: string;
+  packedAt?: string;
+  shippedAt?: string;
   deliveredAt?: string;
   cancelReason?: string;
+  /** Set on a return: whether the owner ticked "put back in stock". See docs/adr/0008. */
+  restockedOnReturn: boolean;
   createdAt: string;
   /** What the current role may do to this order right now. */
   actions: string[];
+};
+
+/**
+ * One step in an order's life.
+ *
+ * `paymentModeFrom` and `paymentModeTo` appear only on the confirm step, and
+ * only when the reseller changed what the customer chose (docs/adr/0007). The
+ * `note` alongside them is the server's English sentence and is not shown; on
+ * any other step it is what the person typed, such as a cancel reason.
+ */
+export type StatusHistoryEntry = {
+  status: OrderStatus;
+  at: string;
+  note?: string;
+  paymentModeFrom?: PaymentMode;
+  paymentModeTo?: PaymentMode;
 };
 
 export type CatalogItem = {
@@ -230,6 +270,16 @@ export type LedgerEntry = {
   reversalOf?: string;
   note?: string;
   createdAt: string;
+};
+
+/**
+ * The answer to changing a delivery charge. `adjustment` is the ledger entry
+ * that posted when the order had already been charged, and null otherwise.
+ * Its amount is signed taka: negative for a raise, positive for a cut.
+ */
+export type DeliveryChargeChange = {
+  order: Order;
+  adjustment: LedgerEntry | null;
 };
 
 export type Deposit = {
@@ -334,7 +384,7 @@ export type Paged<K extends string, T> = { page: number; limit: number; total: n
 /* -------------------------------------------------------------------- sms -- */
 
 export type SmsStatus = 'sent' | 'failed' | 'blocked';
-export type SmsPurpose = 'notification' | 'test' | 'manual';
+export type SmsPurpose = 'notification' | 'test' | 'manual' | 'otp' | 'owner_alert';
 export type SmsBlockReason =
   | 'feature_off'
   | 'not_configured'

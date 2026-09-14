@@ -3,7 +3,7 @@
 const User = require('../models/User');
 const ResellerProfile = require('../models/ResellerProfile');
 const { verifyAccessToken, ACCESS_COOKIE } = require('../services/tokens');
-const { unauthorized, forbidden } = require('../utils/errors');
+const { AppError, unauthorized, forbidden } = require('../utils/errors');
 const { ROLES, KYC_STATUS } = require('../domain/constants');
 const asyncHandler = require('../utils/asyncHandler');
 
@@ -32,7 +32,15 @@ const authenticate = asyncHandler(async (req, _res, next) => {
 
   const user = await User.findById(payload.sub);
   if (!user) throw unauthorized('Account no longer exists');
-  if (!user.isActive) throw forbidden('This account has been suspended');
+  /*
+   * A deactivated reseller keeps a read-only session: they can still see their
+   * orders and balance and ask for their money back (docs/adr/0011). Which
+   * writes remain open is decided per router by `readOnlyWhenInactive`. Any
+   * other inactive account is refused outright.
+   */
+  if (!user.isActive && user.role !== ROLES.RESELLER) {
+    throw forbidden('This account has been suspended');
+  }
 
   req.user = user;
   next();
@@ -82,4 +90,41 @@ function requireKyc(req, _res, next) {
   return next();
 }
 
-module.exports = { authenticate, optionalAuth, requireRole, loadReseller, requireKyc };
+const READ_ONLY_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+/**
+ * What a deactivated account may still do. Reads always; writes only where the
+ * router lists them, as `METHOD /path` relative to the router's mount point.
+ * Everything else is a 403 RESELLER_INACTIVE the interface can recognise and
+ * explain, rather than a generic refusal. See docs/adr/0011.
+ *
+ * @param {string[]} allowedWrites e.g. ['POST /withdrawals']
+ */
+function readOnlyWhenInactive(allowedWrites = []) {
+  const allowed = new Set(allowedWrites);
+  return (req, _res, next) => {
+    if (!req.user) return next(unauthorized());
+    if (req.user.isActive) return next();
+    if (READ_ONLY_METHODS.has(req.method)) return next();
+
+    const path = req.path.length > 1 ? req.path.replace(/\/+$/, '') : req.path;
+    if (allowed.has(`${req.method} ${path}`)) return next();
+
+    return next(
+      new AppError(
+        403,
+        'RESELLER_INACTIVE',
+        'Your account has been deactivated. You can view your records and request a withdrawal.'
+      )
+    );
+  };
+}
+
+module.exports = {
+  authenticate,
+  optionalAuth,
+  requireRole,
+  loadReseller,
+  requireKyc,
+  readOnlyWhenInactive,
+};

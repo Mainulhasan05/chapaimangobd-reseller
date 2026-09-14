@@ -11,6 +11,7 @@ import {
   Package,
   Settings,
   Store,
+  UserCog,
   Users,
   Wallet,
 } from 'lucide-react';
@@ -50,6 +51,7 @@ const NAV: NavItem[] = [
    */
   { href: '/owner/sms', labelKey: 'nav.sms', icon: MessageSquare, section: 'nav.groupSetup' },
   { href: '/owner/settings', labelKey: 'nav.settings', icon: Settings, section: 'nav.groupSetup' },
+  { href: '/owner/account', labelKey: 'nav.account', icon: UserCog, section: 'nav.groupSetup' },
 ];
 
 export default function OwnerLayout({ children }: { children: React.ReactNode }) {

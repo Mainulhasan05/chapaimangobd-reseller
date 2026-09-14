@@ -8,7 +8,13 @@ const customers = require('./customers.controller');
 const schema = require('./schema');
 const validate = require('../../middleware/validate');
 const asyncHandler = require('../../utils/asyncHandler');
-const { authenticate, requireRole, loadReseller, requireKyc } = require('../../middleware/auth');
+const {
+  authenticate,
+  requireRole,
+  loadReseller,
+  requireKyc,
+  readOnlyWhenInactive,
+} = require('../../middleware/auth');
 const { upload, handleUploadErrors } = require('../../middleware/upload');
 const { ROLES, KYC_DOC_TYPE } = require('../../domain/constants');
 const { createLimiter } = require('../../services/rateLimitStore');
@@ -18,6 +24,14 @@ const router = express.Router();
 // Everything below is a signed-in reseller acting on their own data. The scope is
 // applied per query, never inferred from a header the proxy could have set.
 router.use(authenticate, requireRole(ROLES.RESELLER), loadReseller);
+
+/*
+ * A deactivated reseller reads everything and writes almost nothing: their
+ * money must never be trapped, so a withdrawal request stays open, and marking
+ * notifications read is housekeeping on their own inbox. Every other write is
+ * a 403 RESELLER_INACTIVE. See docs/adr/0011.
+ */
+router.use(readOnlyWhenInactive(['POST /withdrawals', 'POST /notifications/read']));
 
 /*
  * Every upload is a round trip to R2 or the image host and up to five megabytes
@@ -116,6 +130,12 @@ router.post(
   '/orders/:id/cancel',
   validate({ body: schema.cancelOrder }),
   asyncHandler(orders.cancelOrder)
+);
+// Delivery name, phone and address, until the order ships. PLAN-2 decision 9.
+router.patch(
+  '/orders/:id/customer',
+  validate({ body: schema.editCustomer }),
+  asyncHandler(orders.editCustomer)
 );
 
 /* wallet */

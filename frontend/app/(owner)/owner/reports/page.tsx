@@ -8,6 +8,7 @@ import { t, tUnit } from '@/lib/i18n/bn';
 import { formatMoney, formatNumber, businessDate } from '@/lib/format';
 import {
   Alert,
+  Badge,
   Card,
   CardHeader,
   EmptyState,
@@ -32,6 +33,8 @@ type Receivables = {
     owed: number;
     creditLimit: number;
     atLimit: boolean;
+    /** The cached balance disagrees with the ledger. A reconcile says why. */
+    drift: boolean;
   }[];
 };
 
@@ -156,6 +159,11 @@ export default function OwnerReportsPage() {
           <EmptyState icon={ClipboardList} title={t('app.none')} />
         )}
 
+        {/* A tooltip does not exist on a phone, so the hint is said once, in full. */}
+        {receivables.isSuccess && receivables.data.resellers.some((row) => row.drift) && (
+          <Alert tone="warning">{t('reports.driftHint')}</Alert>
+        )}
+
         {receivables.isSuccess && receivables.data.resellers.length > 0 && (
           <div className="scroll-x">
             <table className="w-full min-w-[32rem] text-sm">
@@ -179,7 +187,21 @@ export default function OwnerReportsPage() {
                     <Td className="tabular text-right text-danger">{formatMoney(row.owed)}</Td>
                     <Td className="tabular text-right">{formatMoney(row.creditLimit)}</Td>
                     <Td className="text-right text-xs">
-                      {row.atLimit && <span className="text-danger">{t('reports.atLimit')}</span>}
+                      <div className="flex flex-wrap items-center justify-end gap-1.5">
+                        {row.atLimit && (
+                          <span className="text-danger">{t('reports.atLimit')}</span>
+                        )}
+                        {/*
+                         * A wallet whose cached balance does not match its
+                         * ledger. Rare and serious, so it gets a badge rather
+                         * than a word, and the hint says what to do about it.
+                         */}
+                        {row.drift && (
+                          <Badge tone="warning" dot title={t('reports.driftHint')}>
+                            {t('reports.drift')}
+                          </Badge>
+                        )}
+                      </div>
                     </Td>
                   </Tr>
                 ))}

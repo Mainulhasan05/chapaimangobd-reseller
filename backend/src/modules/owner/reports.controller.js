@@ -2,11 +2,11 @@
 
 const Order = require('../../models/Order');
 const LedgerEntry = require('../../models/LedgerEntry');
-const ResellerProfile = require('../../models/ResellerProfile');
 const Deposit = require('../../models/Deposit');
 const Withdrawal = require('../../models/Withdrawal');
 
 const { getSettings } = require('../../services/settings');
+const ledger = require('../../services/ledger');
 const { ok } = require('../../middleware/error');
 const { toTaka } = require('../../utils/money');
 const { fromMilli } = require('../../utils/quantity');
@@ -37,10 +37,8 @@ async function dashboard(_req, res) {
         status: ORDER_STATUS.CONFIRMED,
         confirmedAt: { $lt: agingCutoff(settings.orderAgingHours) },
       }),
-      ResellerProfile.aggregate([
-        { $match: { balancePoisha: { $lt: 0 } } },
-        { $group: { _id: null, total: { $sum: '$balancePoisha' } } },
-      ]),
+      // From the ledger, not the cached balance. See docs/adr/0002.
+      ledger.totalReceivablePoisha(),
       Deposit.countDocuments({ status: REVIEW_STATUS.PENDING }),
       Withdrawal.countDocuments({ status: REVIEW_STATUS.PENDING }),
     ]);
@@ -54,7 +52,7 @@ async function dashboard(_req, res) {
     awaitingAcceptance: byStatus[ORDER_STATUS.CONFIRMED] || 0,
     agingOrders: aging,
     agingThresholdHours: settings.orderAgingHours,
-    totalReceivable: toTaka(owed.length ? Math.abs(owed[0].total) : 0),
+    totalReceivable: toTaka(owed),
     pendingDeposits,
     pendingWithdrawals,
   });

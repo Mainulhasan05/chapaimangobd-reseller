@@ -53,16 +53,38 @@ const transportError = (code: keyof typeof TRANSPORT, status = 0): ApiError => {
  * token would otherwise each burn a refresh token and trip reuse detection,
  * which revokes the whole device family and signs the user out.
  */
-let refreshInFlight: Promise<boolean> | null = null;
+type RefreshOutcome = 'refreshed' | 'raced' | 'failed';
 
-async function refreshSession(): Promise<boolean> {
+let refreshInFlight: Promise<RefreshOutcome> | null = null;
+
+/**
+ * The code the API answers with when another tab rotated the same refresh token
+ * within the last few seconds. That tab's response already set fresh cookies,
+ * which this tab shares, so the right move is to wait a moment and retry the
+ * original request, not to sign out.
+ */
+const REFRESH_RACED = 'SESSION_REFRESHING';
+const RACE_RETRY_MS = 500;
+
+async function readRefresh(res: Response): Promise<RefreshOutcome> {
+  if (res.ok) return 'refreshed';
+  if (res.status !== 401) return 'failed';
+  try {
+    const body = (await res.json()) as ApiEnvelope<unknown>;
+    return !body.ok && body.error?.code === REFRESH_RACED ? 'raced' : 'failed';
+  } catch {
+    return 'failed';
+  }
+}
+
+async function refreshSession(): Promise<RefreshOutcome> {
   if (!refreshInFlight) {
     refreshInFlight = fetch('/api/auth/refresh', {
       method: 'POST',
       credentials: 'include',
     })
-      .then((res) => res.ok)
-      .catch(() => false)
+      .then(readRefresh)
+      .catch((): RefreshOutcome => 'failed')
       .finally(() => {
         refreshInFlight = null;
       });
@@ -70,15 +92,25 @@ async function refreshSession(): Promise<boolean> {
   return refreshInFlight;
 }
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 /**
  * Whether a 401 on this path is worth a refresh. The auth endpoints that issue
  * or revoke tokens are not; `/auth/me` is, because an expired access token with
  * a live refresh token is exactly what a reload after fifteen idle minutes
  * looks like, and treating that as signed out bounced people to the login form.
  */
+const SIGNED_IN_AUTH_PATHS = new Set([
+  '/auth/me',
+  '/auth/password/change',
+  '/auth/phone/otp',
+  '/auth/phone/change',
+]);
+
 function canRefresh(path: string): boolean {
   if (!path.startsWith('/auth/')) return true;
-  return path === '/auth/me';
+  // The account screens act on a signed-in session like any other page.
+  return SIGNED_IN_AUTH_PATHS.has(path);
 }
 
 /*
@@ -160,8 +192,12 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
 
   // An expired access token is recoverable exactly once per request.
   if (response.status === 401 && !retrying && canRefresh(path)) {
-    const refreshed = await refreshSession();
-    if (refreshed) return apiRequest<T>(path, { ...options, retrying: true });
+    const outcome = await refreshSession();
+    if (outcome === 'refreshed') return apiRequest<T>(path, { ...options, retrying: true });
+    if (outcome === 'raced') {
+      await sleep(RACE_RETRY_MS);
+      return apiRequest<T>(path, { ...options, retrying: true });
+    }
   }
 
   // The session is gone for good: the refresh failed, or succeeded and the

@@ -1,7 +1,15 @@
 'use strict';
 
 const mongoose = require('mongoose');
-const { EVENT_TYPE, SMS_STATUS, SMS_BLOCK_REASON, SMS_PURPOSE, values } = require('../domain/constants');
+const {
+  EVENT_TYPE,
+  SMS_STATUS,
+  SMS_BLOCK_REASON,
+  SMS_PURPOSE,
+  SMS_PAYER,
+  SMS_CATEGORY,
+  values,
+} = require('../domain/constants');
 
 /**
  * One row per SMS this platform attempted. Written by services/sms.js and by
@@ -48,6 +56,14 @@ const smsLogSchema = new mongoose.Schema(
     /* ------------------------------------------------------------- origin -- */
 
     purpose: { type: String, enum: values(SMS_PURPOSE), required: true, index: true },
+    /*
+     * Who pays, which is also which switch governed the send (docs/adr/0013).
+     * Rows written before this field existed have none; read a missing value as
+     * reseller when `reseller` is set and owner otherwise.
+     */
+    payer: { type: String, enum: values(SMS_PAYER), default: null },
+    category: { type: String, enum: values(SMS_CATEGORY), default: null },
+
     /** Absent for a test or a hand-typed message, which belong to no event. */
     eventType: { type: String, enum: values(EVENT_TYPE), default: null },
 

@@ -15,6 +15,15 @@ const schema = z.object({
   // token would verify as an access token.
   JWT_ACCESS_SECRET: z.string().min(32, 'JWT_ACCESS_SECRET must be at least 32 chars'),
   JWT_REFRESH_SECRET: z.string().min(32, 'JWT_REFRESH_SECRET must be at least 32 chars'),
+  // Mixed into every stored OTP hash, so a leaked database does not hand over a
+  // six digit code by brute force in a millisecond. Falls back to the refresh
+  // secret when unset. Changing it voids codes already sent, nothing else.
+  OTP_PEPPER: z.string().min(32, 'OTP_PEPPER must be at least 32 chars').optional(),
+  // The owner's new-device OTP (docs/adr/0014). On unless set false, and false
+  // is refused in production. The test helpers turn it off so the many tests
+  // that sign the owner in do not each need a code; the identity tests turn it
+  // back on.
+  OWNER_DEVICE_OTP: z.enum(['true', 'false', '1', '0']).default('true'),
   ACCESS_TOKEN_TTL: z.string().default('15m'),
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(30),
 
@@ -124,6 +133,10 @@ if (env.NODE_ENV === 'production' && cookieSecureSetting === false) {
   // can take. There is no production setup where that is the right answer.
   problems.push('COOKIE_SECURE cannot be false in production');
 }
+if (env.NODE_ENV === 'production' && (env.OWNER_DEVICE_OTP === 'false' || env.OWNER_DEVICE_OTP === '0')) {
+  // The owner's password alone would open every reseller's money again.
+  problems.push('OWNER_DEVICE_OTP cannot be false in production');
+}
 if (problems.length > 0) {
   const lines = problems.map((p) => `  - ${p}`);
   throw new Error(`Invalid environment configuration:\n${lines.join('\n')}`);
@@ -131,6 +144,9 @@ if (problems.length > 0) {
 // Unset follows NODE_ENV: secure in production, plain elsewhere so localhost works.
 env.COOKIE_SECURE =
   cookieSecureSetting === undefined ? env.NODE_ENV === 'production' : cookieSecureSetting;
+
+env.ownerDeviceOtp = env.OWNER_DEVICE_OTP === 'true' || env.OWNER_DEVICE_OTP === '1';
+env.otpPepper = env.OTP_PEPPER || env.JWT_REFRESH_SECRET;
 
 env.runJobs = env.RUN_JOBS === 'true' || env.RUN_JOBS === '1';
 

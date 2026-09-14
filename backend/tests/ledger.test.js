@@ -128,7 +128,6 @@ test('the ledger always reconciles against the stored balance', async () => {
           amountPoisha: toPoisha(1000),
           idempotencyKey: `deposit:test-${i}:credit:v1`,
           refType: 'deposit',
-          enforceCreditLimit: false,
         })
       );
     }
@@ -223,7 +222,6 @@ test('the same idempotency key credits once, however many times it is posted', a
         amountPoisha: toPoisha(1000),
         idempotencyKey: 'deposit:same-id:credit:v1',
         refType: 'deposit',
-        enforceCreditLimit: false,
       })
     );
 
@@ -345,7 +343,7 @@ test('a returned order reverses the goods but keeps the courier fee by default',
   });
   assert.equal(credits, 0, 'a refused order was credited as if it had been collected');
 
-  // Travelled mangoes are gone, so a return never restores stock.
+  // Without the "put back in stock" box, a return leaves stock where it is.
   const afterProduct = await Product.findById(product._id);
   assert.equal(afterProduct.stockQtyMilli, toMilli(90));
 });
@@ -466,7 +464,6 @@ test('the ledger refuses to be edited or deleted', async () => {
       amountPoisha: toPoisha(100),
       idempotencyKey: 'manual:immutable-test',
       refType: 'manual',
-      enforceCreditLimit: false,
     })
   );
 

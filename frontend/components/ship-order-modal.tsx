@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Field, Input } from '@/components/ui/form';
 import { Modal } from '@/components/ui/modal';
 import { useToast } from '@/components/ui/toast';
+import { DeliveryChargeField, useDeliveryCharge } from '@/components/delivery-charge-field';
 
 /** The owner hands an order to a courier. Shared by the orders list and the order page. */
 export function ShipModal({ order, onClose }: { order: Order | null; onClose: () => void }) {
@@ -18,15 +19,25 @@ export function ShipModal({ order, onClose }: { order: Order | null; onClose: ()
   const [courierName, setCourierName] = useState('');
   const [trackingNumber, setTrackingNumber] = useState('');
 
+  // Ship is the last moment the charge can change: once shipped it is locked.
+  const charge = useDeliveryCharge(order);
+
   const ship = useMutation({
-    mutationFn: () => api.post(`/owner/orders/${order!.id}/ship`, { courierName, trackingNumber }),
+    mutationFn: async () => {
+      // Before the transition, because after it the API refuses the change.
+      await charge.apply();
+      return api.post(`/owner/orders/${order!.id}/ship`, { courierName, trackingNumber });
+    },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['owner'] });
       setCourierName('');
       setTrackingNumber('');
+      charge.reset();
       onClose();
       toast(t('order.shippedToast'));
     },
+    // A failure after the charge went through still changed the order.
+    onError: () => queryClient.invalidateQueries({ queryKey: ['owner'] }),
   });
 
   if (!order) return null;
@@ -36,7 +47,7 @@ export function ShipModal({ order, onClose }: { order: Order | null; onClose: ()
       open
       onClose={onClose}
       title={`${t('order.ship')} · ${order.orderCode}`}
-      dirty={courierName.trim().length > 0 || trackingNumber.trim().length > 0}
+      dirty={courierName.trim().length > 0 || trackingNumber.trim().length > 0 || charge.changed}
       footer={
         <>
           <Button variant="outline" onClick={onClose}>
@@ -44,7 +55,7 @@ export function ShipModal({ order, onClose }: { order: Order | null; onClose: ()
           </Button>
           <Button
             loading={ship.isPending}
-            disabled={courierName.trim().length < 2}
+            disabled={courierName.trim().length < 2 || !charge.check.ok}
             onClick={() => ship.mutate()}
           >
             {t('order.ship')}
@@ -62,7 +73,6 @@ export function ShipModal({ order, onClose }: { order: Order | null; onClose: ()
         label={t('order.trackingNumber')}
         htmlFor="trackingNumber"
         hint={t('app.optional')}
-        className="mb-0"
       >
         <Input
           id="trackingNumber"
@@ -71,6 +81,8 @@ export function ShipModal({ order, onClose }: { order: Order | null; onClose: ()
           onChange={(e) => setTrackingNumber(e.target.value)}
         />
       </Field>
+
+      <DeliveryChargeField order={order} state={charge} id="ship-delivery-charge" className="mb-0" />
     </Modal>
   );
 }

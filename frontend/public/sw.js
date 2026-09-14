@@ -54,12 +54,30 @@ function isSafePath(value) {
 }
 
 /**
+ * Which event a push was, as far as can be told.
+ *
+ * The push payload carries the event's `data` but not its type, so the type is
+ * read when the server includes it and otherwise recognised by the fields only
+ * that event writes (see backend/src/jobs). Anything unrecognised is null.
+ */
+function eventOf(data) {
+  if (!data) return null;
+  if (typeof data.eventType === 'string') return data.eventType;
+  if (typeof data.driftedCount === 'number') return 'alert.ledger_drift';
+  if ('agingCount' in data && 'nearLimitCount' in data) return 'alert.daily_digest';
+  if ('balancePoisha' in data && 'creditLimitPoisha' in data) return 'balance.near_limit';
+  return null;
+}
+
+/**
  * Where a tapped notification goes.
  *
  * An explicit `data.url` wins when the server sends one. Otherwise an order
- * notification opens that order's page, and anything else opens the inbox,
- * which lists it. Without a known role the root is the safe answer: it sends a
- * signed-in person to their own dashboard.
+ * notification opens that order's page; ledger drift opens the reports page,
+ * the morning digest the dashboard, and a reseller near their limit the wallet,
+ * matching `hrefFor` in `components/notifications-view.tsx`. Anything else
+ * opens the inbox, which lists it. Without a known role the root is the safe
+ * answer: it sends a signed-in person to their own dashboard.
  */
 function targetFor(data, role) {
   if (data && isSafePath(data.url)) return data.url;
@@ -67,6 +85,12 @@ function targetFor(data, role) {
   if (data && typeof data.orderId === 'string' && /^[a-f0-9]{24}$/i.test(data.orderId)) {
     return `/${role}/orders/${data.orderId}`;
   }
+
+  const event = eventOf(data);
+  if (role === 'owner' && event === 'alert.ledger_drift') return '/owner/reports';
+  if (role === 'owner' && event === 'alert.daily_digest') return '/owner';
+  if (role === 'reseller' && event === 'balance.near_limit') return '/reseller/wallet';
+
   return `/${role}/notifications`;
 }
 

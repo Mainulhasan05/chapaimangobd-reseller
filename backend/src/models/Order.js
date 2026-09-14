@@ -123,6 +123,9 @@ const orderSchema = new mongoose.Schema(
         at: { type: Date, default: Date.now },
         by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
         note: { type: String, maxlength: 500 },
+        // Set on an entry that records something other than a status change,
+        // such as 'customer_edited'. Such an entry repeats the current status.
+        event: { type: String },
         // Set only on the confirm entry, and only when the reseller changed the
         // payment mode the customer chose. See docs/adr/0007.
         paymentModeFrom: { type: String, enum: values(PAYMENT_MODE) },

@@ -86,6 +86,7 @@ export function AppShell({
   const logout = useLogout();
   const online = useOnline();
   const [menuOpen, setMenuOpen] = useState(false);
+  const accountHref = (role === 'owner' ? '/owner/account' : '/reseller/account') as Route;
 
   useEffect(() => {
     if (isLoading) return;
@@ -94,8 +95,12 @@ export function AppShell({
       router.replace(`/login?next=${encodeURIComponent(pathname)}` as Route);
     } else if (session.user.role !== role) {
       router.replace(session.user.role === 'owner' ? '/owner' : '/reseller');
+    } else if (session.user.mustChangePassword && pathname !== accountHref) {
+      // A temporary password from the owner is good for one thing: choosing a
+      // real one. Every other screen waits until that is done.
+      router.replace(accountHref);
     }
-  }, [session, isLoading, role, router, pathname]);
+  }, [session, isLoading, role, router, pathname, accountHref]);
 
   // Keeps the push worker's idea of who is signed in here current, so a tapped
   // notification opens this role's pages even after an account switch.

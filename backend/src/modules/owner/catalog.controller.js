@@ -39,9 +39,29 @@ async function updateSource(req, res) {
     delete patch.phone;
   }
 
+  const existing = await Source.findById(req.params.id);
+  if (!existing) throw notFound('Source not found');
+
   const source = await Source.findByIdAndUpdate(req.params.id, { $set: patch }, { new: true });
   if (!source) throw notFound('Source not found');
+
+  if (patch.isArchived !== undefined && Boolean(existing.isArchived) !== Boolean(source.isArchived)) {
+    await auditArchive(req, 'Source', source, existing.isArchived, source.isArchived);
+  }
   return ok(res, { source });
+}
+
+/** Archiving and restoring retire things orders refer to, so both are recorded. */
+function auditArchive(req, targetType, doc, wasArchived, isArchived) {
+  return audit.record({
+    actor: req.user._id,
+    action: `${targetType.toLowerCase()}.${isArchived ? 'archive' : 'unarchive'}`,
+    targetType,
+    targetId: doc._id,
+    before: { isArchived: Boolean(wasArchived) },
+    after: { isArchived: Boolean(isArchived) },
+    ip: req.ip,
+  });
 }
 
 /**
@@ -49,12 +69,16 @@ async function updateSource(req, res) {
  * resolvable or the order history stops making sense.
  */
 async function archiveSource(req, res) {
+  const existing = await Source.findById(req.params.id);
+  if (!existing) throw notFound('Source not found');
+
   const source = await Source.findByIdAndUpdate(
     req.params.id,
     { $set: { isArchived: true } },
     { new: true }
   );
   if (!source) throw notFound('Source not found');
+  if (!existing.isArchived) await auditArchive(req, 'Source', source, false, true);
   return ok(res, { source });
 }
 
@@ -156,6 +180,10 @@ async function updateProduct(req, res) {
    */
   await imageService.removeMany(removed);
 
+  if (patch.isArchived !== undefined && Boolean(existing.isArchived) !== Boolean(product.isArchived)) {
+    await auditArchive(req, 'Product', product, existing.isArchived, product.isArchived);
+  }
+
   // A cost price change is the kind of thing that gets argued about later.
   if (patch.costPricePoisha !== undefined && patch.costPricePoisha !== existing.costPricePoisha) {
     await audit.record({
@@ -184,12 +212,16 @@ async function uploadImages(files) {
 }
 
 async function archiveProduct(req, res) {
+  const existing = await Product.findById(req.params.id);
+  if (!existing) throw notFound('Product not found');
+
   const product = await Product.findByIdAndUpdate(
     req.params.id,
     { $set: { isArchived: true, isAvailable: false } },
     { new: true }
   );
   if (!product) throw notFound('Product not found');
+  if (!existing.isArchived) await auditArchive(req, 'Product', product, false, true);
   return ok(res, { product: present.product(product) });
 }
 
@@ -246,12 +278,38 @@ async function updateZone(req, res) {
   if (req.body.isActive !== undefined) patch.isActive = req.body.isActive;
   if (req.body.sortOrder !== undefined) patch.sortOrder = req.body.sortOrder;
 
+  const existing = await DeliveryZone.findById(req.params.id);
+  if (!existing) throw notFound('Zone not found');
+
   const zone = await DeliveryZone.findByIdAndUpdate(req.params.id, { $set: patch }, { new: true });
   if (!zone) throw notFound('Zone not found');
+
+  // Switching a zone off stops every district in it from ordering.
+  if (patch.isActive !== undefined && existing.isActive !== zone.isActive) {
+    await audit.record({
+      actor: req.user._id,
+      action: zone.isActive ? 'zone.activate' : 'zone.deactivate',
+      targetType: 'DeliveryZone',
+      targetId: zone._id,
+      before: { isActive: existing.isActive },
+      after: { isActive: zone.isActive },
+      ip: req.ip,
+    });
+  }
   return ok(res, { zone });
 }
 
 async function deleteZone(req, res) {
+  const existing = await DeliveryZone.findById(req.params.id);
+  if (!existing) throw notFound('Zone not found');
+
+  const snapshotZone = {
+    name: existing.name,
+    districts: existing.districts,
+    chargePoisha: existing.chargePoisha,
+    isActive: existing.isActive,
+  };
+
   const inUse = await Order.exists({ deliveryZone: req.params.id });
   if (inUse) {
     // Deactivate instead, so historical orders keep resolving.
@@ -260,10 +318,30 @@ async function deleteZone(req, res) {
       { $set: { isActive: false } },
       { new: true }
     );
+    if (existing.isActive) {
+      await audit.record({
+        actor: req.user._id,
+        action: 'zone.deactivate',
+        targetType: 'DeliveryZone',
+        targetId: existing._id,
+        before: snapshotZone,
+        after: { isActive: false },
+        ip: req.ip,
+      });
+    }
     return ok(res, { zone, deactivated: true });
   }
 
   await DeliveryZone.deleteOne({ _id: req.params.id });
+  await audit.record({
+    actor: req.user._id,
+    action: 'zone.delete',
+    targetType: 'DeliveryZone',
+    targetId: existing._id,
+    before: snapshotZone,
+    after: null,
+    ip: req.ip,
+  });
   return ok(res, { deleted: true });
 }
 

@@ -9,6 +9,7 @@ const reports = require('./reports.controller');
 const settings = require('./settings.controller');
 const sms = require('./sms.controller');
 const customers = require('./customers.controller');
+const auditLog = require('./audit.controller');
 const notifications = require('../shared/notifications.controller');
 const schema = require('./schema');
 const validate = require('../../middleware/validate');
@@ -85,6 +86,22 @@ router.patch(
   validate({ body: schema.updateReseller }),
   asyncHandler(resellers.updateReseller)
 );
+/*
+ * A temporary password is a credential handed out by hand. Few are ever needed;
+ * a burst means a stolen owner session walking the reseller list.
+ */
+const passwordResetLimiter = createLimiter({
+  name: 'owner-password-reset',
+  windowMs: 60 * 60 * 1000,
+  limit: 20,
+  keyGenerator: (req) => String(req.user._id),
+  message: 'Too many password resets, please try again later',
+});
+router.post(
+  '/resellers/:id/password-reset',
+  passwordResetLimiter,
+  asyncHandler(resellers.resetPassword)
+);
 router.get('/resellers/:id/ledger', asyncHandler(finance.resellerLedger));
 router.post(
   '/resellers/:id/ledger',
@@ -121,13 +138,19 @@ router.post('/orders/:id/deliver', validate({ body: schema.transitionBody }), as
 router.post('/orders/:id/cancel', validate({ body: schema.transitionBody }), asyncHandler(orders.cancel));
 router.post(
   '/orders/:id/return',
-  validate({ body: schema.transitionBody }),
+  validate({ body: schema.returnBody }),
   asyncHandler(orders.markReturned)
 );
 router.patch(
   '/orders/:id/delivery-charge',
   validate({ body: schema.overrideDeliveryCharge }),
   asyncHandler(orders.overrideDeliveryCharge)
+);
+// Delivery name, phone and address, until the order ships. PLAN-2 decision 9.
+router.patch(
+  '/orders/:id/customer',
+  validate({ body: schema.editCustomer }),
+  asyncHandler(orders.editCustomer)
 );
 
 /* finance */
@@ -149,6 +172,9 @@ router.post(
   validate({ body: schema.approveWithdrawal.merge(schema.reviewDecision) }),
   asyncHandler(finance.decideWithdrawal)
 );
+
+/* audit log */
+router.get('/audit', validate({ query: schema.listAudit }), asyncHandler(auditLog.list));
 
 /* reports */
 router.get('/reports/dashboard', asyncHandler(reports.dashboard));

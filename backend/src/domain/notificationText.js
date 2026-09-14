@@ -162,6 +162,44 @@ const TEXT = {
       body: lines.length ? lines.join('\n') : undefined,
     };
   },
+
+  // The owner account signed in from a device it had not used in thirty days.
+  // Worth reading even when it was the owner: if it was not, this is the only
+  // warning they get. See docs/adr/0014.
+  [EVENT_TYPE.ALERT_NEW_DEVICE]: (d) => ({
+    title: 'নতুন ডিভাইস থেকে লগইন',
+    body:
+      [d.at, d.device, d.ip ? `IP ${d.ip}` : null].filter(Boolean).join(' · ') ||
+      'আপনি না হলে এখনই পাসওয়ার্ড বদলান',
+  }),
+
+  /* ------------------------------------------------------ phase e: lifecycle -- */
+
+  // The other party corrected where a parcel goes. Whoever packs or phones the
+  // customer next has to work from the new details, not the ones they remember.
+  [EVENT_TYPE.ORDER_CUSTOMER_EDITED]: (d) => ({
+    title: 'অর্ডারের ঠিকানা বা ফোন বদলানো হয়েছে',
+    body:
+      [d.orderCode, d.shopName, d.zoneChanged ? 'ডেলিভারি এলাকা বদলেছে' : null]
+        .filter(Boolean)
+        .join(' · ') || undefined,
+  }),
+
+  // docs/adr/0011: the shop stops, the balance stays, a withdrawal is still possible.
+  [EVENT_TYPE.RESELLER_DEACTIVATED]: (d) => ({
+    title: 'আপনার অ্যাকাউন্ট বন্ধ করা হয়েছে',
+    body: [
+      'দোকানে নতুন অর্ডার নেওয়া বন্ধ। ব্যালেন্স থাকলে উত্তোলনের আবেদন করতে পারবেন।',
+      d.cancelledCount ? `${d.cancelledCount}টি অপেক্ষমাণ অর্ডার বাতিল হয়েছে` : null,
+    ]
+      .filter(Boolean)
+      .join(' '),
+  }),
+
+  [EVENT_TYPE.RESELLER_REACTIVATED]: () => ({
+    title: 'আপনার অ্যাকাউন্ট আবার চালু হয়েছে',
+    body: 'এখন আবার অর্ডার নিতে পারবেন',
+  }),
 };
 
 /**

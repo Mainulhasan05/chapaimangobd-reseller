@@ -104,7 +104,8 @@ const presentWithdrawal = (w) => ({
 /**
  * Cash on delivery leaves margin sitting in the wallet, so there has to be a way
  * out. A request only makes sense up to what is actually there: the credit limit
- * is headroom for buying stock, not cash the reseller may withdraw.
+ * is headroom for buying stock, not cash the reseller may withdraw. Checked here
+ * for a friendly error, and again atomically at approval. See docs/adr/0009.
  */
 async function createWithdrawal(req, res) {
   const amountPoisha = toPoisha(req.body.amount, 'amount');

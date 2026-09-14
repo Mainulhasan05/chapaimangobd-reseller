@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDownToLine, ArrowUpFromLine, CreditCard, Inbox, Landmark, Wallet as WalletIcon } from 'lucide-react';
 import { api, errorMessage, fieldErrors } from '@/lib/api';
-import { t } from '@/lib/i18n/bn';
+import { t, tLedgerKind } from '@/lib/i18n/bn';
 import { formatMoney, formatSignedMoney, formatDateTime } from '@/lib/format';
 import { checkMoney, moneyError } from '@/lib/money';
 import type { Deposit, LedgerEntry, Wallet, Withdrawal } from '@/lib/types';
@@ -142,7 +142,14 @@ export default function WalletPage() {
               {ledger.data.entries.map((entry) => (
                 <li key={entry.id} className="flex items-start justify-between gap-3 py-3">
                   <div className="min-w-0">
-                    <p className="truncate text-sm">{entry.note ?? entry.kind}</p>
+                    {/*
+                     * The kind, in Bengali, is the headline. The note is the
+                     * server's own sentence and follows it where there is one.
+                     */}
+                    <p className="truncate text-sm">{tLedgerKind(entry.kind)}</p>
+                    {entry.note && (
+                      <p className="truncate text-xs text-muted-foreground">{entry.note}</p>
+                    )}
                     <p className="text-xs text-muted-foreground">
                       {formatDateTime(entry.createdAt)}
                     </p>
@@ -180,8 +187,10 @@ export default function WalletPage() {
                         {formatDateTime(entry.createdAt)}
                       </Td>
                       <Td>
-                        <div>{entry.note ?? entry.kind}</div>
-                        <div className="text-xs text-muted-foreground">{entry.kind}</div>
+                        <div>{tLedgerKind(entry.kind)}</div>
+                        {entry.note && (
+                          <div className="text-xs text-muted-foreground">{entry.note}</div>
+                        )}
                       </Td>
                       <Td
                         className={`tabular text-right ${

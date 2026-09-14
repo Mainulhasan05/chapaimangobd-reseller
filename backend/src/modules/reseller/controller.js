@@ -11,7 +11,8 @@ const telegram = require('../../channels/telegram');
 const pricing = require('../../services/pricing');
 const present = require('../../utils/present');
 const { ok } = require('../../middleware/error');
-const { badRequest, notFound, forbidden } = require('../../utils/errors');
+const { badRequest, notFound, forbidden, conflict } = require('../../utils/errors');
+const audit = require('../../services/audit');
 const { assertValidSlug } = require('../../utils/slug');
 const { toPoisha, toTaka } = require('../../utils/money');
 const { fromMilli } = require('../../utils/quantity');
@@ -19,7 +20,12 @@ const { KYC_STATUS, REVIEW_STATUS, KYC_DOC_TYPE } = require('../../domain/consta
 
 /* ------------------------------------------------------------------- profile */
 
-const getProfile = async (req, res) => ok(res, { profile: req.reseller });
+/*
+ * `isActive` lives on the account, not the profile, and is merged in so the
+ * interface can show the deactivated banner from the one call it already makes.
+ */
+const getProfile = async (req, res) =>
+  ok(res, { profile: { ...req.reseller.toJSON(), isActive: req.user.isActive } });
 
 async function updateProfile(req, res) {
   const profile = req.reseller;
@@ -129,6 +135,13 @@ async function submitKyc(req, res) {
     throw badRequest('ALREADY_APPROVED', 'Your KYC is already approved');
   }
 
+  // Checked before anything is uploaded, so a double tap stores no orphan scans.
+  const alreadyPending = () =>
+    conflict('KYC_ALREADY_PENDING', 'Your documents are already waiting for review');
+  if (await KycSubmission.exists({ reseller: profile._id, status: REVIEW_STATUS.PENDING })) {
+    throw alreadyPending();
+  }
+
   const files = req.files || [];
   if (files.length === 0) {
     throw badRequest('NO_DOCUMENTS', 'Upload at least the front of your NID');
@@ -157,11 +170,22 @@ async function submitKyc(req, res) {
     });
   }
 
-  const submission = await KycSubmission.create({
-    reseller: profile._id,
-    documents,
-    status: REVIEW_STATUS.PENDING,
-  });
+  let submission;
+  try {
+    submission = await KycSubmission.create({
+      reseller: profile._id,
+      documents,
+      status: REVIEW_STATUS.PENDING,
+    });
+  } catch (err) {
+    // Two submissions raced past the check above and the partial unique index
+    // let one in. The loser's scans are released rather than left orphaned.
+    if (!(err && err.code === 11000)) throw err;
+    await Promise.all(
+      documents.map((d) => storage.destroy(d.storageKey).catch(() => undefined))
+    );
+    throw alreadyPending();
+  }
 
   profile.kycStatus = KYC_STATUS.PENDING;
   await profile.save();
@@ -231,6 +255,8 @@ async function setCatalogPrice(req, res) {
   const sellPricePoisha = toPoisha(req.body.sellPrice, 'sellPrice');
   pricing.assertSellPrice(sellPricePoisha, product);
 
+  const existing = await ResellerProduct.findOne({ reseller: req.reseller._id, product: product._id });
+
   const listing = await ResellerProduct.findOneAndUpdate(
     { reseller: req.reseller._id, product: product._id },
     {
@@ -243,6 +269,28 @@ async function setCatalogPrice(req, res) {
     { new: true, upsert: true, setDefaultsOnInsert: true }
   );
 
+  /*
+   * What a customer is charged is the kind of thing argued about later, so a
+   * price or visibility change is recorded. Only the fields that moved.
+   */
+  const LISTING_FIELDS = ['sellPricePoisha', 'hidePrice', 'isListed'];
+  const moved = LISTING_FIELDS.filter((f) => !existing || existing[f] !== listing[f]);
+  if (moved.length > 0) {
+    await audit.record({
+      actor: req.user._id,
+      action: existing ? 'reseller.listing_update' : 'reseller.listing_create',
+      targetType: 'ResellerProduct',
+      targetId: listing._id,
+      before: existing ? Object.fromEntries(moved.map((f) => [f, existing[f]])) : null,
+      after: {
+        ...Object.fromEntries(moved.map((f) => [f, listing[f]])),
+        product: product._id,
+        reseller: req.reseller._id,
+      },
+      ip: req.ip,
+    });
+  }
+
   return ok(res, {
     listing: {
       product: product._id,
@@ -254,7 +302,25 @@ async function setCatalogPrice(req, res) {
 }
 
 async function removeCatalogListing(req, res) {
-  await ResellerProduct.deleteOne({ reseller: req.reseller._id, product: req.params.productId });
+  const removed = await ResellerProduct.findOneAndDelete({
+    reseller: req.reseller._id,
+    product: req.params.productId,
+  });
+  if (removed) {
+    await audit.record({
+      actor: req.user._id,
+      action: 'reseller.listing_remove',
+      targetType: 'ResellerProduct',
+      targetId: removed._id,
+      before: {
+        sellPricePoisha: removed.sellPricePoisha,
+        hidePrice: removed.hidePrice,
+        isListed: removed.isListed,
+        product: removed.product,
+      },
+      ip: req.ip,
+    });
+  }
   return ok(res, { removed: true });
 }
 
