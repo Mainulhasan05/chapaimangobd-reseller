@@ -19,14 +19,51 @@ const { toLocalBd } = require('../utils/phone');
 
 const gsm7 = require('../utils/gsm7');
 
+/**
+ * The gateway's reply codes, as published at https://sms.automas.com.bd/api.
+ *
+ * This table used to be guessed, and wrongly: 108 was read as a bad number when
+ * it is a blocked IP, and 102 was not listed at all, so the one failure every
+ * send was actually getting surfaced as "status 102" with no meaning attached.
+ */
 const STATUS = {
   SUCCESS: 0,
+  INVALID_LENGTH: 101,
+  INVALID_SENDER: 102,
   AUTH_FAILED: 103,
+  INVALID_USER: 104,
+  INVALID_NUMBER: 105,
   BAD_API_KEY: 106,
-  INVALID_NUMBER: 108,
-  BLOCKED_SENDER: 109,
+  ACCOUNT_SUSPENDED: 107,
+  IP_NOT_ALLOWED: 108,
+  API_NOT_ALLOWED: 109,
+  DND: 110,
+  SPAM_DETECTED: 111,
   INSUFFICIENT_BALANCE: 1000,
+  ROUTE_ISSUE: 2300,
+  API_ACCESS_DENIED: 2400,
+  SYSTEM_ERROR: 3300,
 };
+
+/**
+ * Rejections that sending the same message again cannot fix: the account, the
+ * sender, the number or the text itself is the problem. Everything else, the
+ * provider being down or the balance being empty, may well pass later.
+ */
+const FINAL = new Set([
+  STATUS.INVALID_LENGTH,
+  STATUS.INVALID_SENDER,
+  STATUS.AUTH_FAILED,
+  STATUS.INVALID_USER,
+  STATUS.INVALID_NUMBER,
+  STATUS.BAD_API_KEY,
+  STATUS.ACCOUNT_SUSPENDED,
+  STATUS.IP_NOT_ALLOWED,
+  STATUS.API_NOT_ALLOWED,
+  STATUS.DND,
+  STATUS.SPAM_DETECTED,
+  STATUS.API_ACCESS_DENIED,
+]);
 
 /** How much of a gateway reply is worth keeping when it is not what we expected. */
 const RAW_LIMIT = 2000;
@@ -63,13 +100,7 @@ class SmsError extends Error {
     this.payload = detail.payload ?? null;
     this.raw = detail.raw ?? null;
     this.durationMs = detail.durationMs ?? null;
-    // An auth failure or an empty gateway balance is our problem, not the
-    // recipient problem, so retrying the same message will not help.
-    this.retryable =
-      code !== STATUS.AUTH_FAILED &&
-      code !== STATUS.BAD_API_KEY &&
-      code !== STATUS.INVALID_NUMBER &&
-      code !== STATUS.BLOCKED_SENDER;
+    this.retryable = !FINAL.has(code);
   }
 }
 
@@ -95,12 +126,16 @@ async function send({ phoneE164, text }) {
   }
 
   const msisdn = toLocalBd(phoneE164);
+  /*
+   * The names are the gateway's, from its documentation. They were `senderid`
+   * and `msg`, which the gateway does not read: it saw no sender and answered
+   * 102 to every message, OTPs included, so nobody could verify a phone.
+   */
   const params = new URLSearchParams({
     apikey: env.smsApiKey,
-    senderid: env.smsSenderId,
+    sender: env.smsSenderId,
     msisdn,
-    msg: text,
-    type: 'text',
+    smstext: text,
   });
 
   // smsformat 8 is the gateway flag for Unicode, without which Bengali arrives
@@ -173,10 +208,31 @@ function describeStatus(code) {
       return 'SMS gateway rejected the API key';
     case STATUS.INVALID_NUMBER:
       return 'SMS gateway rejected the phone number';
-    case STATUS.BLOCKED_SENDER:
+    case STATUS.INVALID_SENDER:
       return 'SMS gateway rejected the sender id';
+    case STATUS.INVALID_LENGTH:
+      return 'SMS gateway rejected the message length';
+    case STATUS.INVALID_USER:
+      return 'SMS gateway does not recognise the account';
+    case STATUS.ACCOUNT_SUSPENDED:
+      return 'SMS gateway account is suspended';
+    case STATUS.IP_NOT_ALLOWED:
+      return 'SMS gateway does not allow this server IP address';
+    case STATUS.API_NOT_ALLOWED:
+    case STATUS.API_ACCESS_DENIED:
+      return 'SMS gateway account is not allowed to use the API';
+    case STATUS.DND:
+      return 'The number is on the do-not-disturb list';
+    case STATUS.SPAM_DETECTED:
+      return 'SMS gateway flagged the message as spam';
     case STATUS.INSUFFICIENT_BALANCE:
       return 'SMS gateway account has no balance left';
+    case STATUS.ROUTE_ISSUE:
+    case STATUS.SYSTEM_ERROR:
+    case 2000:
+    case 3000:
+    case 4000:
+      return 'SMS gateway could not reach the operator, try again later';
     default:
       return `SMS gateway returned status ${code}`;
   }

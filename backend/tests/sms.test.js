@@ -87,6 +87,17 @@ test('a successful send is logged with what the gateway replied', async () => {
 
   assert.equal(result.status, SMS_STATUS.SENT);
 
+  /*
+   * The parameter names Automas documents. `senderid` and `msg` were sent
+   * instead, the gateway answered 102 "Sender Not Valid" to everything, and the
+   * mocked gateway here accepted it all without looking.
+   */
+  const sent = new URLSearchParams(gatewayCalls[0].body);
+  assert.ok(sent.get('sender'), 'the sender id goes in `sender`');
+  assert.equal(sent.get('smstext'), 'Deposit approved');
+  assert.ok(sent.get('apikey'));
+  assert.ok(sent.get('msisdn'));
+
   const log = await SmsLog.findOne({});
   assert.equal(log.status, SMS_STATUS.SENT);
   assert.equal(log.toPhoneE164, user.phoneE164);

@@ -318,7 +318,7 @@ test('customer sms: the queued text is exactly the preview, and is not gated by 
     logs.map((l) => l.text).sort(),
     [acceptPreview.body.data.text, shipPreview.body.data.text].sort()
   );
-  const sentBodies = gatewayCalls.map((c) => new URLSearchParams(c.body).get('msg'));
+  const sentBodies = gatewayCalls.map((c) => new URLSearchParams(c.body).get('smstext'));
   assert.ok(sentBodies.includes(shipPreview.body.data.text));
 });
 
