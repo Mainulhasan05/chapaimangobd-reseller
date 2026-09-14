@@ -12,7 +12,7 @@ const telegram = require('../channels/telegram');
 const smsService = require('./sms');
 const { NOTIFICATION_CHANNEL, SMS_PURPOSE, ROLES } = require('../domain/constants');
 
-const { OUTBOX_STATUS, CHANNEL_STATUS, toChannelState } = OutboxMessage;
+const { OUTBOX_STATUS, OUTBOX_KIND, CHANNEL_STATUS, toChannelState } = OutboxMessage;
 
 /**
  * Drains side effects that were queued during a database transaction.
@@ -54,6 +54,28 @@ async function enqueue({ user, eventType, channels, payload }, { session } = {})
         eventType,
         channels: (channels || []).map(toChannelState),
         payload,
+      },
+    ],
+    session ? { session } : {}
+  );
+  return message;
+}
+
+/**
+ * Queues an SMS to a customer: owner-paid, one channel, no account behind it.
+ *
+ * `text` is stored exactly as rendered for the owner's preview and is sent as
+ * is; nothing downstream re-renders it. Pass `session` from the transition's
+ * transaction so the message exists only if the status change commits.
+ */
+async function enqueueCustomerSms({ phoneE164, text, eventType, orderId }, { session } = {}) {
+  const [message] = await OutboxMessage.create(
+    [
+      {
+        kind: OUTBOX_KIND.CUSTOMER_SMS,
+        eventType,
+        channels: [NOTIFICATION_CHANNEL.SMS],
+        payload: { phoneE164, text, orderId },
       },
     ],
     session ? { session } : {}
@@ -158,6 +180,10 @@ async function processMessage(message) {
     return false;
   }
 
+  if (message.kind === OUTBOX_KIND.CUSTOMER_SMS) {
+    return processCustomerSms(message, states, attempts);
+  }
+
   const user = await User.findById(message.user);
   if (!user) {
     // Nobody left to tell. Not a failure worth retrying or reporting.
@@ -175,6 +201,32 @@ async function processMessage(message) {
   }
 
   const { title, body, data } = message.payload || {};
+  return deliverStates(message, states, attempts, (name) =>
+    deliverOne(name, { user, title, body, data, message })
+  );
+}
+
+/**
+ * A customer SMS. The business pays and the master switch does not apply
+ * (docs/adr/0013); services/sms.js still writes the log row and throws only for
+ * a failure worth retrying.
+ */
+function processCustomerSms(message, states, attempts) {
+  const { phoneE164, text, orderId } = message.payload || {};
+  return deliverStates(message, states, attempts, () =>
+    smsService.sendOwnerPaid({
+      phoneE164,
+      text,
+      purpose: SMS_PURPOSE.CUSTOMER,
+      eventType: message.eventType,
+      outboxMessage: message._id,
+      order: orderId || null,
+    })
+  );
+}
+
+/** Tries each unsent channel with `send`, recording outcomes; see processMessage. */
+async function deliverStates(message, states, attempts, send) {
   const errors = [];
 
   for (const state of states) {
@@ -182,7 +234,7 @@ async function processMessage(message) {
     state.attempts = (state.attempts || 0) + 1;
     try {
       // eslint-disable-next-line no-await-in-loop
-      await deliverOne(state.name, { user, title, body, data, message });
+      await send(state.name);
       state.status = CHANNEL_STATUS.SENT;
       state.sentAt = new Date();
       state.lastError = null;
@@ -293,6 +345,7 @@ async function stopOutboxWorker() {
 
 module.exports = {
   enqueue,
+  enqueueCustomerSms,
   drainOnce,
   tick,
   deadLetterCounts,

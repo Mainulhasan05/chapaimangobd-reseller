@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useMutation } from '@tanstack/react-query';
 import { CircleCheck } from 'lucide-react';
-import { api, ApiError, fieldErrors } from '@/lib/api';
+import { api, ApiError, errorMessage, fieldErrors } from '@/lib/api';
 import { t, tUnit } from '@/lib/i18n/bn';
 import { formatMoney, formatNumber } from '@/lib/format';
 import type { DeliveryZone, PaymentMode, PublicShop } from '@/lib/types';
@@ -107,8 +107,11 @@ export function OrderForm({
   }
 
   const errors = fieldErrors(submit.error);
+  // In Bengali from the error code, never the server's English sentence. A shop
+  // closed between loading the page and pressing the button answers
+  // 409 SHOP_NOT_ACCEPTING, which reads as exactly that.
   const generalError =
-    submit.error instanceof ApiError && !submit.error.fields ? submit.error.message : null;
+    submit.error instanceof ApiError && !submit.error.fields ? errorMessage(submit.error) : null;
 
   const set =
     (key: keyof typeof customer) =>

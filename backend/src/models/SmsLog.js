@@ -77,6 +77,8 @@ const smsLogSchema = new mongoose.Schema(
     triggeredBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     /** The queued side effect this came from, for tracing a retry back. */
     outboxMessage: { type: mongoose.Schema.Types.ObjectId, ref: 'OutboxMessage', default: null },
+    /** The order a customer SMS was about. Null for everything else. */
+    order: { type: mongoose.Schema.Types.ObjectId, ref: 'Order', default: null },
 
     /* ------------------------------------------------------------ outcome -- */
 

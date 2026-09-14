@@ -38,7 +38,7 @@ Sign in at `/login`. The demo seed prints a reseller login and a shop URL.
 ## How the money works
 
 The wallet balance is the reseller's net position with the owner. Negative means
-they owe. Every order carries a payment mode, fixed when it is created.
+they owe. Every order carries a payment mode, fixed when the reseller confirms it.
 
 | | Prepaid | Cash on delivery |
 |---|---|---|
@@ -66,18 +66,107 @@ Three rules the code depends on:
 
 ```bash
 cd backend
-npm test        # 64 tests against an in-memory replica set, no local MongoDB
+npm test        # 205 tests in 10 files, against an in-memory replica set
 npm run smoke   # boots both real servers and walks the whole flow over HTTP
+
+cd ../frontend
+npm run lint
+npx tsc --noEmit
+npm run build   # needed by the smoke test and the end-to-end journeys
+npm run test:e2e
 ```
 
-`npm test` covers the money invariants: the ledger reconciles against the stored
-balance, concurrent confirms debit once, a breached credit limit leaves nothing
-behind, repricing does not move history, and the ledger refuses to be edited.
+`npm test` needs no local MongoDB. It covers the money invariants (the ledger
+reconciles against the stored balance, concurrent confirms debit once, a
+breached credit limit leaves nothing behind, repricing does not move history,
+the ledger refuses to be edited), returns and restock, delivery adjustments,
+withdrawals, deactivation, OTP and trusted devices, customer SMS, Telegram,
+the outbox and job leases, and cursor paging.
 
-`npm run smoke` is the end-to-end check. It starts an in-memory replica set, the
-Express API and the built Next app, then places a customer order, confirms it,
-walks it to delivered, approves a deposit twice, and verifies the ledger
-reconciles. Build the frontend first (`cd frontend && npm run build`).
+`npm run smoke` is the end-to-end check over the real servers. It starts an
+in-memory replica set, the Express API and the built Next app, and never reads
+`backend/.env`. Through the Next rewrite it places and tracks a customer order,
+registers a reseller with an OTP, confirms, signs the owner in from a new device
+with an OTP, previews a customer SMS with no gateway (`available: false`), walks
+an order to delivered, raises a delivery charge after confirm, returns a shipped
+order with restock, approves a deposit twice and a withdrawal once, reconciles
+the ledger, checks the Bengali CSV export and revokes a session. OTP codes are
+read from the API log, where a development server without a gateway writes
+them. Build the frontend first.
+
+`npm run test:e2e` (frontend) walks the main journeys in a browser at 360×740.
+
+## Configuration
+
+`backend/README.md` has the complete environment reference. What changed with
+OTP, customer SMS, Telegram and multi-instance work, in short:
+
+| Variable | Why it matters |
+|---|---|
+| `OWNER_DEVICE_OTP` | Owner sign-in from an untrusted device needs an SMS code. Default `true`; **must be `true` in production** (boot refuses `false`). |
+| `OTP_PEPPER` | Optional secret mixed into stored OTP hashes; falls back to the refresh secret. |
+| `AUTOMAS_API_KEY`, `AUTOMAS_SENDER_ID` | The SMS gateway. In production, registration, password reset and new-device owner login cannot work without it. The older `SMS_API_KEY` / `SMS_SENDER_ID` names are still read. |
+| `PUBLIC_APP_URL` | Where customers reach the site, for the tracking link in customer SMS. Unset, the link is left out. |
+| `TELEGRAM_BOT_TOKEN` | Enables the Telegram channel. `TELEGRAM_BOT_USERNAME` is optional. |
+| `TELEGRAM_WEBHOOK_URL`, `TELEGRAM_WEBHOOK_SECRET` | Webhook instead of polling; the secret is required with the URL. |
+| `RUN_JOBS` | Runs scheduled jobs and Telegram polling in this process. |
+| `SMS_LOW_BALANCE` | Gateway balance, in messages, below which the daily digest warns. |
+| `IMGBB_API_KEY` | Public images. KYC and deposit screenshots stay on private R2 (`R2_*`). |
+| `COOKIE_SECURE` | Follows `NODE_ENV` when unset; `false` is refused in production. |
+| `TRUST_PROXY` | Proxy hops in front of Express. See the deploy checklist. |
+
+The frontend has one variable, `API_ORIGIN`, which Next bakes into the build.
+
+## Deploy checklist
+
+1. **Install exactly what is locked:** `npm ci` in `backend/` and in `frontend/`.
+2. **Environment.** Set the backend variables above and in `backend/README.md`,
+   with `NODE_ENV=production`. Set `API_ORIGIN` for the frontend **before**
+   `npm run build`, because the rewrite is baked in at build time.
+3. **Sync indexes, every deploy, before the new release serves traffic:**
+   `cd backend && npm run db:sync-indexes`. This is mandatory: production runs
+   with `autoIndex` off, and the unique indexes that stop a double ledger post or
+   a duplicated order exist only once this has run. On an existing database this
+   release also changes indexes, so read these first:
+   - **KYC:** a new partial unique index allows one pending submission per
+     reseller. It **fails to build if any reseller already has two pending
+     submissions**; reject the extras first (`backend/README.md` has the query).
+   - **AuditLog:** the old indexes are dropped and replaced with
+     `(…, createdAt, _id)` indexes for cursor paging; a large log takes a while.
+   - **TelegramLink:** a unique index on `user`, one link per account; it fails
+     if an account has two link documents.
+   - **Notification:** a new `(user, createdAt, _id)` index for the paged inbox.
+4. **`RUN_JOBS=true` on one or more instances.** Each job run takes a MongoDB
+   lock and Telegram polling takes a lease, so enabling it everywhere is safe;
+   leaving it off everywhere means reconciliation, the digest, the KYC purge and
+   Telegram polling never run.
+5. **`OWNER_DEVICE_OTP` must be `true`** (or unset) and the SMS gateway
+   configured, or the owner cannot sign in from a new device.
+6. **`COOKIE_SECURE`:** leave unset or `true`, and serve over HTTPS.
+7. **`PUBLIC_APP_URL`:** the public `https://` origin, for customer SMS links.
+8. **`TELEGRAM_*`:** a token to enable it. With a webhook, set both
+   `TELEGRAM_WEBHOOK_URL` (this API's public base URL) and
+   `TELEGRAM_WEBHOOK_SECRET`, and make sure `/api/telegram/webhook/*` reaches the
+   API. Without a webhook, one `RUN_JOBS` instance polls.
+9. **`TRUST_PROXY` must equal the proxy hops in front of Express,** or rate
+   limits either lump every client together or trust a forged address. The
+   browser talks to Next, and Next's `/api` rewrite forwards to Express. That
+   rewrite **passes `X-Forwarded-For` through unchanged and adds no entry of its
+   own** (checked against this Next version), while Express sees the Next server
+   as its direct peer. So:
+   - Next exposed directly, no proxy in front: `X-Forwarded-For` is whatever the
+     client sent, so it cannot be trusted. Leave `TRUST_PROXY=0`; every request
+     then shares the Next server's address for rate limiting. Put a proxy in
+     front instead.
+   - One proxy in front of Next (nginx, Caddy, a load balancer) that appends the
+     client address: `TRUST_PROXY=1`.
+   - Two, such as Cloudflare in front of nginx in front of Next: `TRUST_PROXY=2`.
+
+   Count the proxies before Next; Next itself adds none. After deploying, check
+   that the address in the API's request logs is the client's.
+10. **Verify:** `GET /api/health` answers `db: "up"`; signed in as the owner,
+    `/api/owner/system/health` lists the integrations you expect;
+    `npm run check:storage` passes for R2.
 
 ## Layout
 
@@ -89,19 +178,27 @@ docs/        the plan and the decision records
 
 ## Known gaps
 
-- **Cloudflare R2 is required for uploads,** and it needs two buckets. R2 public
-  access is bucket wide, so KYC scans cannot share a bucket with product photos
-  that customers must load without signing in. `R2_BUCKET` stays private;
-  `R2_PUBLIC_BUCKET` plus `R2_PUBLIC_BASE_URL` serve the images. Without
-  credentials those uploads fail and everything else works. Verify with
-  `npm run check:storage`.
-- **SMS defaults to off,** because Bengali messages are Unicode and cost roughly
-  double. The owner's SMS panel at `/owner/sms` is the master switch: off means
-  no reseller action sends a text, whatever that reseller's own preferences say.
-  Every attempt is recorded in `SmsLog` with the gateway's reply, including the
-  ones that were suppressed, and `services/sms.js` is the only code that may
-  reach the gateway. Set `AUTOMAS_API_KEY` and `AUTOMAS_SENDER_ID`.
+- **The SMS gateway is part of sign-in.** OTP covers registration, password
+  reset, phone changes and new-device owner login. If Automas is down, those
+  wait; the owner's reset of a reseller's password is the fallback for
+  resellers (docs/adr/0014).
+- **Reseller-paid SMS defaults to off.** The owner's master switch at
+  `/owner/sms` governs it; owner-paid SMS (OTP, owner alerts, customer SMS) does
+  not depend on it. Every attempt is recorded in `SmsLog` with its payer and the
+  gateway's reply, including suppressed ones.
+- **Customer SMS only on accept, ship and cancel,** in English (GSM-7) so a
+  message bills at the single-segment rate. Other transitions send nothing.
+- **Public images on ImgBB cannot be deleted by the app.** Removing a product
+  photo leaves its URL reachable. Private files (KYC scans, deposit
+  screenshots) never go there: they live in the private R2 bucket behind signed
+  URLs, and KYC scans are purged on a schedule (docs/adr/0015, 0016). Without R2,
+  KYC and deposit screenshot uploads fail and everything else works.
+- **Returns are whole-order,** and only from shipped. Partial returns, item or
+  quantity edits by the owner, and courier API integrations are deferred.
 - **Web push needs a VAPID keypair** and is best effort regardless: aggressive
-  Android battery savers drop it. The in-app record is the source of truth.
+  Android battery savers drop it. The in-app inbox is the source of truth.
 - **Telegram needs a bot token.** It is the free channel that actually arrives.
+- **Shared state is MongoDB only** (docs/adr/0012). Fine for hundreds to low
+  thousands of orders a day; Redis is deferred.
+
 # chapaimangobd-reseller

@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ShieldAlert } from 'lucide-react';
 import { api, errorMessage, fieldErrors } from '@/lib/api';
-import { useSession, sessionKey } from '@/lib/session';
+import { useReadOnlyAccount, useSession, sessionKey } from '@/lib/session';
 import { t } from '@/lib/i18n/bn';
 import type { ResellerProfile } from '@/lib/types';
 import { Alert, Card, CardHeader, PageHeader } from '@/components/ui/layout';
@@ -39,6 +39,8 @@ function ShopSettings({ profile }: { profile: ResellerProfile }) {
   const queryClient = useQueryClient();
   const toast = useToast();
   const shopUrl = useShopUrl(profile.slug);
+  // Deactivated: the owner closed the shop, and every field here is read only.
+  const readOnly = useReadOnlyAccount();
 
   const [form, setForm] = useState({
     shopName: profile.shopName ?? '',
@@ -112,7 +114,7 @@ function ShopSettings({ profile }: { profile: ResellerProfile }) {
          */}
         <Switch
           checked={profile.formActive}
-          disabled={!approved || save.isPending}
+          disabled={readOnly || !approved || save.isPending}
           onChange={(checked) => save.mutate({ formActive: checked })}
           label={profile.formActive ? t('shop.open') : t('shop.closed')}
           hint={approved ? undefined : t('kyc.gateHelp')}
@@ -123,7 +125,7 @@ function ShopSettings({ profile }: { profile: ResellerProfile }) {
        * Above the name and the link, because this is the first thing a customer
        * sees on the form and the last thing a reseller thinks to set.
        */}
-      <Card className="mb-4">
+      <Card className={readOnly ? 'hidden' : 'mb-4'}>
         <CardHeader title={t('shop.logo')} />
         <ImageField
           label={t('shop.logo')}
@@ -273,6 +275,7 @@ function ShopSettings({ profile }: { profile: ResellerProfile }) {
 
         <Button
           full
+          hidden={readOnly}
           loading={save.isPending}
           onClick={() =>
             save.mutate({

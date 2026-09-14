@@ -14,6 +14,8 @@ import { Field, Select } from '@/components/ui/form';
 import { Modal } from '@/components/ui/modal';
 import { useToast } from '@/components/ui/toast';
 import { DeliveryChargeField, useDeliveryCharge } from '@/components/delivery-charge-field';
+import { CustomerSmsField, useCustomerSms } from '@/components/customer-sms-field';
+import { primeOrder } from '@/components/order-page';
 
 /**
  * Accepting an order, which is where the owner says where each line comes from.
@@ -46,20 +48,26 @@ export function AcceptOrderModal({ order, onClose }: { order: Order | null; onCl
   // Accept is often when the owner first learns what the courier will charge.
   const charge = useDeliveryCharge(order);
 
+  // The optional message to the customer, previewed before it is committed to.
+  const sms = useCustomerSms(order, 'accept');
+
   const accept = useMutation({
     mutationFn: async () => {
       // The charge first, so the accept that follows is taken against the final
       // figure. If the accept then fails, the charge change still stands, and
       // pressing the button again sends it as a no-op.
       await charge.apply();
-      return api.post(`/owner/orders/${order!.id}/accept`, {
+      return api.post<{ order: Order }>(`/owner/orders/${order!.id}/accept`, {
         sources: order!.items.map((item) => ({ itemId: item.id, sourceId: chosen[item.id] })),
+        sendCustomerSms: sms.enabled,
       });
     },
-    onSuccess: async () => {
+    onSuccess: async (data) => {
+      primeOrder(queryClient, 'owner', data.order);
       await queryClient.invalidateQueries({ queryKey: ['owner'] });
       setChosen({});
       charge.reset();
+      sms.reset();
       onClose();
       toast(t('order.acceptedToast'));
     },
@@ -90,7 +98,7 @@ export function AcceptOrderModal({ order, onClose }: { order: Order | null; onCl
           </Button>
           <Button
             loading={accept.isPending}
-            disabled={!complete || available.length === 0 || !charge.check.ok}
+            disabled={!complete || available.length === 0 || !charge.check.ok || !sms.ready}
             onClick={() => accept.mutate()}
           >
             {t('order.accept')}
@@ -171,6 +179,8 @@ export function AcceptOrderModal({ order, onClose }: { order: Order | null; onCl
           <div className="mt-5 border-t border-border pt-4">
             <DeliveryChargeField order={order} state={charge} id="accept-delivery-charge" className="mb-0" />
           </div>
+
+          <CustomerSmsField state={sms} />
         </>
       )}
     </Modal>

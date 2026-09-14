@@ -1,13 +1,14 @@
 'use client';
 
 import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDownToLine, ArrowUpFromLine, CreditCard, Inbox, Landmark, Wallet as WalletIcon } from 'lucide-react';
 import { api, errorMessage, fieldErrors } from '@/lib/api';
+import { useReadOnlyAccount } from '@/lib/session';
 import { t, tLedgerKind } from '@/lib/i18n/bn';
 import { formatMoney, formatSignedMoney, formatDateTime } from '@/lib/format';
 import { checkMoney, moneyError } from '@/lib/money';
-import type { Deposit, LedgerEntry, Wallet, Withdrawal } from '@/lib/types';
+import type { Deposit, LedgerEntry, Paged, Wallet, Withdrawal } from '@/lib/types';
 import {
   Alert,
   Badge,
@@ -30,32 +31,70 @@ import { Field, Input, MoneyInput, Select, Textarea } from '@/components/ui/form
 import { PhoneField } from '@/components/ui/phone-field';
 import { FileField } from '@/components/ui/file-field';
 import { Modal } from '@/components/ui/modal';
+import { SmsCreditsCard } from '@/components/sms-credits-card';
+import { LoadMore } from '@/components/ui/load-more';
 
 const METHODS = ['bkash', 'nagad', 'rocket', 'bank', 'cash'] as const;
+
+const LEDGER_PAGE_SIZE = 30;
+const REQUEST_PAGE_SIZE = 10;
 
 export default function WalletPage() {
   const [depositOpen, setDepositOpen] = useState(false);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
+  // A deactivated account may still take its money out, and do nothing else.
+  const readOnly = useReadOnlyAccount();
 
   const wallet = useQuery({
     queryKey: ['wallet'],
     queryFn: () => api.get<{ wallet: Wallet }>('/reseller/wallet'),
   });
 
-  const ledger = useQuery({
+  // The statement, newest first, a page at a time.
+  const ledger = useInfiniteQuery({
     queryKey: ['ledger'],
-    queryFn: () => api.get<{ entries: LedgerEntry[] }>('/reseller/wallet/ledger?limit=50'),
+    queryFn: ({ pageParam }) =>
+      api.get<Paged<'entries', LedgerEntry>>(
+        `/reseller/wallet/ledger?limit=${LEDGER_PAGE_SIZE}&page=${pageParam}`
+      ),
+    initialPageParam: 1,
+    getNextPageParam: (last, pages) => {
+      const loaded = pages.reduce((count, page) => count + page.entries.length, 0);
+      return loaded < last.total ? pages.length + 1 : undefined;
+    },
   });
+  const entries = ledger.data?.pages.flatMap((page) => page.entries) ?? [];
+  const entryTotal = ledger.data?.pages[0]?.total ?? 0;
+  const ledgerNextError = ledger.isFetchNextPageError ? ledger.error : null;
 
-  const deposits = useQuery({
+  // Both request histories only grow, so they page the same way the statement does.
+  const deposits = useInfiniteQuery({
     queryKey: ['deposits'],
-    queryFn: () => api.get<{ deposits: Deposit[] }>('/reseller/deposits'),
+    queryFn: ({ pageParam }) =>
+      api.get<Paged<'deposits', Deposit>>(
+        `/reseller/deposits?limit=${REQUEST_PAGE_SIZE}&page=${pageParam}`
+      ),
+    initialPageParam: 1,
+    getNextPageParam: (last, pages) => {
+      const loaded = pages.reduce((count, page) => count + page.deposits.length, 0);
+      return loaded < last.total ? pages.length + 1 : undefined;
+    },
   });
+  const depositRows = deposits.data?.pages.flatMap((page) => page.deposits) ?? [];
 
-  const withdrawals = useQuery({
+  const withdrawals = useInfiniteQuery({
     queryKey: ['withdrawals'],
-    queryFn: () => api.get<{ withdrawals: Withdrawal[] }>('/reseller/withdrawals'),
+    queryFn: ({ pageParam }) =>
+      api.get<Paged<'withdrawals', Withdrawal>>(
+        `/reseller/withdrawals?limit=${REQUEST_PAGE_SIZE}&page=${pageParam}`
+      ),
+    initialPageParam: 1,
+    getNextPageParam: (last, pages) => {
+      const loaded = pages.reduce((count, page) => count + page.withdrawals.length, 0);
+      return loaded < last.total ? pages.length + 1 : undefined;
+    },
   });
+  const withdrawalRows = withdrawals.data?.pages.flatMap((page) => page.withdrawals) ?? [];
 
   const balance = wallet.data?.wallet.balance ?? 0;
   const owes = balance < 0;
@@ -103,22 +142,27 @@ export default function WalletPage() {
        * phone put them in the top right corner at thirty-two pixels tall.
        */}
       <div className="mb-6 flex gap-2 [&>button]:flex-1">
-        <Button onClick={() => setDepositOpen(true)}>
-          <ArrowDownToLine className="h-4 w-4" />
-          {t('wallet.depositRequest')}
-        </Button>
+        {!readOnly && (
+          <Button onClick={() => setDepositOpen(true)}>
+            <ArrowDownToLine className="h-4 w-4" />
+            {t('wallet.depositRequest')}
+          </Button>
+        )}
         <Button variant="outline" onClick={() => setWithdrawOpen(true)}>
           <ArrowUpFromLine className="h-4 w-4" />
           {t('wallet.withdrawRequest')}
         </Button>
       </div>
 
+      {/* Hidden unless the owner's SMS switch is on; it renders nothing otherwise. */}
+      <SmsCreditsCard readOnly={readOnly} />
+
       <Card className="mb-6">
         <CardHeader title={t('wallet.ledger')} />
 
         {ledger.isLoading && <ListSkeleton rows={4} />}
 
-        {ledger.isError && (
+        {ledger.isError && entries.length === 0 && (
           <ErrorState
           onRetry={() => ledger.refetch()}
           isRetrying={ledger.isFetching}
@@ -126,11 +170,11 @@ export default function WalletPage() {
         />
         )}
 
-        {ledger.isSuccess && ledger.data.entries.length === 0 && (
+        {ledger.isSuccess && entries.length === 0 && (
           <EmptyState icon={WalletIcon} title={t('wallet.noEntries')} />
         )}
 
-        {ledger.isSuccess && ledger.data.entries.length > 0 && (
+        {entries.length > 0 && (
           <>
             {/*
              * A statement on a phone reads as a list, not a four column table
@@ -139,7 +183,7 @@ export default function WalletPage() {
              * check them in.
              */}
             <ul className="divide-y divide-border sm:hidden">
-              {ledger.data.entries.map((entry) => (
+              {entries.map((entry) => (
                 <li key={entry.id} className="flex items-start justify-between gap-3 py-3">
                   <div className="min-w-0">
                     {/*
@@ -181,7 +225,7 @@ export default function WalletPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {ledger.data.entries.map((entry) => (
+                  {entries.map((entry) => (
                     <Tr key={entry.id}>
                       <Td className="whitespace-nowrap text-xs text-muted-foreground">
                         {formatDateTime(entry.createdAt)}
@@ -205,6 +249,15 @@ export default function WalletPage() {
                 </tbody>
               </table>
             </div>
+
+            <LoadMore
+              hasMore={Boolean(ledger.hasNextPage)}
+              loading={ledger.isFetchingNextPage}
+              onLoadMore={() => ledger.fetchNextPage()}
+              error={ledgerNextError}
+              shown={entries.length}
+              total={entryTotal}
+            />
           </>
         )}
       </Card>
@@ -212,7 +265,14 @@ export default function WalletPage() {
       <div className="grid gap-4 lg:grid-cols-2">
         <RequestList
           title={t('nav.deposits')}
-          rows={(deposits.data?.deposits ?? []).map((d) => ({
+          paging={{
+            hasMore: Boolean(deposits.hasNextPage),
+            loading: deposits.isFetchingNextPage,
+            onLoadMore: () => deposits.fetchNextPage(),
+            error: deposits.isFetchNextPageError ? deposits.error : null,
+            total: deposits.data?.pages[0]?.total ?? 0,
+          }}
+          rows={depositRows.map((d) => ({
             id: d.id,
             amount: d.amount,
             method: d.method,
@@ -223,7 +283,14 @@ export default function WalletPage() {
         />
         <RequestList
           title={t('nav.withdrawals')}
-          rows={(withdrawals.data?.withdrawals ?? []).map((w) => ({
+          paging={{
+            hasMore: Boolean(withdrawals.hasNextPage),
+            loading: withdrawals.isFetchingNextPage,
+            onLoadMore: () => withdrawals.fetchNextPage(),
+            error: withdrawals.isFetchNextPageError ? withdrawals.error : null,
+            total: withdrawals.data?.pages[0]?.total ?? 0,
+          }}
+          rows={withdrawalRows.map((w) => ({
             id: w.id,
             amount: w.amount,
             method: w.method,
@@ -253,7 +320,36 @@ type RequestRow = {
   note?: string;
 };
 
-function RequestList({ title, rows }: { title: string; rows: RequestRow[] }) {
+/** The foot of a request history: where it is, and how to get the next page. */
+type RequestPaging = {
+  hasMore: boolean;
+  loading: boolean;
+  onLoadMore: () => void;
+  error: unknown;
+  total: number;
+};
+
+function RequestList({
+  title,
+  rows,
+  paging,
+}: {
+  title: string;
+  rows: RequestRow[];
+  paging: RequestPaging;
+}) {
+  const footer = (
+    <LoadMore
+      hasMore={paging.hasMore}
+      loading={paging.loading}
+      onLoadMore={paging.onLoadMore}
+      error={paging.error}
+      shown={rows.length}
+      total={paging.total}
+      compact
+    />
+  );
+
   if (rows.length === 0) {
     return (
       <Card>
@@ -282,33 +378,37 @@ function RequestList({ title, rows }: { title: string; rows: RequestRow[] }) {
             </li>
           ))}
         </ul>
+        {footer}
       </Card>
 
-      <TableWrap>
-        <thead>
-          <tr>
-            <Th>{title}</Th>
-            <Th>{t('wallet.method')}</Th>
-            <Th className="text-right">{t('wallet.amount')}</Th>
-            <Th>{t('app.status')}</Th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <Tr key={row.id}>
-              <Td className="text-xs text-muted-foreground">{formatDateTime(row.createdAt)}</Td>
-              <Td className="uppercase">{row.method}</Td>
-              <Td className="tabular text-right">{formatMoney(row.amount)}</Td>
-              <Td>
-                <Badge tone={statusTone(row.status)} dot>
-                {row.status}
-              </Badge>
-                {row.note && <div className="mt-1 text-xs text-danger">{row.note}</div>}
-              </Td>
-            </Tr>
-          ))}
-        </tbody>
-      </TableWrap>
+      <div className="hidden sm:block">
+        <TableWrap>
+          <thead>
+            <tr>
+              <Th>{title}</Th>
+              <Th>{t('wallet.method')}</Th>
+              <Th className="text-right">{t('wallet.amount')}</Th>
+              <Th>{t('app.status')}</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <Tr key={row.id}>
+                <Td className="text-xs text-muted-foreground">{formatDateTime(row.createdAt)}</Td>
+                <Td className="uppercase">{row.method}</Td>
+                <Td className="tabular text-right">{formatMoney(row.amount)}</Td>
+                <Td>
+                  <Badge tone={statusTone(row.status)} dot>
+                  {row.status}
+                </Badge>
+                  {row.note && <div className="mt-1 text-xs text-danger">{row.note}</div>}
+                </Td>
+              </Tr>
+            ))}
+          </tbody>
+        </TableWrap>
+        {footer}
+      </div>
     </>
   );
 }

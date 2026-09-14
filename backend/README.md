@@ -61,6 +61,28 @@ index a schema declares, drops indexes no schema declares any more, prints what
 changed per model and exits non-zero on failure, so a deploy pipeline stops
 there. It is safe to run repeatedly; a second run reports everything up to date.
 
+Before the first deploy of this release on an existing database, know what it
+will change:
+
+- **KYC** gains a partial unique index, `one_pending_per_reseller`: at most one
+  pending submission per reseller. It **fails to build** if any reseller already
+  has two pending submissions. Find them first and reject the older ones:
+
+  ```js
+  db.kycsubmissions.aggregate([
+    { $match: { status: 'pending' } },
+    { $group: { _id: '$reseller', n: { $sum: 1 }, ids: { $push: '$_id' } } },
+    { $match: { n: { $gt: 1 } } },
+  ])
+  ```
+
+- **AuditLog** indexes are replaced by `(…, createdAt, _id)` compound indexes
+  for cursor paging. The old ones are dropped and the new ones built, which on a
+  large audit log takes a while.
+- **TelegramLink** gets a unique index on `user`: one Telegram link per account.
+  It fails to build if an account has two link documents; delete the extra.
+- **Notification** gets `(user, createdAt, _id)` for the paged inbox.
+
 ## Health, shutdown and logs
 
 - `GET /api/health` is public and answers only `{ "ok": true, "db": "up" }`, or
@@ -79,70 +101,132 @@ there. It is safe to run repeatedly; a second run reports everything up to date.
 
 ## Environment
 
-Only four variables are mandatory: `MONGODB_URI`, `JWT_ACCESS_SECRET`,
-`JWT_REFRESH_SECRET`, and the `OWNER_PHONE` / `OWNER_PASSWORD` pair used by the
-seed. Everything else has a working default.
+Validated at boot by `src/config/env.js`; an invalid value stops the process
+with a list of what is wrong. A blank line in `.env` (`KEY=`) counts as unset.
+Only `MONGODB_URI` and the two JWT secrets are required to boot, plus
+`OWNER_PHONE` / `OWNER_PASSWORD` for the seed. Everything else has a working
+default or is an optional integration, and `/api/owner/system/health` (owner
+login) reports which integrations are live.
 
-The two JWT secrets must each be at least 32 characters and must differ; boot
-refuses otherwise. `COOKIE_SECURE` follows `NODE_ENV` when unset (on in
-production), and `COOKIE_SECURE=false` with `NODE_ENV=production` is refused.
+### Reference
 
-Integrations are optional and the app reports which are live at
-`/api/owner/system/health`:
+| Variable | Default | What it does |
+|---|---|---|
+| `NODE_ENV` | `development` | `development`, `test` or `production`. Production turns on secure cookies and refuses the unsafe settings listed below. |
+| `PORT` | `4000` | Port the API listens on. |
+| `APP_URL` | `http://localhost:3000` | The one origin CORS allows outside production, for the Next dev server. Unused in production, where the browser only talks to the Next origin (docs/adr/0005). |
+| `MONGODB_URI` | **required** | A replica set. See the top of this file. |
+| `JWT_ACCESS_SECRET` | **required** | At least 32 characters. |
+| `JWT_REFRESH_SECRET` | **required** | At least 32 characters, and different from the access secret. |
+| `ACCESS_TOKEN_TTL` | `15m` | Access token lifetime, in `jsonwebtoken` notation. |
+| `REFRESH_TOKEN_TTL_DAYS` | `30` | Refresh token lifetime in days. |
+| `OTP_PEPPER` | the refresh secret | Mixed into every stored OTP hash. At least 32 characters when set. Changing it voids codes already sent, nothing else. |
+| `OWNER_DEVICE_OTP` | `true` | The owner's new-device code (docs/adr/0014). `false` is for local development and tests only; **refused in production**. |
+| `COOKIE_SECURE` | follows `NODE_ENV` | Unset means secure in production, plain elsewhere. **`false` is refused in production.** |
+| `COOKIE_DOMAIN` | unset | Sets the cookies' `Domain`. Leave unset for a single-origin deployment. |
+| `TRUST_PROXY` | `0` | How many proxies in front of the Next server append `X-Forwarded-For`. Next's `/api` rewrite passes the header through and adds no hop of its own. Wrong values lump every client into one rate-limit bucket or trust a forged address; see the deploy checklist in the root `README.md`. |
+| `LOG_LEVEL` | `info` | `fatal` `error` `warn` `info` `debug` `trace`. Ignored under `NODE_ENV=test`, which is silent. |
+| `RUN_JOBS` | `false` | Runs the scheduled jobs and may hold the Telegram polling lease in this process. Safe on every instance; see below. |
+| `SMS_LOW_BALANCE` | `200` | The daily digest warns when the gateway balance falls below this many **messages** (Automas reports a count, not taka). |
+| `IMGBB_API_KEY` | unset | Public images (product photos, shop logos, brand assets) go to ImgBB when set. |
+| `IMGBB_UPLOAD_URL` | `https://api.imgbb.com/1/upload` | ImgBB upload endpoint. |
+| `IMGBB_TIMEOUT_MS` | `20000` | Upload timeout, so a slow host cannot hold a request open. |
+| `R2_ACCOUNT_ID` | unset | Cloudflare R2 account. With the next three, enables private storage. |
+| `R2_ACCESS_KEY_ID` | unset | R2 API token key id. |
+| `R2_SECRET_ACCESS_KEY` | unset | R2 API token secret. |
+| `R2_BUCKET` | unset | The **private** bucket: KYC scans and deposit screenshots, signed URLs only. |
+| `R2_PREFIX` | `chapaimango` | Every object key starts with this, so a shared bucket stays legible. |
+| `R2_PUBLIC_BUCKET` | unset | Legacy fallback for public images when ImgBB is not configured. Must differ from `R2_BUCKET`. |
+| `R2_PUBLIC_BASE_URL` | unset | Where the public bucket is served (`r2.dev` or a custom domain), for that fallback. Not the S3 API endpoint. |
+| `VAPID_PUBLIC_KEY` | unset | Web push keypair, public half. |
+| `VAPID_PRIVATE_KEY` | unset | Web push keypair, private half. |
+| `VAPID_SUBJECT` | `mailto:support@example.com` | Contact the push services see. Set a real address. |
+| `AUTOMAS_API_KEY` | unset | Automas SMS gateway key. With the sender id, the gateway is configured. |
+| `AUTOMAS_SENDER_ID` | unset | Automas sender id. |
+| `SMS_API_KEY` | unset | Older name for `AUTOMAS_API_KEY`, still read; the `AUTOMAS_` name wins. |
+| `SMS_SENDER_ID` | unset | Older name for `AUTOMAS_SENDER_ID`, still read. |
+| `SMS_API_URL` | `https://api.automas.com.bd/smsapiv3` | Gateway send endpoint. |
+| `SMS_BALANCE_URL` | `https://api.automas.com.bd/getbalance` | Gateway balance endpoint (lowercase, not under `smsapiv3`). |
+| `PUBLIC_APP_URL` | unset | Where customers reach the site. `{trackUrl}` in customer SMS becomes `${PUBLIC_APP_URL}/track?code=<code>`; unset, that clause is left out. |
+| `TELEGRAM_BOT_TOKEN` | unset | Enables the Telegram channel and bot. |
+| `TELEGRAM_BOT_USERNAME` | from `getMe` | The bot's name without the @, for deep links. |
+| `TELEGRAM_WEBHOOK_URL` | unset | This API's public base URL. Set to use a webhook instead of polling. |
+| `TELEGRAM_WEBHOOK_SECRET` | unset | 16-256 of `A-Z a-z 0-9 _ -`. **Required when `TELEGRAM_WEBHOOK_URL` is set.** |
+| `SKIP_DOTENV` | unset | `true` stops `.env` being read at all, for a process whose environment is already complete. The smoke test sets it. |
 
-- **Cloudflare R2** is required for KYC documents, deposit screenshots and
-  product images. Without it those uploads fail; the rest of the system works.
+Read only by the seed scripts, not validated at boot:
 
-  It needs **two buckets**, not one. R2 public access is bucket wide and cannot
-  be scoped to a prefix, so there is no way to serve product photos publicly
-  while keeping national ID scans private inside a single bucket.
+| Variable | Default | What it does |
+|---|---|---|
+| `OWNER_PHONE` | **required by the seed** | The single owner account's phone. |
+| `OWNER_PASSWORD` | **required by the seed** | Its password. |
+| `OWNER_NAME` | `Owner` | Its display name. |
 
-  | Variable | Bucket | Holds | Access |
-  |---|---|---|---|
-  | `R2_BUCKET` | private | KYC scans, deposit screenshots | signed URLs only, ten minute expiry |
-  | `R2_PUBLIC_BUCKET` | public | product photos, shop logos | readable by anyone, via `R2_PUBLIC_BASE_URL` |
+Boot refuses these combinations: the two JWT secrets equal; `COOKIE_SECURE=false`
+or `OWNER_DEVICE_OTP=false` with `NODE_ENV=production`; `TELEGRAM_WEBHOOK_URL`
+without `TELEGRAM_WEBHOOK_SECRET`.
 
-  The app refuses to write a public image into the private bucket, and refuses to
-  start public delivery if the two names match. Leave `R2_PUBLIC_BUCKET` unset and
-  product image uploads fail with a clear message while KYC keeps working.
+### Integrations
 
-  `R2_PUBLIC_BASE_URL` is the public bucket's `r2.dev` URL or your own domain. It
-  is **not** the S3 API endpoint, which requires a signature on every request.
+- **Storage is split by who may see a file** (docs/adr/0015).
+  - **ImgBB** hosts every public image: product photos, shop logos, brand
+    assets. It needs only `IMGBB_API_KEY`. An ImgBB link is readable by anyone
+    who has it and cannot be deleted by the app, which is fine for a catalog
+    photo and never acceptable for an identity document.
+  - **Cloudflare R2**, the private bucket `R2_BUCKET`, holds KYC scans and
+    deposit screenshots, reachable only through signed URLs with a ten minute
+    expiry. Nothing private ever goes to ImgBB. Without R2, KYC and deposit
+    screenshot uploads fail with a clear message and everything else works.
+    Scans are deleted on a schedule (docs/adr/0016).
+  - Without `IMGBB_API_KEY`, public images fall back to a **separate** public R2
+    bucket (`R2_PUBLIC_BUCKET` plus `R2_PUBLIC_BASE_URL`). It must be separate:
+    R2 public access is bucket wide, so one bucket cannot hold both. The app
+    refuses to start public delivery if the two names match.
 
-  Everything is written under a single prefix, `R2_PREFIX`, defaulting to
-  `chapaimango`, so a bucket shared with another project stays legible and a
-  staging environment can use a different value:
+  Keys are written under `R2_PREFIX`:
 
   ```
   chapaimango/kyc/<uuid>.jpg        private bucket, signed URLs only
   chapaimango/deposits/<uuid>.jpg   private bucket, signed URLs only
-  chapaimango/products/<uuid>.jpg   public bucket, served from R2_PUBLIC_BASE_URL
-  chapaimango/logos/<uuid>.png      public bucket, served from R2_PUBLIC_BASE_URL
+  chapaimango/products/<uuid>.jpg   public bucket, only when ImgBB is not set
+  chapaimango/logos/<uuid>.png      public bucket, only when ImgBB is not set
   ```
 
-  Run `npm run check:storage` to verify it end to end. It uploads a throwaway
+  Run `npm run check:storage` to verify R2 end to end. It uploads a throwaway
   object, reads it back through a signed URL, checks it is **not** readable
   without one, and deletes it.
 
 - **Web push** needs a VAPID keypair. Generate once with
   `node -e "console.log(require('web-push').generateVAPIDKeys())"` and keep it.
   Regenerating silently invalidates every existing subscription.
-- **SMS** uses the Automas gateway and is disabled by a feature flag regardless,
-  so it stays dark until the owner turns it on.
-- **Telegram** needs a bot token and username.
+- **SMS** uses the Automas gateway. Who pays decides which switch governs a
+  message (docs/adr/0013). Reseller-paid SMS needs the owner's master switch,
+  the reseller's own flag and credits, and stays dark until the owner turns it
+  on. Owner-paid SMS (OTP codes, owner alerts, customer SMS) bypasses the master
+  switch and needs only the gateway. Outside production with no gateway, an OTP
+  is written to the log instead of sent; in production a missing gateway makes
+  registration, password reset and new-device owner login answer
+  `SMS_UNAVAILABLE`, so **configure the gateway before going live**.
+- **Customer SMS** is the owner's optional message on accept, ship and cancel,
+  rendered from the GSM-7 templates in Settings. See `PUBLIC_APP_URL`. The
+  substitution rules for Bengali names are at the top of
+  `src/domain/customerSms.js`.
+- **Telegram** needs `TELEGRAM_BOT_TOKEN`. The client is a small fetch wrapper
+  over the Bot API in `src/services/telegramClient.js`. Owner and resellers link
+  from their notification settings with a one-time token valid for 15 minutes;
+  the bot redeems `/start <token>` and `/stop` unlinks.
+  - **Polling** is the default. Only one process may poll: one with
+    `RUN_JOBS=true` that holds the `telegramPolling` MongoDB lease, renewed every
+    20 seconds. Other processes still send.
+  - **Webhook** when `TELEGRAM_WEBHOOK_URL` is set to the public base URL of this
+    API. The bot registers `POST /api/telegram/webhook/<secret>` with the same
+    value as Telegram's secret token, and both are checked in constant time.
+    Make sure your proxy forwards that path to the API.
 
-Background work:
-
-- `RUN_JOBS` (default `false`) enables the scheduled jobs in this process. Set it
-  on at least one instance in production, or reconciliation, the digest and the
-  KYC purge never run. Safe to set on every instance.
-- `SMS_LOW_BALANCE` (default `200`) is the gateway balance below which the
-  digest warns the owner. Automas reports remaining **messages**, not taka, so
-  this is a message count.
-
-`TRUST_PROXY` must equal the exact number of proxy hops in front of Express.
-Guessing collapses every client into one rate-limit bucket, or lets
-`X-Forwarded-For` be attacker controlled.
+Background work: `RUN_JOBS=true` enables the scheduled jobs in this process. Set
+it on at least one instance in production, or reconciliation, the digest and
+the KYC purge never run. It is safe on every instance, because each run takes a
+lock.
 
 ## Running more than one instance
 
@@ -154,7 +238,9 @@ API processes can run behind a load balancer with no extra infrastructure:
   index that removes a window once it ends. Every limiter is built through
   `createLimiter`, so none falls back to a per-process memory store. Limits:
   login and register 20 per 15 minutes per IP; refresh 60 per 15 minutes per
-  IP; public order 10 per 10 minutes per IP and shop, **and** 60 per 10 minutes
+  IP; anything that sends an OTP 10 per 15 minutes per IP (on top of three
+  codes an hour per phone); signed-in account changes 10 per 15 minutes per
+  account; public order 10 per 10 minutes per IP and shop, **and** 60 per 10 minutes
   per shop whatever the IP; tracking 30 per 10 minutes; shop browsing 120 a
   minute; uploads 30 an hour per reseller and 200 an hour for the owner.
 - **The outbox** (`services/outbox.js`) claims each message with an atomic
@@ -179,7 +265,7 @@ API processes can run behind a load balancer with no extra infrastructure:
 
 ```
 src/
-  config/      env validation, db connection, cloudinary, uploads
+  config/      env validation, db connection, logger, R2 storage
   models/      one file per collection
   domain/      constants and the order state machine
   services/    ledger, orders, pricing, stock, notifications, outbox

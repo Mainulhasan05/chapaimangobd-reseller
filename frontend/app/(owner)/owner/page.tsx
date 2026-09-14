@@ -64,7 +64,8 @@ export default function OwnerDashboardPage() {
    */
   const resellers = useQuery({
     queryKey: ['owner', 'resellers', 'debtors'],
-    queryFn: () => api.get<Paged<'resellers', ResellerSummary>>('/owner/resellers?limit=50'),
+    // The whole list: `limit` would page it, and the deepest debtor may be on any page.
+    queryFn: () => api.get<{ resellers: ResellerSummary[] }>('/owner/resellers'),
     staleTime: 5 * 60_000,
   });
 

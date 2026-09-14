@@ -3,6 +3,7 @@
 const Order = require('../../models/Order');
 const { orderSearchFilter } = require('../../utils/orderSearch');
 const orderService = require('../../services/orderService');
+const customerSms = require('../../services/customerSms');
 const { getSettings } = require('../../services/settings');
 const audit = require('../../services/audit');
 const { editCustomer } = require('../shared/orderCustomer.controller');
@@ -11,7 +12,7 @@ const { notFound } = require('../../utils/errors');
 const { toPoisha } = require('../../utils/money');
 const { startOfBusinessDay, endOfBusinessDay, agingCutoff } = require('../../utils/dhakaTime');
 const present = require('../../utils/present');
-const { availableActions } = require('../../domain/orderStateMachine');
+const { availableActions, assertDeliveryChargeEditable } = require('../../domain/orderStateMachine');
 const { ROLES, ORDER_STATUS } = require('../../domain/constants');
 
 async function listOrders(req, res) {
@@ -62,9 +63,7 @@ async function getOrder(req, res) {
   const order = await Order.findById(req.params.id).populate('reseller', 'shopName slug');
   if (!order) throw notFound('Order not found');
 
-  return ok(res, {
-    order: { ...present.order(order), actions: availableActions(order, ROLES.OWNER) },
-  });
+  return ok(res, { order: present.orderFor(order, ROLES.OWNER) });
 }
 
 /**
@@ -90,6 +89,8 @@ function transition(action) {
         // Only `return` reads this: whether the parcel goes back on the shelf.
         restock: req.body.restock === true,
       },
+      // Only accept, ship and cancel carry the box; see schema and docs/adr/0013.
+      sendCustomerSms: req.body.sendCustomerSms === true,
     });
 
     if (action === 'cancel' || action === 'return') {
@@ -106,23 +107,68 @@ function transition(action) {
       });
     }
 
-    return ok(res, { order: present.order(order) });
+    // The same shape as GET /orders/:id, reseller and actions included, so the
+    // order screen can take the response as its new copy without a refetch.
+    await order.populate('reseller', 'shopName slug');
+    return ok(res, { order: present.orderFor(order, ROLES.OWNER) });
   };
+}
+
+/**
+ * What the customer would be sent, before the owner commits to sending it.
+ *
+ * Rendered by the same function the transition uses, from the same inputs, so
+ * the text shown in the modal is the text that is queued. `available: false`
+ * when there is no gateway, which the modal turns into a disabled switch.
+ */
+async function customerSmsPreview(req, res) {
+  const { action, courier, trackingId, reason } = req.query;
+  const order = await Order.findById(req.params.id);
+  if (!order) throw notFound('Order not found');
+
+  const available = customerSms.isAvailable();
+  const preview = await customerSms.buildCustomerSms({
+    order,
+    action,
+    courierName: courier,
+    trackingNumber: trackingId,
+    reason,
+  });
+
+  return ok(res, { ...preview, available });
 }
 
 /**
  * The zone charge is a default, not a rule. Editable until the order ships; once
  * the wallet has been debited the difference posts as its own ledger entry, and
  * the original debit is never touched. See docs/adr/0010.
+ *
+ * Answers with the order exactly as GET /orders/:id does, reseller included, so
+ * the order screen can take the response as its new copy.
  */
 async function overrideDeliveryCharge(req, res) {
   const deliveryChargePoisha = toPoisha(req.body.deliveryCharge, 'deliveryCharge');
 
-  const { order, beforePoisha, entry } = await orderService.changeDeliveryCharge({
-    orderId: req.params.id,
-    deliveryChargePoisha,
-    actorUser: req.user,
-  });
+  let result;
+  try {
+    result = await orderService.changeDeliveryCharge({
+      orderId: req.params.id,
+      deliveryChargePoisha,
+      actorUser: req.user,
+    });
+  } catch (err) {
+    /*
+     * Lost a race. If what won was the parcel leaving, the honest answer is
+     * that the charge is now locked, which the screen explains, rather than a
+     * generic "someone changed this" that invites a pointless retry.
+     */
+    if (err && err.code === 'ALREADY_HANDLED') {
+      const now = await Order.findById(req.params.id).select('status');
+      if (now) assertDeliveryChargeEditable(now);
+    }
+    throw err;
+  }
+  const { order, beforePoisha, entry } = result;
 
   if (beforePoisha !== deliveryChargePoisha) {
     await audit.record({
@@ -140,8 +186,10 @@ async function overrideDeliveryCharge(req, res) {
     });
   }
 
+  await order.populate('reseller', 'shopName slug');
+
   return ok(res, {
-    order: { ...present.order(order), actions: availableActions(order, ROLES.OWNER) },
+    order: present.orderFor(order, ROLES.OWNER),
     adjustment: entry ? present.ledgerEntry(entry) : null,
   });
 }
@@ -149,6 +197,7 @@ async function overrideDeliveryCharge(req, res) {
 module.exports = {
   listOrders,
   getOrder,
+  customerSmsPreview,
   overrideDeliveryCharge,
   editCustomer: editCustomer(ROLES.OWNER),
   accept: transition('accept'),

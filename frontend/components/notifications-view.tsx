@@ -6,6 +6,8 @@ import type { Route } from 'next';
 import {
   BellOff,
   BadgeCheck,
+  ChevronRight,
+  Settings2,
   Ban,
   CheckCheck,
   ClipboardList,
@@ -17,13 +19,14 @@ import {
   Undo2,
   Wallet,
 } from 'lucide-react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, errorMessage } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { t, type DictKey } from '@/lib/i18n/bn';
 import { syncPushRole } from '@/lib/push';
 import { cn } from '@/lib/utils';
 import { formatDateTime } from '@/lib/format';
+import type { CursorPaged } from '@/lib/types';
 import {
   Alert,
   Badge,
@@ -34,6 +37,7 @@ import {
   PageHeader,
 } from '@/components/ui/layout';
 import { Button, Spinner } from '@/components/ui/button';
+import { LoadMore } from '@/components/ui/load-more';
 
 /**
  * The notification inbox, for either role.
@@ -50,10 +54,12 @@ type NotificationRow = {
   eventType: string;
   title: string;
   body?: string;
-  data?: { orderId?: string; orderCode?: string };
+  data?: { orderId?: string; orderCode?: string; url?: string };
   readAt: string | null;
   createdAt: string;
 };
+
+const PAGE_SIZE = 30;
 
 type PushState = 'unsupported' | 'ios-install' | 'default' | 'granted' | 'denied';
 
@@ -117,6 +123,13 @@ const NEGATIVE = new Set([
  * worse than no link. Keep in step with `targetFor` in `public/sw.js`.
  */
 function hrefFor(row: NotificationRow, base: '/reseller' | '/owner', ordersHref: Route): Route | null {
+  // The server names the page since Phase F (backend/src/domain/notificationLinks.js).
+  // Only a path inside this role's own screens is followed; older rows fall through.
+  const url = row.data?.url;
+  if (url && (url === base || url.startsWith(`${base}/`)) && !/[\s\\]/.test(url)) {
+    return url as Route;
+  }
+
   if (row.data?.orderId) return `${ordersHref}/${row.data.orderId}` as Route;
 
   if (base === '/owner') {
@@ -141,10 +154,18 @@ export function NotificationsView({
   const queryClient = useQueryClient();
   const { data: session } = useSession();
 
-  const notifications = useQuery({
-    queryKey: ['notifications'],
-    queryFn: () =>
-      api.get<{ notifications: NotificationRow[]; unread: number }>(`${base}/notifications`),
+  // Newest first, thirty at a time. The key sits under ['notifications'], so the
+  // header badge and this list are refreshed together by one invalidation.
+  const notifications = useInfiniteQuery({
+    queryKey: ['notifications', 'inbox'],
+    queryFn: ({ pageParam }) =>
+      api.get<CursorPaged<'notifications', NotificationRow> & { unread: number }>(
+        `${base}/notifications?limit=${PAGE_SIZE}${
+          pageParam ? `&cursor=${encodeURIComponent(pageParam)}` : ''
+        }`
+      ),
+    initialPageParam: '',
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
     refetchInterval: 60_000,
   });
 
@@ -153,14 +174,16 @@ export function NotificationsView({
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['notifications'] }),
   });
 
-  const rows = notifications.data?.notifications ?? [];
+  const rows = notifications.data?.pages.flatMap((page) => page.notifications) ?? [];
+  // The newest page carries the freshest count.
+  const unread = notifications.data?.pages[0]?.unread ?? 0;
 
   return (
     <>
       <PageHeader
         title={t('nav.notifications')}
         action={
-          (notifications.data?.unread ?? 0) > 0 ? (
+          unread > 0 ? (
             <Button
               size="sm"
               variant="outline"
@@ -175,7 +198,21 @@ export function NotificationsView({
       />
 
       <PushCard base={base} />
-      {base === '/reseller' && session?.features.telegram && <TelegramCard />}
+
+      {/* Telegram and the per-event choices live one tap away, not in the inbox. */}
+      <Link
+        href={base === '/owner' ? '/owner/notifications/settings' : '/reseller/notifications/settings'}
+        className="card mb-4 flex items-center justify-between gap-3 px-4 py-3 text-sm font-medium transition-colors hover:bg-muted"
+      >
+        <span className="flex items-center gap-2">
+          <Settings2 aria-hidden className="h-4 w-4 text-muted-foreground" />
+          {t('prefs.link')}
+          {session?.features.telegram && (
+            <span className="text-xs font-normal text-muted-foreground">· {t('telegram.title')}</span>
+          )}
+        </span>
+        <ChevronRight aria-hidden className="h-4 w-4 text-muted-foreground" />
+      </Link>
 
       <Card>
         <CardHeader title={t('nav.notifications')} />
@@ -186,7 +223,7 @@ export function NotificationsView({
           </div>
         )}
 
-        {notifications.isError && (
+        {notifications.isError && rows.length === 0 && (
           <ErrorState
             onRetry={() => notifications.refetch()}
             isRetrying={notifications.isFetching}
@@ -203,6 +240,15 @@ export function NotificationsView({
             <Row key={row._id} row={row} href={hrefFor(row, base, ordersHref)} />
           ))}
         </ul>
+
+        {rows.length > 0 && (
+          <LoadMore
+            hasMore={Boolean(notifications.hasNextPage)}
+            loading={notifications.isFetchingNextPage}
+            onLoadMore={() => notifications.fetchNextPage()}
+            error={notifications.isFetchNextPageError ? notifications.error : null}
+          />
+        )}
       </Card>
     </>
   );
@@ -279,7 +325,7 @@ function readPushState(): PushState {
  * savers kill the browser background process, and on iOS this only works from a
  * home screen install. The in-app list is the source of truth.
  */
-function PushCard({ base }: { base: '/reseller' | '/owner' }) {
+export function PushCard({ base }: { base: '/reseller' | '/owner' }) {
   // An external system read, so it goes through useSyncExternalStore rather than
   // an effect that pushes the value into state and costs a second render.
   const detected = useSyncExternalStore<PushState>(
@@ -344,33 +390,6 @@ function PushCard({ base }: { base: '/reseller' | '/owner' }) {
       {state === 'default' && (
         <Button size="sm" loading={enable.isPending} onClick={() => enable.mutate()}>
           {t('push.enable')}
-        </Button>
-      )}
-    </Card>
-  );
-}
-
-function TelegramCard() {
-  const link = useMutation({
-    mutationFn: () =>
-      api.post<{ deepLink: string | null; linkToken: string }>('/reseller/telegram/link'),
-  });
-
-  return (
-    <Card className="mb-4">
-      <CardHeader title={t('telegram.title')} subtitle={t('telegram.subtitle')} />
-
-      {link.error && <Alert tone="warning">{errorMessage(link.error)}</Alert>}
-
-      {link.data?.deepLink ? (
-        <a href={link.data.deepLink} target="_blank" rel="noreferrer">
-          <Button size="sm" variant="outline">
-            {t('telegram.open')}
-          </Button>
-        </a>
-      ) : (
-        <Button size="sm" variant="outline" loading={link.isPending} onClick={() => link.mutate()}>
-          {t('telegram.connect')}
         </Button>
       )}
     </Card>

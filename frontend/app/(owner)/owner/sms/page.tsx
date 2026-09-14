@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Ban,
   CircleAlert,
@@ -37,6 +37,7 @@ import { Modal } from '@/components/ui/modal';
 import { ListSkeleton } from '@/components/ui/skeleton';
 import { SearchInput, Segmented, Toolbar } from '@/components/ui/toolbar';
 import { useToast } from '@/components/ui/toast';
+import { LoadMore } from '@/components/ui/load-more';
 import type { SmsLog, SmsLogDetail, SmsOverview, SmsStatus } from '@/lib/types';
 
 /**
@@ -76,6 +77,7 @@ const PURPOSE_LABEL: Record<string, DictKey> = {
   manual: 'sms.purposeManual',
   otp: 'sms.purposeOtp',
   owner_alert: 'sms.purposeOwnerAlert',
+  customer: 'sms.purposeCustomer',
 };
 
 const REASON_LABEL: Record<string, DictKey> = {
@@ -98,6 +100,8 @@ function outcomeOf(log: SmsLog): string {
 
 type Filter = SmsStatus | 'all';
 
+const LOG_PAGE_SIZE = 50;
+
 export default function OwnerSmsPage() {
   const [status, setStatus] = useState<Filter>('all');
   const [term, setTerm] = useState('');
@@ -110,17 +114,24 @@ export default function OwnerSmsPage() {
     queryFn: () => api.get<SmsOverview>('/owner/sms/overview'),
   });
 
-  const logs = useQuery({
+  // A page at a time: the log grows by one row per message, forever.
+  const logs = useInfiniteQuery({
     queryKey: ['owner', 'sms', 'logs', status, search],
-    queryFn: () =>
+    queryFn: ({ pageParam }) =>
       api.get<{ logs: SmsLog[]; total: number }>(
-        `/owner/sms/logs?limit=50${status === 'all' ? '' : `&status=${status}`}${
+        `/owner/sms/logs?limit=${LOG_PAGE_SIZE}&page=${pageParam}${status === 'all' ? '' : `&status=${status}`}${
           search ? `&q=${encodeURIComponent(search)}` : ''
         }`
       ),
+    initialPageParam: 1,
+    getNextPageParam: (last, pages) => {
+      const loaded = pages.reduce((count, page) => count + page.logs.length, 0);
+      return loaded < last.total ? pages.length + 1 : undefined;
+    },
   });
 
-  const rows = logs.data?.logs ?? [];
+  const rows = logs.data?.pages.flatMap((page) => page.logs) ?? [];
+  const logTotal = logs.data?.pages[0]?.total ?? 0;
   const stats = overview.data?.stats;
 
   return (
@@ -186,7 +197,9 @@ export default function OwnerSmsPage() {
 
         {logs.isLoading && <ListSkeleton rows={5} />}
 
-        {logs.isError && <ErrorState onRetry={() => logs.refetch()} isRetrying={logs.isFetching} />}
+        {logs.isError && rows.length === 0 && (
+          <ErrorState onRetry={() => logs.refetch()} isRetrying={logs.isFetching} error={logs.error} />
+        )}
 
         {logs.isSuccess && rows.length === 0 && (
           <EmptyState
@@ -260,6 +273,15 @@ export default function OwnerSmsPage() {
                 ))}
               </tbody>
             </TableWrap>
+
+            <LoadMore
+              hasMore={Boolean(logs.hasNextPage)}
+              loading={logs.isFetchingNextPage}
+              onLoadMore={() => logs.fetchNextPage()}
+              error={logs.isFetchNextPageError ? logs.error : null}
+              shown={rows.length}
+              total={logTotal}
+            />
           </>
         )}
       </Card>

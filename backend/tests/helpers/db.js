@@ -20,6 +20,12 @@ process.env.AUTOMAS_API_KEY = '';
 process.env.AUTOMAS_SENDER_ID = '';
 process.env.SMS_API_KEY = '';
 process.env.SMS_SENDER_ID = '';
+// Nor a real Telegram bot. A test that needs one injects a stub client.
+process.env.TELEGRAM_BOT_TOKEN = '';
+process.env.TELEGRAM_BOT_USERNAME = '';
+process.env.TELEGRAM_WEBHOOK_URL = '';
+process.env.TELEGRAM_WEBHOOK_SECRET = '';
+process.env.PUBLIC_APP_URL = '';
 // Signing the owner in takes a password alone here; tests/identity.test.js
 // turns the new-device code back on for the tests that are about it.
 process.env.OWNER_DEVICE_OTP = 'false';

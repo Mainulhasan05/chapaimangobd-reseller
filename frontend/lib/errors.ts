@@ -57,10 +57,21 @@ const COPY: Record<string, ErrorCopy> = {
   WRONG_PASSWORD: { message: 'পাসওয়ার্ড সঠিক নয়।' },
   SAME_PASSWORD: { message: 'নতুন পাসওয়ার্ড বর্তমানটির চেয়ে আলাদা হতে হবে।' },
   SAME_PHONE: { message: 'এটি আপনার বর্তমান নম্বরই।' },
+  /*
+   * A temporary password from the owner reaches nothing but the account page.
+   * The shell sends the person there as soon as the session says so.
+   */
+  PASSWORD_CHANGE_REQUIRED: { message: 'আগে নিজের একটি নতুন পাসওয়ার্ড দিন, তারপর বাকি কাজ করা যাবে।' },
+  /* A deactivated reseller reads everything and may ask for a withdrawal. See docs/adr/0011. */
+  RESELLER_INACTIVE: {
+    message: 'আপনার অ্যাকাউন্ট নিষ্ক্রিয় করা হয়েছে। আপনি শুধু হিসাব দেখতে ও টাকা তোলার অনুরোধ করতে পারবেন।',
+  },
 
   /* one-time codes */
   OTP_INVALID: { message: 'কোডটি সঠিক নয়। SMS-এ আসা ৬ সংখ্যার কোডটি আবার দেখে লিখুন।' },
   OTP_EXPIRED: { message: 'কোডটির মেয়াদ শেষ বা বাতিল হয়েছে। নতুন কোড চান।' },
+  /* `{seconds}` is filled from the server's `retryAfter`. */
+  OTP_COOLDOWN: { message: 'একটু আগেই কোড পাঠানো হয়েছে। {seconds} সেকেন্ড পর আবার চাইতে পারবেন।' },
   OTP_SEND_LIMIT: { message: 'এই নম্বরে এক ঘণ্টায় ৩টির বেশি কোড পাঠানো যায় না। পরে চেষ্টা করুন।' },
   SMS_UNAVAILABLE: {
     message: 'এই মুহূর্তে SMS পাঠানো যাচ্ছে না। একটু পরে চেষ্টা করুন।',
@@ -73,6 +84,7 @@ const COPY: Record<string, ErrorCopy> = {
   /* shop identity */
   INVALID_SLUG: { message: 'দোকানের ঠিকানায় শুধু ছোট হাতের ইংরেজি অক্ষর, সংখ্যা আর হাইফেন দিন।' },
   RESERVED_SLUG: { message: 'এই ঠিকানাটি সংরক্ষিত। অন্য একটি ঠিকানা বেছে নিন।' },
+  SHOP_NOT_ACCEPTING: { message: 'এই দোকান এখন অর্ডার নিচ্ছে না। পরে আবার চেষ্টা করুন।' },
   SLUG_TAKEN: { message: 'এই ঠিকানাটি আগেই কেউ নিয়ে নিয়েছে। অন্যটি চেষ্টা করুন।' },
 
   /* pricing */
@@ -91,7 +103,7 @@ const COPY: Record<string, ErrorCopy> = {
   DUPLICATE_LINE: { message: 'একই পণ্য একাধিকবার যোগ করা হয়েছে।' },
 
   /* delivery */
-  NO_ZONE: { message: 'এই জেলায় আমরা এখনো ডেলিভারি করি না।' },
+  NO_ZONE: { message: 'এই জেলায় এখনো ডেলিভারি দেওয়া হয় না। অন্য জেলা বাছাই করুন।' },
   DISTRICT_TAKEN: { message: 'এই জেলা আগেই অন্য একটি এলাকায় যোগ করা আছে।' },
   COURIER_REQUIRED: { message: 'কুরিয়ারের নাম লিখুন।' },
 
@@ -118,10 +130,16 @@ const COPY: Record<string, ErrorCopy> = {
   DELIVERY_CHARGE_LOCKED: {
     message: 'অর্ডারটি পাঠানো হয়ে গেছে, তাই ডেলিভারি চার্জ আর বদলানো যাবে না।',
   },
+  CUSTOMER_LOCKED: {
+    message: 'অর্ডারটি পাঠানো হয়ে গেছে, তাই ক্রেতার তথ্য আর বদলানো যাবে না।',
+  },
   UNKNOWN_TRANSITION: { message: 'অর্ডারের এই কাজটি চেনা যায়নি।' },
   ORDER_CODE: { message: 'অর্ডার নম্বর তৈরি করা যায়নি। আবার চেষ্টা করুন।' },
 
   /* kyc and uploads */
+  KYC_ALREADY_PENDING: {
+    message: 'আপনার আগের কাগজপত্র এখনো যাচাই হচ্ছে। সিদ্ধান্ত না আসা পর্যন্ত নতুন করে জমা দেওয়া যাবে না।',
+  },
   ALREADY_APPROVED: { message: 'এটি আগেই অনুমোদন করা হয়েছে।' },
   NO_DOCUMENTS: { message: 'অন্তত একটি কাগজ আপলোড করুন।' },
   BAD_DOC_TYPE: { message: 'কাগজের ধরনটি সঠিক নয়।' },
@@ -130,7 +148,7 @@ const COPY: Record<string, ErrorCopy> = {
   UPLOAD_FAILED: { message: 'ফাইল আপলোড করা যায়নি। আবার চেষ্টা করুন।' },
   NOT_CONFIGURED: {
     message: 'এই সুবিধাটি এখনো চালু করা হয়নি।',
-    hint: 'A required integration (Cloudinary, SMS or Telegram) has no credentials.',
+    hint: 'A required integration (ImgBB, R2, SMS or Telegram) has no credentials.',
   },
 
   /* malformed requests, which a person should never cause */
@@ -142,6 +160,7 @@ const COPY: Record<string, ErrorCopy> = {
   UNSUPPORTED_ENCODING: { message: 'পাঠানো তথ্যের ধরন সার্ভার চেনে না। আবার চেষ্টা করুন।' },
   UNSUPPORTED_CHARSET: { message: 'পাঠানো তথ্যের ধরন সার্ভার চেনে না। আবার চেষ্টা করুন।' },
   REQUEST_ABORTED: { message: 'অনুরোধটি মাঝপথে থেমে গেছে। আবার চেষ্টা করুন।' },
+  BAD_CURSOR: { message: 'তালিকাটি পুরনো হয়ে গেছে। পাতা রিফ্রেশ করে আবার দেখুন।' },
   BAD_REQUEST: { message: 'অনুরোধটি সঠিক নয়। পাতা রিফ্রেশ করে আবার চেষ্টা করুন।' },
 
   /* generic */
@@ -174,6 +193,7 @@ const FIELD_COPY: Record<string, string> = {
   'Wrong password': 'পাসওয়ার্ড সঠিক নয়',
   'Same as current password': 'বর্তমান পাসওয়ার্ডের চেয়ে আলাদা দিন',
   'Same as current': 'এটি আপনার বর্তমান নম্বর',
+  'We do not deliver to that district yet': 'এই জেলায় এখনো ডেলিভারি দেওয়া হয় না',
 };
 
 /** Field messages that carry a figure, so they cannot be matched by exact text. */

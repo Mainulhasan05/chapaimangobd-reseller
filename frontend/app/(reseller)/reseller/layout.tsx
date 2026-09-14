@@ -53,6 +53,9 @@ const NAV: NavItem[] = [
 
 export default function ResellerLayout({ children }: { children: React.ReactNode }) {
   const { data: session } = useSession();
+  // No background reads while a temporary password is still in use: the API
+  // refuses them (PASSWORD_CHANGE_REQUIRED) and the shell is on its way to Account.
+  const ready = Boolean(session) && !session?.user.mustChangePassword;
 
   /*
    * An order waiting to be confirmed is money not yet moving, so the count rides
@@ -63,7 +66,7 @@ export default function ResellerLayout({ children }: { children: React.ReactNode
   const pending = useQuery({
     queryKey: ['orders', 'pending'],
     queryFn: () => api.get<Paged<'orders', Order>>('/reseller/orders?status=pending&limit=5'),
-    enabled: Boolean(session),
+    enabled: ready,
     refetchInterval: 60_000,
   });
 
@@ -75,8 +78,8 @@ export default function ResellerLayout({ children }: { children: React.ReactNode
    */
   const notifications = useQuery({
     queryKey: ['notifications'],
-    queryFn: () => api.get<{ unread: number }>('/reseller/notifications'),
-    enabled: Boolean(session),
+    queryFn: () => api.get<{ unread: number }>('/reseller/notifications?limit=1'),
+    enabled: ready,
     refetchInterval: 60_000,
   });
 

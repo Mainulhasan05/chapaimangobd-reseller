@@ -1,14 +1,14 @@
 'use client';
 
 import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Copy, KeyRound, Store, TrendingDown, Users } from 'lucide-react';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Ban, Copy, KeyRound, Store, TrendingDown, Users } from 'lucide-react';
 import { api, errorMessage } from '@/lib/api';
 import { useDebounced } from '@/lib/use-debounced';
-import { t, type DictKey } from '@/lib/i18n/bn';
-import { formatMoney, formatMoneyPlain, formatSignedMoney, formatDateTime } from '@/lib/format';
+import { t, tLedgerKind, type DictKey } from '@/lib/i18n/bn';
+import { formatMoney, formatMoneyPlain, formatNumber, formatSignedMoney, formatDateTime } from '@/lib/format';
 import { checkMoney, moneyError } from '@/lib/money';
-import type { KycStatus, LedgerEntry, ResellerSummary } from '@/lib/types';
+import type { CursorPaged, KycStatus, LedgerEntry, Paged, ResellerSummary } from '@/lib/types';
 import {
   Alert,
   Badge,
@@ -35,6 +35,7 @@ import { Field, MoneyInput, Select, Textarea } from '@/components/ui/form';
 import { Modal } from '@/components/ui/modal';
 import { Switch } from '@/components/ui/switch';
 import { ListSkeleton } from '@/components/ui/skeleton';
+import { LoadMore } from '@/components/ui/load-more';
 import { useToast } from '@/components/ui/toast';
 import { copyText } from '@/lib/share';
 
@@ -63,6 +64,19 @@ const KYC_FILTERS: { value: '' | KycStatus; label: string }[] = [
   { value: 'not_submitted', label: t('kyc.notSubmitted') },
 ];
 
+const PAGE_SIZE = 50;
+const LEDGER_PAGE_SIZE = 50;
+
+/** What the receivables report says, for the two money figures at the top. */
+type Receivables = { totalOwed: number; resellers: { id: string; owed: number }[] };
+
+/** The answer to PATCH /owner/resellers/:id. */
+type ResellerUpdate = {
+  reseller: { id: string; isActive: boolean | null; deactivatedAt: string | null };
+  /** Codes of the pending orders a deactivation cancelled. See docs/adr/0011. */
+  cancelledOrders: string[];
+};
+
 /** The reseller detail the list does not carry: channel preferences. */
 type ResellerDetail = {
   reseller: ResellerSummary & { channelPrefs?: { sms?: boolean } };
@@ -74,21 +88,37 @@ export default function OwnerResellersPage() {
   const [term, setTerm] = useState('');
   const search = useDebounced(term);
 
-  const resellers = useQuery({
+  /*
+   * A page at a time, newest first, by cursor: a list that grows while it is
+   * being read cannot skip or repeat a row that way.
+   */
+  const resellers = useInfiniteQuery({
     queryKey: ['owner', 'resellers', kycStatus],
-    queryFn: () =>
-      api.get<{ resellers: ResellerSummary[] }>(
-        `/owner/resellers${kycStatus ? `?kycStatus=${kycStatus}` : ''}`
+    queryFn: ({ pageParam }) =>
+      api.get<CursorPaged<'resellers', ResellerSummary>>(
+        `/owner/resellers?limit=${PAGE_SIZE}` +
+          `${kycStatus ? `&kycStatus=${kycStatus}` : ''}` +
+          `${pageParam ? `&cursor=${encodeURIComponent(pageParam)}` : ''}`
       ),
+    initialPageParam: '',
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
   });
 
-  const all = resellers.data?.resellers ?? [];
+  /*
+   * The money figures come from the receivables report, which sums the ledger
+   * across every reseller, rather than from whichever pages happen to be loaded.
+   */
+  const receivables = useQuery({
+    queryKey: ['owner', 'receivables'],
+    queryFn: () => api.get<Receivables>('/owner/reports/receivables'),
+  });
+
+  const all = resellers.data?.pages.flatMap((page) => page.resellers) ?? [];
 
   /*
-   * Filtered here rather than at the API, because this endpoint returns every
-   * reseller in one response: there is one mango business and it has tens of
-   * these, not thousands. A round trip per keystroke would be slower than the
-   * scan and would need a debounce to be usable at all.
+   * Filtered here, over the loaded pages, rather than at the API: there is one
+   * mango business and it has tens of resellers, so the first page is nearly
+   * always all of them, and a round trip per keystroke would be slower.
    */
   const needle = search.trim().toLowerCase();
   const matched = needle
@@ -110,8 +140,8 @@ export default function OwnerResellersPage() {
   const rows = sorting.rows;
   const columns = useColumns(COLUMNS, 'owner-resellers');
 
-  const debtors = all.filter((reseller) => reseller.balance < 0);
-  const owed = debtors.reduce((sum, reseller) => sum + Math.abs(reseller.balance), 0);
+  const debtorCount = receivables.data?.resellers.filter((row) => row.owed > 0).length;
+  const owed = receivables.data?.totalOwed;
 
   // Looked up from the live list, so the sheet shows fresh numbers after a save.
   const managing = all.find((reseller) => reseller.id === managingId) ?? null;
@@ -121,18 +151,23 @@ export default function OwnerResellersPage() {
       <PageHeader title={t('nav.resellers')} subtitle={t('wallet.negativeHelp')} />
 
       <div className="mb-5 grid gap-4 sm:grid-cols-3">
-        <Stat icon={Users} tone="primary" label={t('nav.resellers')} value={all.length} />
+        <Stat
+          icon={Users}
+          tone="primary"
+          label={t('nav.resellers')}
+          value={resellers.hasNextPage ? `${all.length}+` : all.length}
+        />
         <Stat
           icon={TrendingDown}
           label={t('dash.topDebtors')}
-          value={debtors.length}
-          tone={debtors.length > 0 ? 'warning' : 'neutral'}
+          value={debtorCount ?? '—'}
+          tone={(debtorCount ?? 0) > 0 ? 'warning' : 'neutral'}
         />
         <Stat
           icon={Store}
           label={t('owner.receivable')}
-          value={formatMoney(owed)}
-          tone={owed > 0 ? 'danger' : 'neutral'}
+          value={owed == null ? '—' : formatMoney(owed)}
+          tone={(owed ?? 0) > 0 ? 'danger' : 'neutral'}
         />
       </div>
 
@@ -157,7 +192,7 @@ export default function OwnerResellersPage() {
 
       {resellers.isLoading && <ListSkeleton />}
 
-      {resellers.isError && (
+      {resellers.isError && all.length === 0 && (
         <ErrorState
           onRetry={() => resellers.refetch()}
           isRetrying={resellers.isFetching}
@@ -302,6 +337,13 @@ export default function OwnerResellersPage() {
               ))}
             </tbody>
           </TableWrap>
+
+          <LoadMore
+            hasMore={Boolean(resellers.hasNextPage)}
+            loading={resellers.isFetchingNextPage}
+            onLoadMore={() => resellers.fetchNextPage()}
+            error={resellers.isFetchNextPageError ? resellers.error : null}
+          />
         </>
       )}
 
@@ -325,16 +367,28 @@ function ResellerModal({
   const [creditLimit, setCreditLimit] = useState('');
   const [entry, setEntry] = useState({ amount: '', direction: 'credit', note: '' });
   const [confirmingDeactivate, setConfirmingDeactivate] = useState(false);
+  // What the last deactivation did to pending orders, shown until the sheet closes.
+  const [cancelledOrders, setCancelledOrders] = useState<string[] | null>(null);
 
   const detail = useQuery({
     queryKey: ['owner', 'reseller', reseller.id],
     queryFn: () => api.get<ResellerDetail>(`/owner/resellers/${reseller.id}`),
   });
 
-  const ledger = useQuery({
+  const ledger = useInfiniteQuery({
     queryKey: ['owner', 'ledger', reseller.id],
-    queryFn: () => api.get<{ entries: LedgerEntry[] }>(`/owner/resellers/${reseller.id}/ledger`),
+    queryFn: ({ pageParam }) =>
+      api.get<Paged<'entries', LedgerEntry>>(
+        `/owner/resellers/${reseller.id}/ledger?limit=${LEDGER_PAGE_SIZE}&page=${pageParam}`
+      ),
+    initialPageParam: 1,
+    getNextPageParam: (last, pages) => {
+      const loaded = pages.reduce((count, page) => count + page.entries.length, 0);
+      return loaded < last.total ? pages.length + 1 : undefined;
+    },
   });
+  const entries = ledger.data?.pages.flatMap((page) => page.entries) ?? [];
+  const ledgerNextError = ledger.isFetchNextPageError ? ledger.error : null;
 
   const invalidate = async () => {
     await queryClient.invalidateQueries({ queryKey: ['owner'] });
@@ -354,9 +408,10 @@ function ResellerModal({
   /** Active and SMS go through the same endpoint, one field at a time. */
   const toggle = useMutation({
     mutationFn: (body: { isActive: boolean } | { smsEnabled: boolean }) =>
-      api.patch(`/owner/resellers/${reseller.id}`, body),
-    onSuccess: async () => {
+      api.patch<ResellerUpdate>(`/owner/resellers/${reseller.id}`, body),
+    onSuccess: async (result, body) => {
       setConfirmingDeactivate(false);
+      if ('isActive' in body) setCancelledOrders(body.isActive ? null : result.cancelledOrders);
       await invalidate();
       toast(t('app.saved'));
     },
@@ -384,6 +439,7 @@ function ResellerModal({
   });
 
   const isActive = reseller.user?.isActive ?? true;
+  const deactivatedAt = reseller.user?.deactivatedAt;
   const smsEnabled = detail.data?.reseller.channelPrefs?.sms ?? false;
 
   return (
@@ -430,8 +486,42 @@ function ResellerModal({
               else toggle.mutate({ isActive: true });
             }}
             label={t('reseller.active')}
-            hint={isActive ? t('reseller.activeHint') : t('reseller.inactiveHint')}
+            hint={
+              isActive
+                ? t('reseller.activeHint')
+                : deactivatedAt
+                  ? `${t('reseller.inactiveHint')} · ${t('reseller.deactivatedAt').replace('{at}', formatDateTime(deactivatedAt))}`
+                  : t('reseller.inactiveHint')
+            }
           />
+
+          {cancelledOrders && (
+            <div className="py-3">
+              <Alert tone="neutral" icon={Ban} title={t('reseller.deactivatedResult')} className="mb-0">
+                {cancelledOrders.length === 0 ? (
+                  <p>{t('reseller.deactivatedNoPending')}</p>
+                ) : (
+                  <>
+                    <p>
+                      {t('reseller.deactivatedCancelled').replace(
+                        '{n}',
+                        formatNumber(cancelledOrders.length)
+                      )}
+                    </p>
+                    <ul className="mt-2 flex flex-wrap gap-1.5">
+                      {cancelledOrders.map((code) => (
+                        <li key={code}>
+                          <Badge tone="neutral">
+                            <span className="tabular">{code}</span>
+                          </Badge>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+              </Alert>
+            </div>
+          )}
 
           {confirmingDeactivate && (
             <div role="alertdialog" aria-labelledby="deactivate-title" className="py-3">
@@ -581,7 +671,7 @@ function ResellerModal({
           </div>
         )}
 
-        {ledger.isError && (
+        {ledger.isError && entries.length === 0 && (
           <ErrorState
             onRetry={() => ledger.refetch()}
             isRetrying={ledger.isFetching}
@@ -589,20 +679,25 @@ function ResellerModal({
           />
         )}
 
-        {ledger.isSuccess && ledger.data.entries.length === 0 && (
+        {ledger.isSuccess && entries.length === 0 && (
           <p className="py-4 text-center text-sm text-muted-foreground">{t('wallet.noEntries')}</p>
         )}
 
-        {ledger.isSuccess && ledger.data.entries.length > 0 && (
-          <div className="scroll-x max-h-64 overflow-y-auto">
+        {entries.length > 0 && (
+          <>
+            <div className="scroll-x max-h-72 overflow-y-auto">
             <table className="w-full min-w-[28rem] text-sm">
               <tbody>
-                {ledger.data.entries.map((row) => (
+                {entries.map((row) => (
                   <tr key={row.id} className="border-b border-border last:border-0">
                     <Td className="whitespace-nowrap text-xs text-muted-foreground">
                       {formatDateTime(row.createdAt)}
                     </Td>
-                    <Td className="text-xs">{row.note ?? row.kind}</Td>
+                    <Td className="text-xs">
+                      {/* The kind, in Bengali, leads; the server's note is English detail. */}
+                      <div>{tLedgerKind(row.kind)}</div>
+                      {row.note && <div className="text-muted-foreground">{row.note}</div>}
+                    </Td>
                     <Td
                       className={`tabular text-right ${row.amount < 0 ? 'text-danger' : 'text-success'}`}
                     >
@@ -613,7 +708,15 @@ function ResellerModal({
                 ))}
               </tbody>
             </table>
-          </div>
+            </div>
+            <LoadMore
+              compact
+              hasMore={Boolean(ledger.hasNextPage)}
+              loading={ledger.isFetchingNextPage}
+              onLoadMore={() => ledger.fetchNextPage()}
+              error={ledgerNextError}
+            />
+          </>
         )}
       </section>
     </Modal>

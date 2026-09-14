@@ -772,6 +772,49 @@ test('receivables and the dashboard come from the ledger, and flag a drifted cac
   assert.equal(receivables.body.data.totalOwed, 630);
   assert.equal(receivables.body.data.resellers[0].owed, 630);
   assert.equal(receivables.body.data.resellers[0].drift, true);
+  assert.equal(receivables.body.data.totalPayable, 0);
+});
+
+test('receivables list resellers in credit and any drift, and total both sides', async () => {
+  const owner = await f.makeOwner();
+  const { profile: owing } = await f.makeReseller({ creditLimit: 1000 });
+  const { profile: inCredit } = await f.makeReseller();
+  const { profile: creditDrift } = await f.makeReseller();
+  const { profile: noEntriesDrift } = await f.makeReseller();
+  const { profile: square } = await f.makeReseller();
+
+  await credit(owing, -300);
+  await credit(inCredit, 250);
+  await credit(creditDrift, 40);
+  // Positive balances with a cache that disagrees: one with entries, one without.
+  await ResellerProfile.updateOne({ _id: creditDrift._id }, { $inc: { balancePoisha: toPoisha(5) } });
+  await ResellerProfile.updateOne({ _id: noEntriesDrift._id }, { $set: { balancePoisha: toPoisha(12) } });
+
+  const agent = await signIn({ phone: owner.phone, password: owner.password });
+  const res = await agent.get('/api/owner/reports/receivables');
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  const data = res.body.data;
+
+  assert.equal(data.totalOwed, 300, 'owed is still only the negatives');
+  assert.equal(data.totalPayable, 290, 'payable is the positives, from the ledger');
+
+  const byId = new Map(data.resellers.map((r) => [String(r.id), r]));
+  assert.equal(byId.size, 4);
+  assert.ok(!byId.has(String(square._id)), 'a square, consistent reseller is not listed');
+
+  assert.equal(data.resellers[0].id, String(owing._id), 'most owed first');
+  assert.deepEqual(
+    [byId.get(String(owing._id)).owed, byId.get(String(owing._id)).payable, byId.get(String(owing._id)).drift],
+    [300, 0, false]
+  );
+  assert.deepEqual(
+    [byId.get(String(inCredit._id)).balance, byId.get(String(inCredit._id)).payable, byId.get(String(inCredit._id)).drift],
+    [250, 250, false]
+  );
+  assert.equal(byId.get(String(creditDrift._id)).drift, true);
+  assert.equal(byId.get(String(creditDrift._id)).cachedBalance, 45);
+  const orphan = byId.get(String(noEntriesDrift._id));
+  assert.deepEqual([orphan.balance, orphan.cachedBalance, orphan.drift], [0, 12, true]);
 });
 
 test('reconcileAll walks every reseller in batches and returns only the drifted', async () => {

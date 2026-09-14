@@ -13,6 +13,7 @@ const audit = require('../../services/audit');
 const { notify } = require('../../services/notify');
 const { ok } = require('../../middleware/error');
 const { notFound } = require('../../utils/errors');
+const { findPage, readPaging } = require('../../utils/cursor');
 const { toPoisha, toTaka } = require('../../utils/money');
 const present = require('../../utils/present');
 const ledger = require('../../services/ledger');
@@ -20,15 +21,22 @@ const resellerLifecycle = require('../../services/resellerLifecycle');
 const tokens = require('../../services/tokens');
 const { KYC_STATUS, REVIEW_STATUS, EVENT_TYPE, ORDER_STATUS } = require('../../domain/constants');
 
+/**
+ * Newest first. Pass `limit` (and then `cursor`) for a page at a time; without
+ * either the whole list comes back, as it always has.
+ */
 async function listResellers(req, res) {
   const filter = {};
   if (req.query.kycStatus) filter.kycStatus = req.query.kycStatus;
 
-  const profiles = await ResellerProfile.find(filter)
-    .sort({ createdAt: -1 })
-    .populate('user', 'name phoneE164 isActive lastLoginAt');
+  const { rows: profiles, nextCursor } = await findPage(ResellerProfile, filter, {
+    direction: -1,
+    paging: readPaging(req.query),
+    populate: { path: 'user', select: 'name phoneE164 isActive deactivatedAt lastLoginAt' },
+  });
 
   return ok(res, {
+    nextCursor,
     resellers: profiles.map((p) => ({
       id: p._id,
       user: p.user,
@@ -45,7 +53,7 @@ async function listResellers(req, res) {
 async function getReseller(req, res) {
   const profile = await ResellerProfile.findById(req.params.id).populate(
     'user',
-    'name phoneE164 isActive lastLoginAt createdAt'
+    'name phoneE164 isActive deactivatedAt lastLoginAt createdAt'
   );
   if (!profile) throw notFound('Reseller not found');
 
@@ -163,13 +171,24 @@ async function updateReseller(req, res) {
 
 /* ----------------------------------------------------------------- kyc queue */
 
+/**
+ * Oldest first, because a queue is worked from the front. Paged by `limit` and
+ * `cursor` when asked; whole otherwise.
+ */
 async function listKyc(req, res) {
   const status = req.query.status || REVIEW_STATUS.PENDING;
-  const submissions = await KycSubmission.find({ status })
-    .sort({ createdAt: 1 })
-    .populate({ path: 'reseller', populate: { path: 'user', select: 'name phoneE164' } });
+  const { rows: submissions, nextCursor } = await findPage(
+    KycSubmission,
+    { status },
+    {
+      direction: 1,
+      paging: readPaging(req.query),
+      populate: { path: 'reseller', populate: { path: 'user', select: 'name phoneE164' } },
+    }
+  );
 
   return ok(res, {
+    nextCursor,
     submissions: submissions.map((s) => ({
       id: s._id,
       reseller: s.reseller,
@@ -256,44 +275,76 @@ async function decideKyc(req, res) {
 }
 
 /**
- * Total owed across every reseller, summed from the ledger rather than read from
- * the cached balance, so this report doubles as a permanent reconciliation
- * check. A reseller whose cache disagrees is flagged, not hidden. See docs/adr/0002.
+ * Every reseller whose money is not square, summed from the ledger rather than
+ * read from the cached balance, so this report doubles as a permanent
+ * reconciliation check. See docs/adr/0002.
+ *
+ * A row appears when the ledger balance is not zero, in either direction, or
+ * when the cached balance disagrees with the ledger. The second rule is what
+ * lets a drift show at all: a reseller with no entries and a corrupted cache,
+ * or one in credit whose cache drifted, would otherwise never be listed.
+ *
+ * `totalOwed` keeps its meaning, what resellers owe the owner (the negatives).
+ * `totalPayable` is the other side, what the owner holds for resellers.
  */
 async function receivables(_req, res) {
-  const [owing, openOrders] = await Promise.all([
-    ledger.ledgerBalances({ owingOnly: true }),
+  const [balances, drifted, openOrders] = await Promise.all([
+    ledger.ledgerBalances(),
+    // Cached balances that are not zero. Joined with the ledger below; any of
+    // these without a single entry is drift by definition.
+    ResellerProfile.find({ balancePoisha: { $ne: 0 } }, { _id: 1 }).lean(),
     Order.countDocuments({
       status: { $in: [ORDER_STATUS.CONFIRMED, ORDER_STATUS.ACCEPTED, ORDER_STATUS.PACKED] },
     }),
   ]);
 
-  const profiles = await ResellerProfile.find({ _id: { $in: owing.map((r) => r.reseller) } }).populate(
-    'user',
-    'name phoneE164'
-  );
-  const profileById = new Map(profiles.map((p) => [String(p._id), p]));
+  const ledgerById = new Map(balances.map((r) => [String(r.reseller), r.balancePoisha]));
+  const candidateIds = new Set([
+    ...balances.filter((r) => r.balancePoisha !== 0).map((r) => String(r.reseller)),
+    ...drifted.map((p) => String(p._id)),
+  ]);
 
-  const totalOwedPoisha = owing.reduce((sum, r) => sum - r.balancePoisha, 0);
+  const profiles = await ResellerProfile.find({ _id: { $in: [...candidateIds] } }).populate(
+    'user',
+    'name phoneE164 isActive'
+  );
+
+  let totalOwedPoisha = 0;
+  let totalPayablePoisha = 0;
+
+  const rows = profiles
+    .map((p) => {
+      const balancePoisha = ledgerById.get(String(p._id)) || 0;
+      const drift = p.balancePoisha !== balancePoisha;
+      return { p, balancePoisha, drift };
+    })
+    .filter(({ balancePoisha, drift }) => balancePoisha !== 0 || drift)
+    // Most owed first, then the largest credit last; ties by id for a stable page.
+    .sort((a, b) => a.balancePoisha - b.balancePoisha || String(a.p._id).localeCompare(String(b.p._id)));
+
+  rows.forEach(({ balancePoisha }) => {
+    if (balancePoisha < 0) totalOwedPoisha -= balancePoisha;
+    else totalPayablePoisha += balancePoisha;
+  });
 
   return ok(res, {
     totalOwed: toTaka(totalOwedPoisha),
+    totalPayable: toTaka(totalPayablePoisha),
     openOrders,
-    resellers: owing
-      .filter((r) => profileById.has(String(r.reseller)))
-      .map((r) => {
-        const p = profileById.get(String(r.reseller));
-        return {
-          id: p._id,
-          shopName: p.shopName,
-          user: p.user,
-          owed: toTaka(-r.balancePoisha),
-          creditLimit: toTaka(p.creditLimitPoisha),
-          atLimit: r.balancePoisha <= -p.creditLimitPoisha,
-          // The cached balance disagrees with the ledger: run a reconcile.
-          drift: p.balancePoisha !== r.balancePoisha,
-        };
-      }),
+    resellers: rows.map(({ p, balancePoisha, drift }) => ({
+      id: p._id,
+      shopName: p.shopName,
+      user: p.user,
+      // The ledger's figure, signed: negative owes the owner, positive is held for them.
+      balance: toTaka(balancePoisha),
+      owed: toTaka(Math.max(0, -balancePoisha)),
+      payable: toTaka(Math.max(0, balancePoisha)),
+      cachedBalance: toTaka(p.balancePoisha),
+      creditLimit: toTaka(p.creditLimitPoisha),
+      atLimit: balancePoisha < 0 && balancePoisha <= -p.creditLimitPoisha,
+      // The cached balance disagrees with the ledger: run a reconcile.
+      drift,
+    })),
   });
 }
 

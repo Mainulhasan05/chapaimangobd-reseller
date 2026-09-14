@@ -1,7 +1,7 @@
 'use client';
-import { MapPin, PackageCheck, Pencil } from 'lucide-react';
+import { MapPin, PackageCheck, Pencil, UserPen } from 'lucide-react';
 
-import { t, tStatus } from '@/lib/i18n/bn';
+import { t, tStatus, type DictKey } from '@/lib/i18n/bn';
 import { formatMoney, formatQuantity, formatDateTime } from '@/lib/format';
 import type { Order, PaymentMode, StatusHistoryEntry } from '@/lib/types';
 import { Badge, statusTone } from '@/components/ui/layout';
@@ -14,15 +14,18 @@ import { Badge, statusTone } from '@/components/ui/layout';
  *
  * `onEditDeliveryCharge` puts an edit button beside the delivery charge. Only
  * the owner's page passes it, and only while the API still allows the change.
+ * `onEditCustomer` does the same beside the customer's details, for either role.
  */
 export function OrderDetailBody({
   order,
   showCost,
   onEditDeliveryCharge,
+  onEditCustomer,
 }: {
   order: Order;
   showCost?: boolean;
   onEditDeliveryCharge?: () => void;
+  onEditCustomer?: () => void;
 }) {
   return (
     <>
@@ -35,7 +38,19 @@ export function OrderDetailBody({
       </div>
 
       <section className="mb-4 rounded-lg bg-muted p-3 text-sm">
-        <h3 className="mb-1 font-medium">{t('order.customer')}</h3>
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <h3 className="font-medium">{t('order.customer')}</h3>
+          {onEditCustomer && (
+            <button
+              type="button"
+              onClick={onEditCustomer}
+              className="tap -my-1 inline-flex items-center gap-1.5 rounded-md px-2 text-xs font-semibold text-primary-ink hover:bg-primary-softer"
+            >
+              <UserPen aria-hidden className="h-3.5 w-3.5" />
+              {t('customerEdit.action')}
+            </button>
+          )}
+        </div>
         <p>{order.customer.name}</p>
         <p className="tabular text-muted-foreground">{order.customer.phoneE164}</p>
         <p className="text-muted-foreground">
@@ -139,10 +154,16 @@ export function OrderDetailBody({
         <ol className="space-y-1 text-xs text-muted-foreground">
           {order.statusHistory.map((entry, index) => {
             const detail = historyDetail(entry);
+            // A correction to the delivery details carries the status the order
+            // was already in. Labelled by what happened, not as that status again.
+            const edited = entry.event === 'customer_edited';
             return (
               <li key={`${entry.status}-${index}`}>
                 <div className="flex justify-between gap-3">
-                  <span>{tStatus(entry.status)}</span>
+                  <span className={edited ? 'inline-flex items-center gap-1' : undefined}>
+                    {edited && <UserPen aria-hidden className="h-3 w-3 shrink-0" />}
+                    {edited ? t('customerEdit.historyRow') : tStatus(entry.status)}
+                  </span>
                   <span>{formatDateTime(entry.at)}</span>
                 </div>
                 {detail && <p className="mt-0.5 text-foreground/80">{detail}</p>}
@@ -167,6 +188,7 @@ const modeLabel = (mode: PaymentMode): string =>
  * reason is skipped here because the order already shows it above.
  */
 function historyDetail(entry: StatusHistoryEntry): string | null {
+  if (entry.event === 'customer_edited') return editedFields(entry.note);
   if (entry.paymentModeFrom && entry.paymentModeTo) {
     return t('order.paymentModeChanged')
       .replace('{from}', modeLabel(entry.paymentModeFrom))
@@ -174,6 +196,32 @@ function historyDetail(entry: StatusHistoryEntry): string | null {
   }
   if (entry.status === 'cancelled') return null;
   return entry.note?.trim() || null;
+}
+
+/**
+ * Which details a correction changed, in Bengali.
+ *
+ * The server's note is an English sentence ending in the field names
+ * ("Customer details changed: address, phoneE164"). The names are stable
+ * identifiers, so they are translated; the sentence around them is not shown.
+ */
+const EDITED_FIELD: Record<string, DictKey> = {
+  name: 'customerEdit.fieldName',
+  phoneE164: 'customerEdit.fieldPhone',
+  phone: 'customerEdit.fieldPhone',
+  address: 'customerEdit.fieldAddress',
+  district: 'customerEdit.fieldDistrict',
+};
+
+function editedFields(note: string | undefined): string | null {
+  const list = note?.split(':').pop();
+  if (!list) return null;
+  const names = list
+    .split(',')
+    .map((field) => field.trim())
+    .filter((field) => field in EDITED_FIELD)
+    .map((field) => t(EDITED_FIELD[field]));
+  return names.length > 0 ? t('customerEdit.changedFields').replace('{fields}', names.join(', ')) : null;
 }
 
 function Row({ label, value, strong }: { label: string; value: string; strong?: boolean }) {

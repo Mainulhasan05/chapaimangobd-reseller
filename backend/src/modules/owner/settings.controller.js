@@ -10,6 +10,7 @@ const imageService = require('../../services/images');
 const { badRequest } = require('../../utils/errors');
 const env = require('../../config/env');
 const { databaseIsUp } = require('../../config/db');
+const customerSms = require('../../domain/customerSms');
 
 const shape = (s) => ({
   businessName: s.businessName,
@@ -21,6 +22,20 @@ const shape = (s) => ({
   reverseDeliveryChargeOnReturn: s.reverseDeliveryChargeOnReturn,
   smsPricePerCredit: toTaka(s.smsPricePerCreditPoisha),
   features: s.features,
+  /*
+   * The texts a customer may be sent on accept, ship and cancel. `available` is
+   * whether they can be sent at all: customer SMS is owner-paid and ignores the
+   * master switch, but it still needs a gateway (docs/adr/0013).
+   */
+  customerSmsTemplates: Object.fromEntries(
+    customerSms.ACTIONS.map((action) => [action, customerSms.templateFor(s, action)])
+  ),
+  customerSms: {
+    available: sms.isConfigured(),
+    placeholders: customerSms.PLACEHOLDERS,
+    maxSegments: customerSms.MAX_SEGMENTS,
+    trackUrlConfigured: Boolean(env.publicAppUrl),
+  },
 });
 
 async function get(_req, res) {
@@ -52,6 +67,20 @@ async function update(req, res) {
     Object.entries(body.features).forEach(([key, value]) => {
       patch[`features.${key}`] = value;
     });
+  }
+  if (body.customerSmsTemplates) {
+    // Every field checked before anything is written, so the owner sees all
+    // three problems at once rather than one per save.
+    const fields = {};
+    Object.entries(body.customerSmsTemplates).forEach(([action, template]) => {
+      if (template === undefined) return;
+      const problem = customerSms.validateTemplate(template);
+      if (problem) fields[`customerSmsTemplates.${action}`] = problem;
+      else patch[`customerSmsTemplates.${action}`] = template.trim();
+    });
+    if (Object.keys(fields).length > 0) {
+      throw badRequest('VALIDATION_FAILED', 'Some fields are invalid', fields);
+    }
   }
 
   const settings = await updateSettings(patch);

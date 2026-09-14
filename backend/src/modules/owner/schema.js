@@ -101,14 +101,31 @@ const listOrders = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });
 
+/*
+ * The owner's "send SMS to customer" box, on accept, ship and cancel only.
+ * Off unless ticked. See docs/adr/0013.
+ */
+const sendCustomerSms = z.boolean().optional().default(false);
+
 const shipOrder = z.object({
   courierName: z.string().trim().min(2, 'Courier name is required').max(120),
   trackingNumber: z.string().trim().max(120).optional(),
+  sendCustomerSms,
 });
 
 const transitionBody = z.object({
   reason: z.string().trim().max(500).optional(),
   note: z.string().trim().max(500).optional(),
+});
+
+const cancelBody = transitionBody.extend({ sendCustomerSms });
+
+/** The inputs of the SMS preview, named the way the modal holds them. */
+const customerSmsPreview = z.object({
+  action: z.enum(['accept', 'ship', 'cancel']),
+  courier: z.string().trim().max(120).optional(),
+  trackingId: z.string().trim().max(120).optional(),
+  reason: z.string().trim().max(500).optional(),
 });
 
 /*
@@ -122,6 +139,7 @@ const acceptBody = z.object({
     .array(z.object({ itemId: objectId, sourceId: objectId }))
     .min(1, 'Choose a source for every item')
     .max(20),
+  sendCustomerSms,
 });
 
 /*
@@ -192,6 +210,16 @@ const updateSettings = z.object({
       webPush: z.boolean().optional(),
     })
     .optional(),
+  // Shape only. The GSM-7 and segment rules live in domain/customerSms.js and
+  // are applied by the controller, which reports them per field.
+  customerSmsTemplates: z
+    .object({
+      accept: z.string().max(1000).optional(),
+      ship: z.string().max(1000).optional(),
+      cancel: z.string().max(1000).optional(),
+    })
+    .strict()
+    .optional(),
 });
 
 /* sms */
@@ -250,6 +278,8 @@ module.exports = {
   listOrders,
   shipOrder,
   transitionBody,
+  cancelBody,
+  customerSmsPreview,
   acceptBody,
   returnBody,
   overrideDeliveryCharge,

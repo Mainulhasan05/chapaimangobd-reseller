@@ -12,6 +12,7 @@ import { t, tStatus } from '@/lib/i18n/bn';
 import { formatMoney, formatAge, formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import type { Order, OwnerDashboard, Paged } from '@/lib/types';
+import { primeOrder } from '@/components/order-page';
 import {
   Alert,
   Badge,
@@ -164,8 +165,9 @@ export default function OwnerOrdersPage() {
 
   const transition = useMutation({
     mutationFn: ({ id, action }: { id: string; action: string }) =>
-      api.post(`/owner/orders/${id}/${action}`, {}),
-    onSuccess: async () => {
+      api.post<{ order: Order }>(`/owner/orders/${id}/${action}`, {}),
+    onSuccess: async (data) => {
+      primeOrder(queryClient, 'owner', data.order);
       await queryClient.invalidateQueries({ queryKey: ['owner'] });
       // A row quietly leaving the current filter is not a confirmation.
       toast(t('order.statusUpdated'));

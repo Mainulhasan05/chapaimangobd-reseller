@@ -4,6 +4,10 @@ const Notification = require('../../models/Notification');
 const PushSubscription = require('../../models/PushSubscription');
 const webpush = require('../../channels/webpush');
 const { ok } = require('../../middleware/error');
+const { readPaging, findPage } = require('../../utils/cursor');
+
+const PAGE_SIZE = 30;
+const MAX_PAGE_SIZE = 100;
 
 /**
  * The notification inbox, for whoever is signed in.
@@ -22,16 +26,26 @@ const { ok } = require('../../middleware/error');
  */
 
 /**
- * The fifty most recent, newest first, with the unread count alongside.
+ * The inbox, newest first, a page at a time, with the unread count alongside.
+ *
+ * Paged by cursor rather than by number: notifications arrive while someone is
+ * reading, and a page number over a growing list repeats rows. Thirty by
+ * default, at most a hundred; `nextCursor` is null on the last page.
  *
  * The count is a separate query rather than a filter over what was fetched,
  * because the badge has to be right even when the unread ones run past the end
  * of the page.
  */
 async function list(req, res) {
-  const items = await Notification.find({ user: req.user._id }).sort({ createdAt: -1 }).limit(50);
-  const unread = await Notification.countDocuments({ user: req.user._id, readAt: null });
-  return ok(res, { notifications: items, unread });
+  const paging = readPaging(
+    { limit: req.query.limit || String(PAGE_SIZE), cursor: req.query.cursor },
+    { defaultLimit: PAGE_SIZE, maxLimit: MAX_PAGE_SIZE }
+  );
+  const [{ rows, nextCursor }, unread] = await Promise.all([
+    findPage(Notification, { user: req.user._id }, { paging }),
+    Notification.countDocuments({ user: req.user._id, readAt: null }),
+  ]);
+  return ok(res, { notifications: rows, unread, nextCursor });
 }
 
 async function markRead(req, res) {

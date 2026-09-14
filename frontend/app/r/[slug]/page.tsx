@@ -5,7 +5,7 @@ import type { PublicShop, DeliveryZone } from '@/lib/types';
 import { OrderForm } from '@/components/order-form';
 import { Logo } from '@/components/ui/logo';
 import { t } from '@/lib/i18n/bn';
-import { Globe, MapPin, MessageCircle, Phone } from 'lucide-react';
+import { Globe, MapPin, MessageCircle, Phone, Store } from 'lucide-react';
 
 /**
  * Server rendered, unlike the dashboards. This page is unauthenticated, is the
@@ -136,7 +136,25 @@ export default async function ShopPage({ params }: { params: Promise<{ slug: str
         )}
       </header>
 
-      <OrderForm slug={slug} shop={shop} zones={zones} />
+      {/*
+       * A closed shop keeps its storefront: the name and the ways to reach the
+       * reseller are still what a customer came for, and a bare 404 would look
+       * like a broken link. There is simply no form. See docs/adr/0011.
+       */}
+      {shop.acceptingOrders === false ? (
+        <section className="card flex flex-col items-center gap-2 px-6 py-12 text-center" aria-live="polite">
+          <span
+            aria-hidden
+            className="mb-2 flex h-12 w-12 items-center justify-center rounded-2xl bg-muted text-muted-foreground"
+          >
+            <Store className="h-5 w-5" />
+          </span>
+          <h2 className="text-lg font-semibold">{t('shop.notAcceptingTitle')}</h2>
+          <p className="max-w-sm text-sm text-muted-foreground">{t('shop.notAcceptingHelp')}</p>
+        </section>
+      ) : (
+        <OrderForm slug={slug} shop={shop} zones={zones} />
+      )}
 
       <footer className="mt-10 text-center text-xs text-muted-foreground">
         {shop.shop.poweredBy}

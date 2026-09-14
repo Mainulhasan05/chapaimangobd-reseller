@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowDownToLine, ArrowUpFromLine } from 'lucide-react';
 import { api, ApiError, errorMessage } from '@/lib/api';
 import { t } from '@/lib/i18n/bn';
@@ -25,6 +25,10 @@ import { Button, Spinner } from '@/components/ui/button';
 import { Field, Input, Textarea } from '@/components/ui/form';
 import { Modal } from '@/components/ui/modal';
 import { useToast } from '@/components/ui/toast';
+import { LoadMore } from '@/components/ui/load-more';
+import type { Paged } from '@/lib/types';
+
+const PAGE_SIZE = 30;
 
 type ResellerRef = { shopName: string; slug: string; user?: { name: string; phoneE164: string } };
 
@@ -119,10 +123,22 @@ function Deposits({ status }: { status: string }) {
   const [screenshot, setScreenshot] = useState<string | null>(null);
   const decide = useDecision('deposits');
 
-  const deposits = useQuery({
+  // A page at a time; the approved and rejected histories only grow.
+  const deposits = useInfiniteQuery({
     queryKey: ['owner', 'deposits', status],
-    queryFn: () => api.get<{ deposits: DepositRow[] }>(`/owner/deposits?status=${status}&limit=50`),
+    queryFn: ({ pageParam }) =>
+      api.get<Paged<'deposits', DepositRow>>(
+        `/owner/deposits?status=${status}&limit=${PAGE_SIZE}&page=${pageParam}`
+      ),
+    initialPageParam: 1,
+    getNextPageParam: (last, pages) => {
+      const loaded = pages.reduce((count, page) => count + page.deposits.length, 0);
+      return loaded < last.total ? pages.length + 1 : undefined;
+    },
   });
+  const depositRows = deposits.data?.pages.flatMap((page) => page.deposits) ?? [];
+  const depositTotal = deposits.data?.pages[0]?.total ?? 0;
+  const depositsNextError = deposits.isFetchNextPageError ? deposits.error : null;
 
   const viewScreenshot = useMutation({
     mutationFn: (id: string) => api.get<{ url: string }>(`/owner/deposits/${id}/screenshot`),
@@ -137,7 +153,7 @@ function Deposits({ status }: { status: string }) {
     );
   }
 
-  if (deposits.isError) {
+  if (deposits.isError && depositRows.length === 0) {
     return (
       <ErrorState
         onRetry={() => deposits.refetch()}
@@ -147,7 +163,7 @@ function Deposits({ status }: { status: string }) {
     );
   }
 
-  if (!deposits.data || deposits.data.deposits.length === 0) {
+  if (depositRows.length === 0) {
     return <EmptyState icon={ArrowDownToLine} title={t('app.none')} />;
   }
 
@@ -156,7 +172,7 @@ function Deposits({ status }: { status: string }) {
       {decide.error && <Alert tone="danger">{errorMessage(decide.error)}</Alert>}
 
       <ul className="space-y-3 sm:hidden">
-        {deposits.data.deposits.map((row) => (
+        {depositRows.map((row) => (
           <li key={row.id}>
             <Card className="p-4">
               <div className="flex items-start justify-between gap-3">
@@ -227,7 +243,7 @@ function Deposits({ status }: { status: string }) {
           </tr>
         </thead>
         <tbody>
-          {deposits.data.deposits.map((row) => (
+          {depositRows.map((row) => (
             <Tr key={row.id}>
               <Td>
                 <Person
@@ -284,6 +300,15 @@ function Deposits({ status }: { status: string }) {
         </tbody>
       </TableWrap>
 
+      <LoadMore
+        hasMore={Boolean(deposits.hasNextPage)}
+        loading={deposits.isFetchingNextPage}
+        onLoadMore={() => deposits.fetchNextPage()}
+        error={depositsNextError}
+        shown={depositRows.length}
+        total={depositTotal}
+      />
+
       <RejectModal
         open={Boolean(rejecting)}
         onClose={() => setRejecting(null)}
@@ -327,11 +352,21 @@ function Withdrawals({ status }: { status: string }) {
     setApproving(null);
   };
 
-  const withdrawals = useQuery({
+  const withdrawals = useInfiniteQuery({
     queryKey: ['owner', 'withdrawals', status],
-    queryFn: () =>
-      api.get<{ withdrawals: WithdrawalRow[] }>(`/owner/withdrawals?status=${status}&limit=50`),
+    queryFn: ({ pageParam }) =>
+      api.get<Paged<'withdrawals', WithdrawalRow>>(
+        `/owner/withdrawals?status=${status}&limit=${PAGE_SIZE}&page=${pageParam}`
+      ),
+    initialPageParam: 1,
+    getNextPageParam: (last, pages) => {
+      const loaded = pages.reduce((count, page) => count + page.withdrawals.length, 0);
+      return loaded < last.total ? pages.length + 1 : undefined;
+    },
   });
+  const withdrawalRows = withdrawals.data?.pages.flatMap((page) => page.withdrawals) ?? [];
+  const withdrawalTotal = withdrawals.data?.pages[0]?.total ?? 0;
+  const withdrawalsNextError = withdrawals.isFetchNextPageError ? withdrawals.error : null;
 
   if (withdrawals.isLoading) {
     return (
@@ -341,7 +376,7 @@ function Withdrawals({ status }: { status: string }) {
     );
   }
 
-  if (withdrawals.isError) {
+  if (withdrawals.isError && withdrawalRows.length === 0) {
     return (
       <ErrorState
         onRetry={() => withdrawals.refetch()}
@@ -351,7 +386,7 @@ function Withdrawals({ status }: { status: string }) {
     );
   }
 
-  if (!withdrawals.data || withdrawals.data.withdrawals.length === 0) {
+  if (withdrawalRows.length === 0) {
     return <EmptyState icon={ArrowUpFromLine} title={t('app.none')} />;
   }
 
@@ -362,7 +397,7 @@ function Withdrawals({ status }: { status: string }) {
       )}
 
       <ul className="space-y-3 sm:hidden">
-        {withdrawals.data.withdrawals.map((row) => (
+        {withdrawalRows.map((row) => (
           <li key={row.id}>
             <Card className="p-4">
               <div className="flex items-start justify-between gap-3">
@@ -416,7 +451,7 @@ function Withdrawals({ status }: { status: string }) {
           </tr>
         </thead>
         <tbody>
-          {withdrawals.data.withdrawals.map((row) => (
+          {withdrawalRows.map((row) => (
             <Tr key={row.id}>
               <Td>
                 <Person
@@ -452,6 +487,15 @@ function Withdrawals({ status }: { status: string }) {
           ))}
         </tbody>
       </TableWrap>
+
+      <LoadMore
+        hasMore={Boolean(withdrawals.hasNextPage)}
+        loading={withdrawals.isFetchingNextPage}
+        onLoadMore={() => withdrawals.fetchNextPage()}
+        error={withdrawalsNextError}
+        shown={withdrawalRows.length}
+        total={withdrawalTotal}
+      />
 
       <Modal
         open={Boolean(approving)}

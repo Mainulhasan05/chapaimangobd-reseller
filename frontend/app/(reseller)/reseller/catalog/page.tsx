@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Package } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, errorMessage, fieldErrors } from '@/lib/api';
+import { useReadOnlyAccount } from '@/lib/session';
 import { t, tUnit } from '@/lib/i18n/bn';
 import { formatMoney, formatMoneyPlain, formatNumber } from '@/lib/format';
 import type { CatalogItem } from '@/lib/types';
@@ -39,7 +40,7 @@ export default function CatalogPage() {
         <EmptyState icon={Package} title={t('app.none')} />
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {catalog.data?.products.map((product) => (
           <CatalogRow key={product.id} product={product} />
         ))}
@@ -51,6 +52,8 @@ export default function CatalogPage() {
 function CatalogRow({ product }: { product: CatalogItem }) {
   const queryClient = useQueryClient();
   const toast = useToast();
+  // Prices and listings are writes a deactivated account no longer makes.
+  const readOnly = useReadOnlyAccount();
 
   // Latin digits, because this value is parsed back on save. Seeded once: the
   // parent keys this row by product id, so a different product mounts a fresh
@@ -128,6 +131,7 @@ function CatalogRow({ product }: { product: CatalogItem }) {
       >
         <MoneyInput
           id={`price-${product.id}`}
+          disabled={readOnly}
           value={price}
           onChange={(e) => setPrice(e.target.value)}
         />
@@ -138,9 +142,15 @@ function CatalogRow({ product }: { product: CatalogItem }) {
        * customers the moment they change, so the whole row is the target.
        */}
       <div className="mb-3 divide-y divide-border">
-        <Switch checked={isListed} onChange={setIsListed} label={t('catalog.listed')} />
+        <Switch
+          checked={isListed}
+          disabled={readOnly}
+          onChange={setIsListed}
+          label={t('catalog.listed')}
+        />
         <Switch
           checked={hidePrice}
+          disabled={readOnly}
           onChange={setHidePrice}
           label={t('catalog.hidePrice')}
           hint={t('catalog.hidePriceHelp')}
@@ -151,9 +161,11 @@ function CatalogRow({ product }: { product: CatalogItem }) {
         <p className="mb-2 text-xs text-danger">{errorMessage(save.error)}</p>
       )}
 
-      <Button full loading={save.isPending} onClick={() => save.mutate()}>
-        {product.activated ? t('app.save') : t('catalog.activate')}
-      </Button>
+      {!readOnly && (
+        <Button full loading={save.isPending} onClick={() => save.mutate()}>
+          {product.activated ? t('app.save') : t('catalog.activate')}
+        </Button>
+      )}
     </Card>
   );
 }

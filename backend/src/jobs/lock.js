@@ -54,6 +54,19 @@ async function release(name, owner, { slot = null, error = null } = {}) {
 }
 
 /**
+ * Extends a lock this caller still owns, for work that holds it indefinitely
+ * (the Telegram poller). Resolves false when the lock has moved on, which means
+ * another process now holds it and this one must stop.
+ */
+async function renew(name, owner, { ttlMs = DEFAULT_TTL_MS, now = new Date() } = {}) {
+  const result = await JobLock.updateOne(
+    { name, owner, lockedUntil: { $gt: now } },
+    { $set: { lockedUntil: new Date(now.getTime() + ttlMs) } }
+  );
+  return result.matchedCount > 0;
+}
+
+/**
  * Runs `fn` if and only if this caller wins the lock.
  * Resolves `{ ran: false }` when someone else holds it, otherwise
  * `{ ran: true, result }` or `{ ran: true, error }`. Never throws for a job
@@ -79,4 +92,4 @@ async function runExclusive(name, fn, { ttlMs, slot } = {}) {
   }
 }
 
-module.exports = { acquire, release, runExclusive, DEFAULT_TTL_MS };
+module.exports = { acquire, renew, release, runExclusive, DEFAULT_TTL_MS };

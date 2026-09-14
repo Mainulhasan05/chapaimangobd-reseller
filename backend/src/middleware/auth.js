@@ -19,6 +19,24 @@ function readToken(req) {
   return null;
 }
 
+/**
+ * What a session that must change its password may still reach. Refresh and
+ * logout do not pass through `authenticate` today; they are listed so that
+ * adding it there later cannot lock someone inside a temporary password.
+ */
+const PASSWORD_CHANGE_PATHS = new Set([
+  '/api/auth/me',
+  '/api/auth/password/change',
+  '/api/auth/logout',
+  '/api/auth/refresh',
+]);
+
+/** The mounted path without a query string or a trailing slash. */
+function fullPath(req) {
+  const path = `${req.baseUrl || ''}${req.path || ''}`;
+  return path.length > 1 ? path.replace(/\/+$/, '') : path;
+}
+
 const authenticate = asyncHandler(async (req, _res, next) => {
   const token = readToken(req);
   if (!token) throw unauthorized();
@@ -40,6 +58,20 @@ const authenticate = asyncHandler(async (req, _res, next) => {
    */
   if (!user.isActive && user.role !== ROLES.RESELLER) {
     throw forbidden('This account has been suspended');
+  }
+
+  /*
+   * A temporary password handed out by the owner is a credential that passed
+   * through another person. Until it is replaced, the session can do nothing
+   * but read who it is, replace it, or end. The interface redirects to the
+   * account page; this is what makes that redirect more than a suggestion.
+   */
+  if (user.mustChangePassword && !PASSWORD_CHANGE_PATHS.has(fullPath(req))) {
+    throw new AppError(
+      403,
+      'PASSWORD_CHANGE_REQUIRED',
+      'Choose a new password before doing anything else'
+    );
   }
 
   req.user = user;

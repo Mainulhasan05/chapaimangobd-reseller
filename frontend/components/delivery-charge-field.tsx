@@ -6,7 +6,7 @@ import { api, errorMessage } from '@/lib/api';
 import { t } from '@/lib/i18n/bn';
 import { formatMoney, formatMoneyPlain, formatSignedMoney } from '@/lib/format';
 import { checkMoney, moneyError, type MoneyCheck } from '@/lib/money';
-import type { DeliveryChargeChange, Order, OrderStatus } from '@/lib/types';
+import type { DeliveryChargeChange, Order } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { Field, MoneyInput } from '@/components/ui/form';
 import { Alert } from '@/components/ui/layout';
@@ -15,16 +15,15 @@ import { Modal } from '@/components/ui/modal';
 import { useToast } from '@/components/ui/toast';
 
 /**
- * Where the owner may still change the delivery charge.
+ * Whether the owner may still change the delivery charge.
  *
- * Mirrors `DELIVERY_CHARGE_EDITABLE` in the API's state machine, which is the
- * authority and answers 409 DELIVERY_CHARGE_LOCKED outside it. The server does
- * not list this among an order's `actions`, because it is an edit rather than
- * a transition, so the screen needs its own copy to know when to offer it.
+ * Read from the order's `actions`, which the API derives from
+ * `DELIVERY_CHARGE_EDITABLE` in its state machine. The server stays the
+ * authority and answers 409 DELIVERY_CHARGE_LOCKED if the order moved on
+ * since this copy was fetched.
  */
-const EDITABLE: readonly OrderStatus[] = ['pending', 'confirmed', 'accepted', 'packed'];
-
-export const canEditDeliveryCharge = (order: Order): boolean => EDITABLE.includes(order.status);
+export const canEditDeliveryCharge = (order: Order): boolean =>
+  Boolean(order.actions?.includes('changeDeliveryCharge'));
 
 /** Pending never debited the wallet; every later status did. See docs/adr/0010. */
 const isCharged = (order: Order): boolean => order.status !== 'pending';

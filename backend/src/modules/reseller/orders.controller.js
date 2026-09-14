@@ -46,9 +46,7 @@ async function getOrder(req, res) {
   const order = await Order.findOne({ _id: req.params.id, reseller: req.reseller._id });
   if (!order) throw notFound('Order not found');
 
-  return ok(res, {
-    order: { ...present.order(order), actions: availableActions(order, ROLES.RESELLER) },
-  });
+  return ok(res, { order: present.orderFor(order, ROLES.RESELLER) });
 }
 
 /**
@@ -70,7 +68,7 @@ async function confirmOrder(req, res) {
     paymentMode: req.body.paymentMode,
   });
 
-  return ok(res, { order: present.order(order) });
+  return ok(res, { order: present.orderFor(order, ROLES.RESELLER) });
 }
 
 /** A customer who phoned instead of using the form. Starts at confirmed. */
@@ -98,7 +96,7 @@ async function createManualOrder(req, res) {
     })),
   });
 
-  return ok(res, { order: present.order(order) }, 201);
+  return ok(res, { order: present.orderFor(order, ROLES.RESELLER) }, 201);
 }
 
 async function cancelOrder(req, res) {
@@ -121,7 +119,7 @@ async function cancelOrder(req, res) {
     ip: req.ip,
   });
 
-  return ok(res, { order: present.order(order) });
+  return ok(res, { order: present.orderFor(order, ROLES.RESELLER) });
 }
 
 /**

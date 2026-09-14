@@ -5,7 +5,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { ClipboardList, Download, TrendingDown } from 'lucide-react';
 import { api, errorMessage } from '@/lib/api';
 import { t, tUnit } from '@/lib/i18n/bn';
-import { formatMoney, formatNumber, businessDate } from '@/lib/format';
+import { formatMoney, formatNumber, formatSignedMoney, businessDate } from '@/lib/format';
 import {
   Alert,
   Badge,
@@ -24,13 +24,20 @@ import { Button, Spinner } from '@/components/ui/button';
 import { Field, Input } from '@/components/ui/form';
 
 type Receivables = {
+  /** What resellers owe the owner: the negative ledger balances. */
   totalOwed: number;
+  /** What the owner holds for resellers: the positive ledger balances. */
+  totalPayable: number;
   openOrders: number;
+  /** Every reseller not square with the ledger, or whose cached balance drifted. */
   resellers: {
     id: string;
     shopName: string;
     user?: { name: string; phoneE164: string };
+    /** The ledger balance, signed: negative owes, positive is held for them. */
+    balance: number;
     owed: number;
+    payable: number;
     creditLimit: number;
     atLimit: boolean;
     /** The cached balance disagrees with the ledger. A reconcile says why. */
@@ -140,7 +147,14 @@ export default function OwnerReportsPage() {
       </div>
 
       <Card className="mb-6">
-        <CardHeader title={t('wallet.owed')} subtitle={t('owner.receivable')} />
+        <CardHeader
+          title={t('wallet.owed')}
+          subtitle={
+            receivables.isSuccess
+              ? `${t('owner.receivable')} ${formatMoney(receivables.data.totalOwed)} · ${t('reports.payable')} ${formatMoney(receivables.data.totalPayable ?? 0)}`
+              : t('owner.receivable')
+          }
+        />
         {receivables.isLoading && (
           <div className="flex justify-center py-6">
             <Spinner />
@@ -170,7 +184,7 @@ export default function OwnerReportsPage() {
               <thead>
                 <tr>
                   <Th>{t('auth.shopName')}</Th>
-                  <Th className="text-right">{t('wallet.owed')}</Th>
+                  <Th className="text-right">{t('wallet.balance')}</Th>
                   <Th className="text-right">{t('wallet.creditLimit')}</Th>
                   <Th />
                 </tr>
@@ -184,7 +198,13 @@ export default function OwnerReportsPage() {
                         {row.user?.phoneE164}
                       </div>
                     </Td>
-                    <Td className="tabular text-right text-danger">{formatMoney(row.owed)}</Td>
+                    <Td
+                      className={`tabular text-right ${
+                        row.balance < 0 ? 'text-danger' : row.balance > 0 ? 'text-success' : ''
+                      }`}
+                    >
+                      {formatSignedMoney(row.balance)}
+                    </Td>
                     <Td className="tabular text-right">{formatMoney(row.creditLimit)}</Td>
                     <Td className="text-right text-xs">
                       <div className="flex flex-wrap items-center justify-end gap-1.5">

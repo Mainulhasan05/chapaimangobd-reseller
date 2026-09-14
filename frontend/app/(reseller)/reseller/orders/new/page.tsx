@@ -3,11 +3,14 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, ApiError, fieldErrors } from '@/lib/api';
+import Link from 'next/link';
+import { Lock } from 'lucide-react';
+import { api, ApiError, errorMessage, fieldErrors } from '@/lib/api';
+import { useReadOnlyAccount } from '@/lib/session';
 import { t, tUnit } from '@/lib/i18n/bn';
 import { formatMoney, formatMoneyPlain, formatNumber } from '@/lib/format';
 import type { CatalogItem, DeliveryZone, PaymentMode } from '@/lib/types';
-import { Alert, Card, CardHeader, ErrorState, PageHeader, StickyBar } from '@/components/ui/layout';
+import { Alert, Card, CardHeader, EmptyState, ErrorState, PageHeader, StickyBar } from '@/components/ui/layout';
 import { Button } from '@/components/ui/button';
 import { CardGridSkeleton } from '@/components/ui/skeleton';
 import { QuantityStepper } from '@/components/ui/stepper';
@@ -27,6 +30,7 @@ export default function ManualOrderPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const toast = useToast();
+  const readOnly = useReadOnlyAccount();
 
   const catalog = useQuery({
     queryKey: ['catalog'],
@@ -93,6 +97,25 @@ export default function ManualOrderPage() {
     },
   });
 
+  // A deactivated account takes no new orders. See docs/adr/0011.
+  if (readOnly) {
+    return (
+      <>
+        <PageHeader title={t('order.manualOrder')} />
+        <EmptyState
+          icon={Lock}
+          title={t('inactive.bannerTitle')}
+          description={t('inactive.noNewOrders')}
+          action={
+            <Link href="/reseller/orders">
+              <Button variant="outline">{t('nav.orders')}</Button>
+            </Link>
+          }
+        />
+      </>
+    );
+  }
+
   if (catalog.isLoading) {
     return (
       <>
@@ -117,7 +140,7 @@ export default function ManualOrderPage() {
 
   const errors = fieldErrors(create.error);
   const generalError =
-    create.error instanceof ApiError && !create.error.fields ? create.error.message : null;
+    create.error instanceof ApiError && !create.error.fields ? errorMessage(create.error) : null;
 
   const setLine = (id: string, key: keyof Line, value: string) =>
     setLines((prev) => {

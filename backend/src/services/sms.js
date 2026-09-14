@@ -61,6 +61,7 @@ const CATEGORY_BY_PURPOSE = {
   [SMS_PURPOSE.MANUAL]: SMS_CATEGORY.MANUAL,
   [SMS_PURPOSE.OTP]: SMS_CATEGORY.OTP,
   [SMS_PURPOSE.OWNER_ALERT]: SMS_CATEGORY.OWNER_ALERT,
+  [SMS_PURPOSE.CUSTOMER]: SMS_CATEGORY.CUSTOMER,
 };
 
 /**
@@ -95,6 +96,8 @@ async function send({
    * not a list of working codes.
    */
   logText = null,
+  /** The order a customer SMS is about, so the log row links back to it. */
+  order = null,
 }) {
   const body = (text || '').trim().slice(0, MAX_TEXT);
   const ownerPaid = payer === SMS_PAYER.OWNER;
@@ -118,6 +121,7 @@ async function send({
     resellerName: charge ? charge.shopName || null : null,
     triggeredBy: triggeredBy ? triggeredBy._id || triggeredBy : null,
     outboxMessage,
+    order: order ? order._id || order : null,
   };
 
   const blocked = async (reason, message) =>

@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import type { Route } from 'next';
-import { useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery } from '@tanstack/react-query';
 import { ChevronRight, Users } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useDebounced } from '@/lib/use-debounced';
@@ -23,7 +23,10 @@ import {
 } from '@/components/ui/layout';
 import { SearchInput, Toolbar } from '@/components/ui/toolbar';
 import { ListSkeleton } from '@/components/ui/skeleton';
-import type { Customer } from '@/lib/types';
+import { LoadMore } from '@/components/ui/load-more';
+import type { Customer, Paged } from '@/lib/types';
+
+const PAGE_SIZE = 30;
 
 /**
  * Everyone who has ever ordered, listed by phone number.
@@ -50,15 +53,22 @@ export function CustomersList({
   // Debounced, because this searches names and phone tails across every order.
   const search = useDebounced(term, 300);
 
-  const customers = useQuery({
+  const customers = useInfiniteQuery({
     queryKey: ['customers', base, search],
-    queryFn: () =>
-      api.get<{ customers: Customer[]; total: number }>(
-        `${base}/customers?limit=50${search ? `&q=${encodeURIComponent(search)}` : ''}`
+    queryFn: ({ pageParam }) =>
+      api.get<Paged<'customers', Customer>>(
+        `${base}/customers?limit=${PAGE_SIZE}&page=${pageParam}` +
+          `${search ? `&q=${encodeURIComponent(search)}` : ''}`
       ),
+    initialPageParam: 1,
+    getNextPageParam: (last, pages) => {
+      const loaded = pages.reduce((count, page) => count + page.customers.length, 0);
+      return loaded < last.total ? pages.length + 1 : undefined;
+    },
   });
 
-  const rows = customers.data?.customers ?? [];
+  const rows = customers.data?.pages.flatMap((page) => page.customers) ?? [];
+  const total = customers.data?.pages[0]?.total ?? 0;
 
   return (
     <>
@@ -70,8 +80,12 @@ export function CustomersList({
 
       {customers.isLoading && <ListSkeleton rows={5} />}
 
-      {customers.isError && (
-        <ErrorState onRetry={() => customers.refetch()} isRetrying={customers.isFetching} />
+      {customers.isError && rows.length === 0 && (
+        <ErrorState
+          onRetry={() => customers.refetch()}
+          isRetrying={customers.isFetching}
+          error={customers.error}
+        />
       )}
 
       {customers.isSuccess && rows.length === 0 && (
@@ -159,6 +173,15 @@ export function CustomersList({
               ))}
             </tbody>
           </TableWrap>
+
+          <LoadMore
+            hasMore={Boolean(customers.hasNextPage)}
+            loading={customers.isFetchingNextPage}
+            onLoadMore={() => customers.fetchNextPage()}
+            error={customers.isFetchNextPageError ? customers.error : null}
+            shown={rows.length}
+            total={total}
+          />
         </>
       )}
     </>

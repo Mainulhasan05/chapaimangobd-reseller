@@ -13,6 +13,7 @@ import { Switch } from '@/components/ui/switch';
 import { PhoneField } from '@/components/ui/phone-field';
 import { ImageField } from '@/components/ui/image-field';
 import { useToast } from '@/components/ui/toast';
+import { CustomerSmsTemplates, type CustomerSmsSettings } from '@/components/customer-sms-templates';
 
 type Settings = {
   businessName: string;
@@ -25,7 +26,7 @@ type Settings = {
   features: { sms: boolean; telegram: boolean; webPush: boolean };
   /** The public brand mark. Uploaded on its own, not through the form below. */
   brandLogoUrl?: string | null;
-};
+} & CustomerSmsSettings;
 
 export default function OwnerSettingsPage() {
   const settings = useQuery({
@@ -294,12 +295,20 @@ function SettingsForm({ initial }: { initial: Settings }) {
       </Card>
 
       <Button
+        className="mb-6"
         loading={save.isPending}
         disabled={!creditLimitCheck.ok || !smsPriceCheck.ok}
         onClick={() => save.mutate()}
       >
         {t('app.save')}
       </Button>
+
+      {/*
+       * Its own card and its own save, below the form's button: the templates
+       * are validated as a set and a refused template must not hold up a change
+       * to the business name, or the other way round.
+       */}
+      <CustomerSmsTemplates initial={initial} />
     </>
   );
 }

@@ -6,7 +6,6 @@ const { ok } = require('../../middleware/error');
 const { normalizeBdPhone } = require('../../utils/phone');
 const { toTaka } = require('../../utils/money');
 const present = require('../../utils/present');
-const { availableActions } = require('../../domain/orderStateMachine');
 const { ROLES } = require('../../domain/constants');
 
 /**
@@ -51,8 +50,11 @@ function editCustomer(role) {
       });
     }
 
+    // The same shape as GET /orders/:id for this role: the owner's includes the shop.
+    if (role === ROLES.OWNER) await result.order.populate('reseller', 'shopName slug');
+
     return ok(res, {
-      order: { ...present.order(result.order), actions: availableActions(result.order, role) },
+      order: present.orderFor(result.order, role),
       changed: result.changed.map((field) => (field === 'phoneE164' ? 'phone' : field)),
       deliveryZoneChanged: result.deliveryZoneChanged,
       // The zone the new district belongs to, when it differs from the order's.

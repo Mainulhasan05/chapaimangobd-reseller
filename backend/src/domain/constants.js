@@ -105,6 +105,9 @@ const SMS_PURPOSE = Object.freeze({
   OTP: 'otp',
   // A security alert to the owner, such as a sign-in from a new device. Owner-paid.
   OWNER_ALERT: 'owner_alert',
+  // The owner's optional message to a customer on accept, ship or cancel.
+  // Owner-paid, not gated by the master switch. See docs/adr/0013.
+  CUSTOMER: 'customer',
 });
 
 const EVENT_TYPE = Object.freeze({

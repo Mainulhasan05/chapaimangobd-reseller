@@ -302,6 +302,11 @@ async function resend(req, res) {
     user,
     charge,
     triggeredBy: req.user,
+    // An owner-paid message (a customer SMS, an alert) stays owner-paid when
+    // resent, so the master switch does not suddenly apply to it. docs/adr/0013.
+    payer: charge ? null : original.payer || null,
+    category: original.category || null,
+    order: original.order || null,
   });
 
   return ok(res, { result });

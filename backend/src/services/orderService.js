@@ -13,6 +13,9 @@ const { getSettings } = require('./settings');
 const { notify } = require('./notify');
 const customers = require('./customers');
 const { withTransaction } = require('./tx');
+const customerSms = require('./customerSms');
+const { enqueueCustomerSms } = require('./outbox');
+const { ACTIONS: CUSTOMER_SMS_ACTIONS } = require('../domain/customerSms');
 
 const {
   ORDER_STATUS,
@@ -391,7 +394,27 @@ const EVENT_FOR_ACTION = {
  * Every status change after confirm goes through here. The transition table
  * decides what is allowed, what the ledger posts and whether stock comes back.
  */
-async function transitionOrder({ orderId, action, actorUser, role, resellerProfile, payload = {} }) {
+async function transitionOrder({
+  orderId,
+  action,
+  actorUser,
+  role,
+  resellerProfile,
+  payload = {},
+  /*
+   * The owner's "send SMS to customer" box on accept, ship and cancel. Checked
+   * before anything is claimed, so a missing gateway refuses the whole action
+   * rather than moving the order and silently dropping the message.
+   */
+  sendCustomerSms = false,
+}) {
+  if (sendCustomerSms) {
+    if (role !== ROLES.OWNER || !CUSTOMER_SMS_ACTIONS.includes(action)) {
+      throw badRequest('INVALID_ACTION', 'Customer SMS is only sent on accept, ship or cancel');
+    }
+    customerSms.assertAvailable();
+  }
+
   const settings = await getSettings();
 
   const order = await withTransaction(async (session) => {
@@ -460,11 +483,39 @@ async function transitionOrder({ orderId, action, actorUser, role, resellerProfi
     if (transition.requiresCourier) {
       claimed.courier = { name: payload.courierName, trackingNumber: payload.trackingNumber };
     }
+    /*
+     * Rendered from the same inputs the preview used and queued in this
+     * transaction, so the SMS exists if and only if the status change commits.
+     * The outbox sends it after commit; nothing leaves from in here.
+     */
+    let customerSmsQueued = false;
+    if (sendCustomerSms) {
+      const message = await customerSms.buildCustomerSms({
+        order: claimed,
+        action,
+        courierName: payload.courierName,
+        trackingNumber: payload.trackingNumber,
+        reason: payload.reason,
+        session,
+      });
+      await enqueueCustomerSms(
+        {
+          phoneE164: message.phone,
+          text: message.text,
+          eventType: EVENT_FOR_ACTION[action],
+          orderId: claimed._id,
+        },
+        { session }
+      );
+      customerSmsQueued = true;
+    }
+
     claimed.statusHistory.push({
       status: transition.to,
       at: now,
       by: actorUser._id,
       note: payload.reason || payload.note,
+      ...(customerSmsQueued ? { customerSmsQueued: true } : {}),
     });
     await claimed.save({ session });
 

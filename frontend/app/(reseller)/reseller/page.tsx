@@ -11,7 +11,7 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { api } from '@/lib/api';
-import { useSession } from '@/lib/session';
+import { useReadOnlyAccount, useSession } from '@/lib/session';
 import { t } from '@/lib/i18n/bn';
 import { formatMoney, formatNumber, formatAge } from '@/lib/format';
 import type { Order, Wallet, Paged } from '@/lib/types';
@@ -51,6 +51,7 @@ type DailyStats = { days: { date: string; orders: number; margin: number }[] };
  */
 export default function ResellerDashboard() {
   const { data: session } = useSession();
+  const readOnly = useReadOnlyAccount();
   const profile = session?.profile;
   const shopUrl = useShopUrl(profile?.slug);
 
@@ -290,24 +291,27 @@ export default function ResellerDashboard() {
             </HeroCard>
           )}
 
-          <Card>
-            <div className="grid gap-2">
-              <Link href="/reseller/orders/new">
-                <Button full>
-                  <Plus className="h-4 w-4" />
-                  {t('order.manualOrder')}
-                </Button>
-              </Link>
-              <Link href="/reseller/wallet">
-                <Button variant="outline" full>
-                  {t('wallet.depositRequest')}
-                </Button>
-              </Link>
-            </div>
-          </Card>
+          {/* A deactivated account takes no new orders and no deposits (docs/adr/0011). */}
+          {!readOnly && (
+            <Card>
+              <div className="grid gap-2">
+                <Link href="/reseller/orders/new">
+                  <Button full>
+                    <Plus className="h-4 w-4" />
+                    {t('order.manualOrder')}
+                  </Button>
+                </Link>
+                <Link href="/reseller/wallet">
+                  <Button variant="outline" full>
+                    {t('wallet.depositRequest')}
+                  </Button>
+                </Link>
+              </div>
+            </Card>
+          )}
 
           {/* Sharing the link is the growth loop, so it is a button, not a page. */}
-          {profile?.slug && profile.kycStatus === 'approved' && (
+          {!readOnly && profile?.slug && profile.kycStatus === 'approved' && (
             <Card>
               <CardHeader
                 title={t('shop.yourLink')}

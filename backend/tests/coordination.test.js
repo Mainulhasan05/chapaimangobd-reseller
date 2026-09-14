@@ -25,6 +25,7 @@ const ResellerProfile = require('../src/models/ResellerProfile');
 const User = require('../src/models/User');
 const Order = require('../src/models/Order');
 const JobLock = require('../src/models/JobLock');
+const RateLimitHit = require('../src/models/RateLimitHit');
 
 const { runExclusive } = require('../src/jobs/lock');
 const { nextDhakaRun, slotFor } = require('../src/jobs/scheduler');
@@ -81,7 +82,10 @@ test.afterEach(() => {
 /* ================================================================ rate limit */
 
 test('the Mongo rate-limit store counts atomically and restarts after the window', async () => {
-  const store = new MongoRateLimitStore({ prefix: 'rl:test-count', windowMs: 300 });
+  // A window long enough that a loaded machine cannot end it mid-test. The end
+  // of the window is then simulated by moving the stored reset time into the
+  // past, which is exactly the state a real clock would reach.
+  const store = new MongoRateLimitStore({ prefix: 'rl:test-count', windowMs: 60 * 1000 });
 
   const hits = await Promise.all(Array.from({ length: 20 }, () => store.increment('1.2.3.4')));
   const totals = hits.map((h) => h.totalHits).sort((a, b) => a - b);
@@ -92,7 +96,10 @@ test('the Mongo rate-limit store counts atomically and restarts after the window
   await store.decrement('1.2.3.4');
   assert.equal((await store.get('1.2.3.4')).totalHits, 19);
 
-  await sleep(350);
+  await RateLimitHit.updateOne(
+    { key: store.keyFor('1.2.3.4') },
+    { $set: { resetAt: new Date(Date.now() - 1) } }
+  );
   assert.equal(await store.get('1.2.3.4'), undefined, 'an ended window reads as empty');
   const fresh = await store.increment('1.2.3.4');
   assert.equal(fresh.totalHits, 1, 'an ended window starts again at one');

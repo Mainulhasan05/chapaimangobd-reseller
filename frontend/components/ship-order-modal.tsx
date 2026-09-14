@@ -5,12 +5,14 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, errorMessage } from '@/lib/api';
 import { t } from '@/lib/i18n/bn';
 import type { Order } from '@/lib/types';
+import { primeOrder } from '@/components/order-page';
 import { Alert } from '@/components/ui/layout';
 import { Button } from '@/components/ui/button';
 import { Field, Input } from '@/components/ui/form';
 import { Modal } from '@/components/ui/modal';
 import { useToast } from '@/components/ui/toast';
 import { DeliveryChargeField, useDeliveryCharge } from '@/components/delivery-charge-field';
+import { CustomerSmsField, useCustomerSms } from '@/components/customer-sms-field';
 
 /** The owner hands an order to a courier. Shared by the orders list and the order page. */
 export function ShipModal({ order, onClose }: { order: Order | null; onClose: () => void }) {
@@ -22,17 +24,26 @@ export function ShipModal({ order, onClose }: { order: Order | null; onClose: ()
   // Ship is the last moment the charge can change: once shipped it is locked.
   const charge = useDeliveryCharge(order);
 
+  // Re-previewed as the courier and tracking number are typed, because both are in the text.
+  const sms = useCustomerSms(order, 'ship', { courier: courierName, trackingId: trackingNumber });
+
   const ship = useMutation({
     mutationFn: async () => {
       // Before the transition, because after it the API refuses the change.
       await charge.apply();
-      return api.post(`/owner/orders/${order!.id}/ship`, { courierName, trackingNumber });
+      return api.post<{ order: Order }>(`/owner/orders/${order!.id}/ship`, {
+        courierName,
+        trackingNumber,
+        sendCustomerSms: sms.enabled,
+      });
     },
-    onSuccess: async () => {
+    onSuccess: async (data) => {
+      primeOrder(queryClient, 'owner', data.order);
       await queryClient.invalidateQueries({ queryKey: ['owner'] });
       setCourierName('');
       setTrackingNumber('');
       charge.reset();
+      sms.reset();
       onClose();
       toast(t('order.shippedToast'));
     },
@@ -55,7 +66,7 @@ export function ShipModal({ order, onClose }: { order: Order | null; onClose: ()
           </Button>
           <Button
             loading={ship.isPending}
-            disabled={courierName.trim().length < 2 || !charge.check.ok}
+            disabled={courierName.trim().length < 2 || !charge.check.ok || !sms.ready}
             onClick={() => ship.mutate()}
           >
             {t('order.ship')}
@@ -83,6 +94,8 @@ export function ShipModal({ order, onClose }: { order: Order | null; onClose: ()
       </Field>
 
       <DeliveryChargeField order={order} state={charge} id="ship-delivery-charge" className="mb-0" />
+
+      <CustomerSmsField state={sms} />
     </Modal>
   );
 }

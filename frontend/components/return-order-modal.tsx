@@ -5,6 +5,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, errorMessage } from '@/lib/api';
 import { t } from '@/lib/i18n/bn';
 import type { Order } from '@/lib/types';
+import { primeOrder } from '@/components/order-page';
 import { Modal } from '@/components/ui/modal';
 import { useToast } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
@@ -39,11 +40,12 @@ export function ReturnOrderModal({ order, onClose }: { order: Order | null; onCl
 
   const markReturned = useMutation({
     mutationFn: () =>
-      api.post(`/owner/orders/${order!.id}/return`, {
+      api.post<{ order: Order }>(`/owner/orders/${order!.id}/return`, {
         restock,
         ...(reason.trim() ? { reason: reason.trim() } : {}),
       }),
-    onSuccess: async () => {
+    onSuccess: async (data) => {
+      primeOrder(queryClient, 'owner', data.order);
       await queryClient.invalidateQueries({ queryKey: ['owner'] });
       close();
       toast(t('order.returnedToast'));

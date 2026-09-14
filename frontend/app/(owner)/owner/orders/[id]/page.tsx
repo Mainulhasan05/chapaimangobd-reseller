@@ -8,7 +8,7 @@ import type { Order } from '@/lib/types';
 import { Alert } from '@/components/ui/layout';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/toast';
-import { OrderPage } from '@/components/order-page';
+import { OrderPage, primeOrder } from '@/components/order-page';
 import { AcceptOrderModal } from '@/components/accept-order-modal';
 import { CancelOrderModal } from '@/components/cancel-order-modal';
 import { ShipModal } from '@/components/ship-order-modal';
@@ -38,8 +38,10 @@ export default function OwnerOrderPage({ params }: { params: Promise<{ id: strin
   const [editingCharge, setEditingCharge] = useState<Order | null>(null);
 
   const transition = useMutation({
-    mutationFn: ({ action }: { action: string }) => api.post(`/owner/orders/${id}/${action}`, {}),
-    onSuccess: async () => {
+    mutationFn: ({ action }: { action: string }) =>
+      api.post<{ order: Order }>(`/owner/orders/${id}/${action}`, {}),
+    onSuccess: async (data) => {
+      primeOrder(queryClient, 'owner', data.order);
       await queryClient.invalidateQueries({ queryKey: ['owner'] });
       toast(t('order.statusUpdated'));
     },

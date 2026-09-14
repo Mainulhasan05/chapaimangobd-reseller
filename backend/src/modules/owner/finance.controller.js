@@ -209,12 +209,16 @@ async function resellerLedger(req, res) {
   const page = Number(req.query.page || 1);
   const limit = Math.min(Number(req.query.limit || 50), 200);
 
-  const entries = await LedgerEntry.find({ reseller: req.params.id })
-    .sort({ seq: -1 })
-    .skip((page - 1) * limit)
-    .limit(limit);
+  const filter = { reseller: req.params.id };
+  const [entries, total] = await Promise.all([
+    LedgerEntry.find(filter)
+      .sort({ seq: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit),
+    LedgerEntry.countDocuments(filter),
+  ]);
 
-  return ok(res, { entries: entries.map(present.ledgerEntry) });
+  return ok(res, { entries: entries.map(present.ledgerEntry), page, limit, total });
 }
 
 /** Proves the ledger and the cached balance still agree. */

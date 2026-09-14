@@ -17,8 +17,7 @@ const { toLocalBd } = require('../utils/phone');
  * short, and Latin script is preferred wherever it still reads acceptably.
  */
 
-const GSM_SEGMENT = 160;
-const UNICODE_SEGMENT = 70;
+const gsm7 = require('../utils/gsm7');
 
 const STATUS = {
   SUCCESS: 0,
@@ -32,16 +31,19 @@ const STATUS = {
 /** How much of a gateway reply is worth keeping when it is not what we expected. */
 const RAW_LIMIT = 2000;
 
-/** True when the message needs Unicode encoding, which Bengali always does. */
-const needsUnicode = (text) => /[^\x00-\x7F]/.test(text);
+/**
+ * True when the message needs Unicode encoding, which Bengali always does.
+ *
+ * Decided by the GSM-7 alphabet rather than by ASCII, so this agrees with the
+ * customer SMS preview (utils/gsm7.js): a template the owner was told costs one
+ * segment is sent, logged and billed as one segment.
+ */
+const needsUnicode = (text) => !gsm7.isGsm7(text);
 
 const encodingOf = (text) => (needsUnicode(text) ? 'unicode' : 'gsm');
 
 /** How many gateway messages this text will actually cost. */
-function segmentCount(text) {
-  const size = needsUnicode(text) ? UNICODE_SEGMENT : GSM_SEGMENT;
-  return Math.max(1, Math.ceil(text.length / size));
-}
+const segmentCount = (text) => gsm7.measure(text).segments;
 
 /**
  * A gateway failure, carrying everything the log row needs.

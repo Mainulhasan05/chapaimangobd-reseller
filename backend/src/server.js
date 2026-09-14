@@ -7,6 +7,7 @@ const { connect } = require('./config/db');
 const app = require('./app');
 const { startOutboxWorker, stopOutboxWorker } = require('./services/outbox');
 const { startJobs, stopJobs } = require('./jobs');
+const { startTelegramBot, stopTelegramBot } = require('./services/telegramBot');
 
 // Long enough for an in-flight order confirm to commit, short enough that a
 // deploy does not stall waiting on a phone with a dead connection.
@@ -35,7 +36,7 @@ async function shutdown(signal, exitCode = 0) {
   try {
     // Timers stop now; the promise settles once a digest or a send already in
     // progress finishes, which is awaited below, before the database closes.
-    const background = Promise.all([stopJobs(), stopOutboxWorker()]);
+    const background = Promise.all([stopJobs(), stopOutboxWorker(), stopTelegramBot()]);
     if (server) {
       await new Promise((resolve) => {
         server.close(resolve);
@@ -76,6 +77,8 @@ async function main() {
   startOutboxWorker();
   // Scheduled jobs only where RUN_JOBS=true. See src/jobs/index.js.
   startJobs();
+  // Sends everywhere it has a token; polls only under RUN_JOBS and a lease.
+  await startTelegramBot().catch((err) => logger.error({ err }, 'telegram: failed to start'));
 
   server = app.listen(env.PORT, () => {
     logger.info({ port: env.PORT, env: env.NODE_ENV }, `listening on http://localhost:${env.PORT}`);

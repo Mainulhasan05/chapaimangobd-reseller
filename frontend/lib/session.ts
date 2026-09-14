@@ -42,6 +42,17 @@ export function useLogout() {
   });
 }
 
+/**
+ * A deactivated reseller: signed in, able to read everything and to ask for a
+ * withdrawal, and nothing else. Screens hide their other writes when this is
+ * true; the API refuses them with 403 RESELLER_INACTIVE regardless.
+ * See docs/adr/0011.
+ */
+export function useReadOnlyAccount(): boolean {
+  const { data } = useSession();
+  return Boolean(data && data.user.role === 'reseller' && data.user.isActive === false);
+}
+
 /** Where a role belongs after signing in. */
 export function homeFor(session: Session | null | undefined): '/owner' | '/reseller' | '/login' {
   if (!session) return '/login';

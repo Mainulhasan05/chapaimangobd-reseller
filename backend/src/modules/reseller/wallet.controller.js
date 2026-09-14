@@ -79,11 +79,27 @@ const presentDeposit = (d) => ({
   reviewedAt: d.reviewedAt,
 });
 
+/**
+ * Page and limit, for the two request histories on the wallet screen. Both only
+ * grow, and both are short enough that a total beside the list is cheap.
+ */
+function readPage(query) {
+  const page = Math.max(Math.trunc(Number(query.page)) || 1, 1);
+  const limit = Math.min(Math.max(Math.trunc(Number(query.limit)) || 25, 1), 100);
+  return { page, limit };
+}
+
 async function listDeposits(req, res) {
-  const deposits = await Deposit.find({ reseller: req.reseller._id })
-    .sort({ createdAt: -1 })
-    .limit(100);
-  return ok(res, { deposits: deposits.map(presentDeposit) });
+  const { page, limit } = readPage(req.query);
+  const filter = { reseller: req.reseller._id };
+  const [deposits, total] = await Promise.all([
+    Deposit.find(filter)
+      .sort({ createdAt: -1, _id: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit),
+    Deposit.countDocuments(filter),
+  ]);
+  return ok(res, { deposits: deposits.map(presentDeposit), page, limit, total });
 }
 
 /* ----------------------------------------------------------------- withdrawals */
@@ -136,10 +152,16 @@ async function createWithdrawal(req, res) {
 }
 
 async function listWithdrawals(req, res) {
-  const withdrawals = await Withdrawal.find({ reseller: req.reseller._id })
-    .sort({ createdAt: -1 })
-    .limit(100);
-  return ok(res, { withdrawals: withdrawals.map(presentWithdrawal) });
+  const { page, limit } = readPage(req.query);
+  const filter = { reseller: req.reseller._id };
+  const [withdrawals, total] = await Promise.all([
+    Withdrawal.find(filter)
+      .sort({ createdAt: -1, _id: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit),
+    Withdrawal.countDocuments(filter),
+  ]);
+  return ok(res, { withdrawals: withdrawals.map(presentWithdrawal), page, limit, total });
 }
 
 /* ----------------------------------------------------------------------- sms */
@@ -150,6 +172,22 @@ async function listWithdrawals(req, res) {
  * it on. The debit and the credit increment are one transaction: a reseller must
  * never pay for credits that did not arrive.
  */
+/**
+ * The SMS credits card: how many the reseller holds, what one costs, and whether
+ * buying any makes sense. `available` is the master switch and the owner's flag
+ * for this reseller together; the card is hidden while the master switch is off.
+ */
+async function smsCredits(req, res) {
+  const settings = await getSettings();
+  return ok(res, {
+    featureEnabled: settings.features.sms,
+    smsEnabled: Boolean(req.reseller.channelPrefs && req.reseller.channelPrefs.sms),
+    available: Boolean(settings.features.sms && req.reseller.channelPrefs && req.reseller.channelPrefs.sms),
+    smsCredits: req.reseller.smsCredits,
+    pricePerCredit: toTaka(settings.smsPricePerCreditPoisha),
+  });
+}
+
 async function purchaseSms(req, res) {
   const settings = await getSettings();
   if (!settings.features.sms) throw forbidden('SMS is not available yet');
@@ -187,6 +225,7 @@ module.exports = {
   createWithdrawal,
   listWithdrawals,
   purchaseSms,
+  smsCredits,
   presentDeposit,
   presentWithdrawal,
 };

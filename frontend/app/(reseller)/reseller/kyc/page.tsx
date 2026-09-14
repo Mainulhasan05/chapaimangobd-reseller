@@ -2,9 +2,9 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CircleCheck } from 'lucide-react';
-import { api, errorMessage } from '@/lib/api';
-import { sessionKey } from '@/lib/session';
+import { CircleCheck, Hourglass } from 'lucide-react';
+import { api, ApiError, errorMessage } from '@/lib/api';
+import { sessionKey, useReadOnlyAccount } from '@/lib/session';
 import { t, type DictKey } from '@/lib/i18n/bn';
 import { formatDateTime, formatNumber } from '@/lib/format';
 import type { KycStatus } from '@/lib/types';
@@ -56,6 +56,7 @@ export default function KycPage() {
   const queryClient = useQueryClient();
   const toast = useToast();
   const [files, setFiles] = useState<Record<string, File | null>>({});
+  const readOnly = useReadOnlyAccount();
 
   const kyc = useQuery({
     queryKey: ['kyc'],
@@ -75,6 +76,13 @@ export default function KycPage() {
       await queryClient.invalidateQueries({ queryKey: sessionKey });
       setFiles({});
       toast(t('kyc.pending'));
+    },
+    onError: async (error) => {
+      // Another tab or device got a submission in first. Reloading shows it,
+      // and the form gives way to the pending notice below.
+      if (error instanceof ApiError && error.code === 'KYC_ALREADY_PENDING') {
+        await queryClient.invalidateQueries({ queryKey: ['kyc'] });
+      }
     },
   });
 
@@ -98,6 +106,13 @@ export default function KycPage() {
 
   const status = kyc.data?.status ?? 'not_submitted';
   const approved = status === 'approved';
+  const pending = status === 'pending';
+  /*
+   * One submission at a time: the API refuses a second while one waits for a
+   * decision (409 KYC_ALREADY_PENDING), so the form is not offered then. A
+   * deactivated account submits nothing at all.
+   */
+  const canSubmit = !readOnly && (status === 'not_submitted' || status === 'rejected');
 
   const requiredDone = DOCUMENTS.filter((doc) => doc.required && files[doc.field]).length;
   const totalChosen = DOCUMENTS.filter((doc) => files[doc.field]).length;
@@ -129,6 +144,14 @@ export default function KycPage() {
         </Card>
       )}
 
+      {pending && (
+        <Alert tone="warning" icon={Hourglass} title={t('kyc.pending')}>
+          {t('kyc.pendingHelp')}
+        </Alert>
+      )}
+
+      {submit.error && !canSubmit && <Alert tone="danger">{errorMessage(submit.error)}</Alert>}
+
       {kyc.data?.submission && (
         <Card className="mb-4">
           <CardHeader
@@ -150,7 +173,7 @@ export default function KycPage() {
         </Card>
       )}
 
-      {!approved && (
+      {canSubmit && (
         <>
           <Card className="mb-4">
             <CardHeader

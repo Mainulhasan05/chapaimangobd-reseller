@@ -17,6 +17,7 @@ const Notification = require('../src/models/Notification');
 const OutboxMessage = require('../src/models/OutboxMessage');
 const RefreshToken = require('../src/models/RefreshToken');
 const TrustedDevice = require('../src/models/TrustedDevice');
+const RateLimitHit = require('../src/models/RateLimitHit');
 const otp = require('../src/services/otp');
 const tokens = require('../src/services/tokens');
 const { drainOnce } = require('../src/services/outbox');
@@ -85,6 +86,10 @@ async function signIn({ phone, password }) {
   return agent;
 }
 
+/** Lets the one-minute resend cooldown run out, without waiting a minute. */
+const endResendCooldown = () =>
+  RateLimitHit.updateMany({ key: /^otp-cooldown:/ }, { $set: { resetAt: new Date(Date.now() - 1) } });
+
 const liveTokens = (userId) => RefreshToken.countDocuments({ user: userId, revokedAt: null });
 
 /* ======================================================================= otp */
@@ -135,6 +140,7 @@ test('a code verifies once, only for its purpose, and a newer code replaces it',
   const phone = e164(f.nextPhone());
   await otp.send(phone, OTP_PURPOSE.REGISTER);
   const first = otp.__lastCodeFor(phone, OTP_PURPOSE.REGISTER);
+  await endResendCooldown();
   await otp.send(phone, OTP_PURPOSE.REGISTER);
   const second = otp.__lastCodeFor(phone, OTP_PURPOSE.REGISTER);
 
@@ -154,11 +160,50 @@ test('a phone gets three codes an hour and no more', async () => {
     // eslint-disable-next-line no-await-in-loop
     const res = await request(app).post('/api/auth/register/otp').send({ phone });
     assert.equal(res.status, 200);
+    // eslint-disable-next-line no-await-in-loop
+    await endResendCooldown();
   }
   const refused = await request(app).post('/api/auth/register/otp').send({ phone });
   assert.equal(refused.status, 429);
   assert.equal(refused.body.error.code, 'OTP_SEND_LIMIT');
   assert.equal(await Otp.countDocuments({ phoneE164: e164(phone) }), otp.SENDS_PER_HOUR);
+});
+
+test('a second code for the same phone and purpose within a minute waits, with the seconds left', async () => {
+  const phone = f.nextPhone();
+  const first = await request(app).post('/api/auth/register/otp').send({ phone });
+  assert.equal(first.status, 200);
+
+  const again = await request(app).post('/api/auth/register/otp').send({ phone });
+  assert.equal(again.status, 429);
+  assert.equal(again.body.error.code, 'OTP_COOLDOWN');
+  assert.ok(Number.isInteger(again.body.error.retryAfter));
+  assert.ok(again.body.error.retryAfter > 0 && again.body.error.retryAfter <= 60);
+  assert.equal(again.headers['retry-after'], String(again.body.error.retryAfter));
+  assert.equal(await Otp.countDocuments({ phoneE164: e164(phone) }), 1, 'no second code was issued');
+
+  // Another purpose for the same phone is not held up.
+  await otp.send(e164(phone), OTP_PURPOSE.RESET_PASSWORD);
+
+  // Two of the hour's three codes are spent. Had the refused resend counted
+  // too, this third one would be over the limit.
+  await endResendCooldown();
+  assert.equal((await request(app).post('/api/auth/register/otp').send({ phone })).status, 200);
+});
+
+test('forgot password waits out the cooldown whether or not the number has an account', async () => {
+  const { phone } = await f.makeReseller();
+  const unknown = f.nextPhone();
+
+  for (const number of [phone, unknown]) {
+    // eslint-disable-next-line no-await-in-loop
+    const first = await request(app).post('/api/auth/password/forgot').send({ phone: number });
+    assert.equal(first.status, 200);
+    // eslint-disable-next-line no-await-in-loop
+    const second = await request(app).post('/api/auth/password/forgot').send({ phone: number });
+    assert.equal(second.status, 429);
+    assert.equal(second.body.error.code, 'OTP_COOLDOWN');
+  }
 });
 
 test('an OTP goes out and is logged as owner-paid while the SMS switch is off', async () => {
@@ -533,4 +578,101 @@ test('refresh rotates, a replayed token revokes the family, and logout revokes',
   const fresh = cookieFrom(again, tokens.REFRESH_COOKIE);
   await request(app).post('/api/auth/logout').set('Cookie', `${tokens.REFRESH_COOKIE}=${fresh}`);
   assert.equal((await refreshWith(fresh)).status, 401);
+});
+
+/* ================================================= must change password */
+
+test('a session that must change its password reaches only me, change, refresh and logout', async () => {
+  const owner = await f.makeOwner();
+  const ownerAgent = await signIn(owner);
+  const reseller = await f.makeReseller();
+  const reset = await ownerAgent.post(`/api/owner/resellers/${reseller.profile._id}/password-reset`);
+  const temporary = reset.body.data.temporaryPassword;
+
+  const agent = await signIn({ phone: reseller.phone, password: temporary });
+
+  for (const [method, path] of [
+    ['get', '/api/reseller/profile'],
+    ['get', '/api/reseller/orders'],
+    ['post', '/api/reseller/withdrawals'],
+    ['post', '/api/auth/phone/otp'],
+  ]) {
+    // eslint-disable-next-line no-await-in-loop
+    const res = await agent[method](path).send({});
+    assert.equal(res.status, 403, `${method} ${path}`);
+    assert.equal(res.body.error.code, 'PASSWORD_CHANGE_REQUIRED', `${method} ${path}`);
+  }
+
+  assert.equal((await agent.get('/api/auth/me')).status, 200);
+  assert.equal((await agent.post('/api/auth/refresh')).status, 200);
+
+  const changed = await agent
+    .post('/api/auth/password/change')
+    .send({ currentPassword: temporary, newPassword: 'my-own-password' });
+  assert.equal(changed.status, 200, JSON.stringify(changed.body));
+  assert.equal((await agent.get('/api/reseller/profile')).status, 200, 'open again once changed');
+
+  // Logout is always reachable, even with the flag set.
+  await User.updateOne({ _id: reseller.user._id }, { $set: { mustChangePassword: true } });
+  assert.equal((await agent.post('/api/auth/logout')).status, 200);
+});
+
+test('the owner is held to a required password change too', async () => {
+  const owner = await f.makeOwner();
+  const agent = await signIn(owner);
+  await User.updateOne({ _id: owner.user._id }, { $set: { mustChangePassword: true } });
+
+  const res = await agent.get('/api/owner/orders');
+  assert.equal(res.status, 403);
+  assert.equal(res.body.error.code, 'PASSWORD_CHANGE_REQUIRED');
+  assert.equal((await agent.get('/api/auth/me')).status, 200);
+});
+
+/* ================================================= inactive accounts */
+
+test('a deactivated reseller can still sign in, refresh and reset their password', async () => {
+  const reseller = await f.makeReseller();
+  await User.updateOne(
+    { _id: reseller.user._id },
+    { $set: { isActive: false, deactivatedAt: new Date() } }
+  );
+
+  const agent = await signIn(reseller);
+  assert.equal((await agent.post('/api/auth/refresh')).status, 200);
+  const me = await agent.get('/api/auth/me');
+  assert.equal(me.status, 200);
+  assert.equal(me.body.data.user.isActive, false);
+
+  const forgot = await request(app).post('/api/auth/password/forgot').send({ phone: reseller.phone });
+  assert.equal(forgot.status, 200);
+  const code = otp.__lastCodeFor(reseller.user.phoneE164, OTP_PURPOSE.RESET_PASSWORD);
+  assert.ok(code, 'a code was sent to the deactivated reseller');
+
+  const reset = await request(app)
+    .post('/api/auth/password/reset')
+    .send({ phone: reseller.phone, otp: code, newPassword: 'fresh-pass-123' });
+  assert.equal(reset.status, 200, JSON.stringify(reset.body));
+  await signIn({ phone: reseller.phone, password: 'fresh-pass-123' });
+});
+
+test('any other inactive account cannot sign in, refresh or reset its password', async () => {
+  const owner = await f.makeOwner();
+  const agent = await signIn(owner);
+  await User.updateOne({ _id: owner.user._id }, { $set: { isActive: false } });
+
+  const login = await request(app).post('/api/auth/login').send({ phone: owner.phone, password: owner.password });
+  assert.equal(login.status, 401);
+
+  assert.equal((await agent.post('/api/auth/refresh')).status, 401);
+  assert.ok([401, 403].includes((await agent.get('/api/owner/orders')).status));
+
+  const forgot = await request(app).post('/api/auth/password/forgot').send({ phone: owner.phone });
+  assert.equal(forgot.status, 200, 'the same answer as for any number');
+  assert.equal(otp.__lastCodeFor(owner.user.phoneE164, OTP_PURPOSE.RESET_PASSWORD), null, 'but no code');
+
+  const reset = await request(app)
+    .post('/api/auth/password/reset')
+    .send({ phone: owner.phone, otp: '123456', newPassword: 'fresh-pass-123' });
+  assert.equal(reset.status, 400);
+  assert.equal(reset.body.error.code, 'OTP_EXPIRED');
 });

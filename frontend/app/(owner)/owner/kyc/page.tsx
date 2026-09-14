@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { BadgeCheck } from 'lucide-react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, errorMessage } from '@/lib/api';
 import { t, type DictKey } from '@/lib/i18n/bn';
 import { formatDateTime } from '@/lib/format';
@@ -19,6 +19,8 @@ import {
 import { Button, Spinner } from '@/components/ui/button';
 import { Field, Select, Textarea } from '@/components/ui/form';
 import { Modal } from '@/components/ui/modal';
+import { LoadMore } from '@/components/ui/load-more';
+import type { CursorPaged } from '@/lib/types';
 
 /** Document types arrive as identifiers; the owner reads them in Bengali. */
 const DOC_LABEL: Record<string, DictKey> = {
@@ -47,14 +49,28 @@ type Submission = {
   createdAt: string;
 };
 
+const PAGE_SIZE = 30;
+
 export default function OwnerKycPage() {
   const [status, setStatus] = useState('pending');
   const [reviewing, setReviewing] = useState<Submission | null>(null);
 
-  const queue = useQuery({
+  /*
+   * Oldest first, a page at a time. The pending queue is worked from the front;
+   * the approved and rejected histories only grow, which is why this pages by
+   * cursor rather than by number.
+   */
+  const queue = useInfiniteQuery({
     queryKey: ['owner', 'kyc', status],
-    queryFn: () => api.get<{ submissions: Submission[] }>(`/owner/kyc?status=${status}`),
+    queryFn: ({ pageParam }) =>
+      api.get<CursorPaged<'submissions', Submission>>(
+        `/owner/kyc?status=${status}&limit=${PAGE_SIZE}` +
+          `${pageParam ? `&cursor=${encodeURIComponent(pageParam)}` : ''}`
+      ),
+    initialPageParam: '',
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
   });
+  const submissions = queue.data?.pages.flatMap((page) => page.submissions) ?? [];
 
   return (
     <>
@@ -75,16 +91,16 @@ export default function OwnerKycPage() {
         </Card>
       )}
 
-      {queue.isError && (
+      {queue.isError && submissions.length === 0 && (
         <ErrorState onRetry={() => queue.refetch()} isRetrying={queue.isFetching} error={queue.error} />
       )}
 
-      {queue.data?.submissions.length === 0 && (
+      {queue.isSuccess && submissions.length === 0 && (
         <EmptyState icon={BadgeCheck} title={t('app.none')} />
       )}
 
       <div className="grid gap-3 sm:grid-cols-2">
-        {queue.data?.submissions.map((submission) => (
+        {submissions.map((submission) => (
           <Card key={submission.id}>
             <CardHeader
               title={submission.reseller?.shopName ?? '—'}
@@ -104,6 +120,15 @@ export default function OwnerKycPage() {
           </Card>
         ))}
       </div>
+
+      {submissions.length > 0 && (
+        <LoadMore
+          hasMore={Boolean(queue.hasNextPage)}
+          loading={queue.isFetchingNextPage}
+          onLoadMore={() => queue.fetchNextPage()}
+          error={queue.isFetchNextPageError ? queue.error : null}
+        />
+      )}
 
       <ReviewModal submission={reviewing} onClose={() => setReviewing(null)} />
     </>
@@ -197,7 +222,7 @@ function ReviewModal({
             <figcaption className="mb-1 text-xs text-muted-foreground">
               {DOC_LABEL[doc.type] ? t(DOC_LABEL[doc.type]) : doc.type}
             </figcaption>
-            {/* Signed Cloudinary URLs expire, so a plain img avoids Next caching them. */}
+            {/* Signed R2 URLs expire, so a plain img avoids Next caching them. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={doc.url}

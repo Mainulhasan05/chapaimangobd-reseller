@@ -2,6 +2,7 @@
 
 import { use, useState } from 'react';
 import { t } from '@/lib/i18n/bn';
+import { useReadOnlyAccount } from '@/lib/session';
 import type { Order } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { OrderPage } from '@/components/order-page';
@@ -13,12 +14,14 @@ export default function ResellerOrderPage({ params }: { params: Promise<{ id: st
   // params is a Promise in Next 16; `use` unwraps it in a client component.
   const { id } = use(params);
 
+  const readOnly = useReadOnlyAccount();
   const [confirming, setConfirming] = useState<Order | null>(null);
   const [cancelling, setCancelling] = useState<Order | null>(null);
 
   const actionsFor = (order: Order) => {
-    const canConfirm = order.actions.includes('confirm');
-    const canCancel = order.actions.includes('cancel');
+    // A deactivated account keeps its records and loses these (docs/adr/0011).
+    const canConfirm = !readOnly && order.actions.includes('confirm');
+    const canCancel = !readOnly && order.actions.includes('cancel');
     if (!canConfirm && !canCancel) return null;
 
     return (

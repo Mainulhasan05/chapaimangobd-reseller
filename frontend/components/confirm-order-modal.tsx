@@ -6,6 +6,7 @@ import { api, ApiError, fieldErrors } from '@/lib/api';
 import { t, tUnit } from '@/lib/i18n/bn';
 import { formatMoney, formatMoneyPlain, formatNumber } from '@/lib/format';
 import type { Order, PaymentMode } from '@/lib/types';
+import { primeOrder } from '@/components/order-page';
 import { Modal } from '@/components/ui/modal';
 import { useToast } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
@@ -45,7 +46,7 @@ function ConfirmForm({ order, onClose }: { order: Order; onClose: () => void }) 
 
   const confirm = useMutation({
     mutationFn: () =>
-      api.post(`/reseller/orders/${order.id}/confirm`, {
+      api.post<{ order: Order }>(`/reseller/orders/${order.id}/confirm`, {
         paymentMode,
         items: drafts.map((d) => ({
           product: d.product,
@@ -53,7 +54,8 @@ function ConfirmForm({ order, onClose }: { order: Order; onClose: () => void }) 
           sellPrice: Number(d.sellPrice),
         })),
       }),
-    onSuccess: async () => {
+    onSuccess: async (data) => {
+      primeOrder(queryClient, 'reseller', data.order);
       await queryClient.invalidateQueries({ queryKey: ['orders'] });
       await queryClient.invalidateQueries({ queryKey: ['wallet'] });
       onClose();

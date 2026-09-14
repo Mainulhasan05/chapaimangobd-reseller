@@ -1,6 +1,12 @@
 'use strict';
 
-require('dotenv').config();
+/*
+ * `SKIP_DOTENV=true` means the environment is already complete and `.env` must
+ * not be read. The smoke test sets it: its servers run from this directory, and
+ * a developer's `.env` would otherwise fill in a real SMS gateway, Telegram bot
+ * or storage bucket behind a throwaway database.
+ */
+if (process.env.SKIP_DOTENV !== 'true') require('dotenv').config();
 const { z } = require('zod');
 
 const schema = z.object({
@@ -84,8 +90,22 @@ const schema = z.object({
   AUTOMAS_API_KEY: z.string().optional(),
   AUTOMAS_SENDER_ID: z.string().optional(),
 
+  // Where customers reach the site, for the tracking link in a customer SMS.
+  // Unset, the link is left out of the message rather than pointing at localhost.
+  PUBLIC_APP_URL: z.string().url().optional(),
+
   TELEGRAM_BOT_TOKEN: z.string().optional(),
+  // Without the @. Read from the bot itself (getMe) when unset.
   TELEGRAM_BOT_USERNAME: z.string().optional(),
+  // Set to switch the bot from polling to a webhook. The public base URL of this
+  // API; the bot registers `${TELEGRAM_WEBHOOK_URL}/api/telegram/webhook/<secret>`.
+  TELEGRAM_WEBHOOK_URL: z.string().url().optional(),
+  // Required with the webhook. Telegram's own rule for secret_token: 1-256 of
+  // letters, digits, underscore and hyphen.
+  TELEGRAM_WEBHOOK_SECRET: z
+    .string()
+    .regex(/^[A-Za-z0-9_-]{16,256}$/, 'TELEGRAM_WEBHOOK_SECRET must be 16-256 of A-Z a-z 0-9 _ -')
+    .optional(),
 
   // Scheduled jobs (nightly reconciliation, 09:00 digest, KYC purge) run only in
   // a process with this set. Each job also takes a MongoDB lock, so turning it
@@ -137,6 +157,10 @@ if (env.NODE_ENV === 'production' && (env.OWNER_DEVICE_OTP === 'false' || env.OW
   // The owner's password alone would open every reseller's money again.
   problems.push('OWNER_DEVICE_OTP cannot be false in production');
 }
+if (env.TELEGRAM_WEBHOOK_URL && !env.TELEGRAM_WEBHOOK_SECRET) {
+  // An unauthenticated webhook lets anyone post a forged /start and link a chat.
+  problems.push('TELEGRAM_WEBHOOK_SECRET is required when TELEGRAM_WEBHOOK_URL is set');
+}
 if (problems.length > 0) {
   const lines = problems.map((p) => `  - ${p}`);
   throw new Error(`Invalid environment configuration:\n${lines.join('\n')}`);
@@ -177,5 +201,7 @@ env.smsApiKey = env.AUTOMAS_API_KEY || env.SMS_API_KEY || null;
 env.smsSenderId = env.AUTOMAS_SENDER_ID || env.SMS_SENDER_ID || null;
 env.smsConfigured = Boolean(env.smsApiKey && env.smsSenderId);
 env.telegramConfigured = Boolean(env.TELEGRAM_BOT_TOKEN);
+env.telegramWebhook = Boolean(env.telegramConfigured && env.TELEGRAM_WEBHOOK_URL);
+env.publicAppUrl = env.PUBLIC_APP_URL ? env.PUBLIC_APP_URL.replace(/\/+$/, '') : null;
 
 module.exports = env;

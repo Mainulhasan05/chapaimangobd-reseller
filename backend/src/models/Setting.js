@@ -3,6 +3,7 @@
 const mongoose = require('mongoose');
 const { isSafeMoney } = require('../utils/money');
 const publicImageSchema = require('./publicImage');
+const { DEFAULT_TEMPLATES } = require('../domain/customerSms');
 
 /** Singleton. Loaded once at boot and cached; see services/settings.js. */
 const settingSchema = new mongoose.Schema(
@@ -41,6 +42,17 @@ const settingSchema = new mongoose.Schema(
       type: Number,
       default: 50,
       validate: { validator: isSafeMoney, message: '{PATH} must be a whole number of poisha' },
+    },
+
+    /*
+     * What a customer is told on the owner's accept, ship and cancel, when the
+     * owner ticks the box. GSM-7 only, validated in the settings controller;
+     * rendered by domain/customerSms.js. See docs/adr/0013.
+     */
+    customerSmsTemplates: {
+      accept: { type: String, default: DEFAULT_TEMPLATES.accept },
+      ship: { type: String, default: DEFAULT_TEMPLATES.ship },
+      cancel: { type: String, default: DEFAULT_TEMPLATES.cancel },
     },
   },
   { timestamps: true }

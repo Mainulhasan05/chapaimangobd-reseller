@@ -48,9 +48,24 @@ const toChannelState = (entry) =>
  * atomic lease (`leaseUntil`, `leaseOwner`) and a crashed worker's lease simply
  * expires. See docs/adr/0012.
  */
+const OUTBOX_KIND = Object.freeze({
+  // A notification to a signed-in user, fanned out over their channels.
+  NOTIFICATION: 'notification',
+  // An SMS to a customer, who has no account. `payload` holds the phone and the
+  // exact text the owner previewed. See docs/adr/0013.
+  CUSTOMER_SMS: 'customer_sms',
+});
+
 const outboxMessageSchema = new mongoose.Schema(
   {
-    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    kind: { type: String, enum: values(OUTBOX_KIND), default: OUTBOX_KIND.NOTIFICATION },
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required() {
+        return this.kind !== OUTBOX_KIND.CUSTOMER_SMS;
+      },
+    },
     eventType: { type: String, enum: values(EVENT_TYPE), required: true },
     channels: {
       type: [channelStateSchema],
@@ -77,5 +92,6 @@ const OutboxMessage = mongoose.model('OutboxMessage', outboxMessageSchema);
 
 module.exports = OutboxMessage;
 module.exports.OUTBOX_STATUS = OUTBOX_STATUS;
+module.exports.OUTBOX_KIND = OUTBOX_KIND;
 module.exports.CHANNEL_STATUS = CHANNEL_STATUS;
 module.exports.toChannelState = toChannelState;

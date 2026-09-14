@@ -1,6 +1,7 @@
 'use strict';
 
 const { toTaka } = require('./money');
+const { availableActions } = require('../domain/orderStateMachine');
 const { fromMilli } = require('./quantity');
 const storage = require('../config/storage');
 const imageService = require('../services/images');
@@ -75,6 +76,13 @@ const order = (o) => ({
 });
 
 /**
+ * The full order plus what this role may do with it now. Every endpoint that
+ * hands an order to an order screen answers in this shape, so a screen can
+ * replace its copy with any of those responses and lose nothing.
+ */
+const orderFor = (o, role) => ({ ...order(o), actions: availableActions(o, role) });
+
+/**
  * What a customer may see. No cost price, no margin, no reseller identifiers:
  * the tracking page must not teach a buyer what the reseller paid.
  */
@@ -132,4 +140,4 @@ const wallet = (profile) => ({
   smsCredits: profile.smsCredits,
 });
 
-module.exports = { line, totals, order, publicOrder, ledgerEntry, product, wallet, images };
+module.exports = { line, totals, order, orderFor, publicOrder, ledgerEntry, product, wallet, images };

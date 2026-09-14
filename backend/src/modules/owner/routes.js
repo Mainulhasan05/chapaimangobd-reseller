@@ -11,6 +11,8 @@ const sms = require('./sms.controller');
 const customers = require('./customers.controller');
 const auditLog = require('./audit.controller');
 const notifications = require('../shared/notifications.controller');
+const messaging = require('../shared/messaging.controller');
+const prefsSchema = require('../shared/notificationPrefs.schema');
 const schema = require('./schema');
 const validate = require('../../middleware/validate');
 const asyncHandler = require('../../utils/asyncHandler');
@@ -131,11 +133,17 @@ router.post(
 /* orders */
 router.get('/orders', validate({ query: schema.listOrders }), asyncHandler(orders.listOrders));
 router.get('/orders/:id', asyncHandler(orders.getOrder));
+// The exact text a customer SMS would carry, before the owner ticks the box.
+router.get(
+  '/orders/:id/customer-sms-preview',
+  validate({ query: schema.customerSmsPreview }),
+  asyncHandler(orders.customerSmsPreview)
+);
 router.post('/orders/:id/accept', validate({ body: schema.acceptBody }), asyncHandler(orders.accept));
 router.post('/orders/:id/pack', validate({ body: schema.transitionBody }), asyncHandler(orders.pack));
 router.post('/orders/:id/ship', validate({ body: schema.shipOrder }), asyncHandler(orders.ship));
 router.post('/orders/:id/deliver', validate({ body: schema.transitionBody }), asyncHandler(orders.deliver));
-router.post('/orders/:id/cancel', validate({ body: schema.transitionBody }), asyncHandler(orders.cancel));
+router.post('/orders/:id/cancel', validate({ body: schema.cancelBody }), asyncHandler(orders.cancel));
 router.post(
   '/orders/:id/return',
   validate({ body: schema.returnBody }),
@@ -237,5 +245,19 @@ router.post(
   asyncHandler(notifications.subscribePush)
 );
 router.post('/push/unsubscribe', asyncHandler(notifications.unsubscribePush));
+
+/*
+ * Telegram and per-event channel choices, the same handlers the reseller uses.
+ * The owner's SMS here is owner-paid (docs/adr/0013).
+ */
+router.get('/telegram', asyncHandler(messaging.telegramStatus));
+router.post('/telegram/link-token', asyncHandler(messaging.telegramLinkToken));
+router.delete('/telegram/link', asyncHandler(messaging.telegramUnlink));
+router.get('/notification-preferences', asyncHandler(messaging.getPreferences));
+router.put(
+  '/notification-preferences',
+  validate({ body: prefsSchema.updatePreferences }),
+  asyncHandler(messaging.updatePreferences)
+);
 
 module.exports = router;

@@ -130,6 +130,9 @@ const orderSchema = new mongoose.Schema(
         // payment mode the customer chose. See docs/adr/0007.
         paymentModeFrom: { type: String, enum: values(PAYMENT_MODE) },
         paymentModeTo: { type: String, enum: values(PAYMENT_MODE) },
+        // The owner ticked "send SMS to customer" on this transition, and the
+        // message was queued in the same transaction. docs/adr/0013.
+        customerSmsQueued: { type: Boolean },
       },
     ],
 

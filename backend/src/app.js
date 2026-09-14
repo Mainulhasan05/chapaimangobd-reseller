@@ -43,6 +43,16 @@ app.get('/api/health', async (_req, res) => {
   res.status(db === 'up' ? 200 : 503).json({ ok: db === 'up', db });
 });
 
+/*
+ * Telegram's webhook, used only when TELEGRAM_WEBHOOK_URL is set; a 404
+ * otherwise. Authenticated by the secret in the path and in Telegram's header,
+ * not by a session. See services/telegramBot.js.
+ */
+const { webhookHandler } = require('./services/telegramBot');
+const asyncHandler = require('./utils/asyncHandler');
+
+app.post('/api/telegram/webhook/:secret', asyncHandler(webhookHandler));
+
 app.use('/api/auth', require('./modules/auth/routes'));
 app.use('/api/public', require('./modules/public/routes'));
 app.use('/api/reseller', require('./modules/reseller/routes'));

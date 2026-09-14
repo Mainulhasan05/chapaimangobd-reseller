@@ -30,9 +30,11 @@ const Customer = require('../src/models/Customer');
 const Notification = require('../src/models/Notification');
 const AuditLog = require('../src/models/AuditLog');
 const Withdrawal = require('../src/models/Withdrawal');
+const Deposit = require('../src/models/Deposit');
 const LedgerEntry = require('../src/models/LedgerEntry');
 
 const { toPoisha } = require('../src/utils/money');
+const { AppError } = require('../src/utils/errors');
 const { toMilli } = require('../src/utils/quantity');
 const {
   ROLES,
@@ -515,4 +517,262 @@ test('the audit log filters by actor, target, action and Dhaka date, and pages b
   await audit.record({ actor: owner.user._id, action: 'test.entry', targetType: 'Test' });
   const latest = await ownerApi.get('/api/owner/audit?action=test.entry');
   assert.equal(latest.body.data.entries.length, 1);
+});
+
+/* ------------------------------------------------- order actions and charge */
+
+test('order actions carry the delivery-charge and customer-edit capabilities from the table', async () => {
+  const { owner, reseller, product } = await shop();
+  const source = await f.makeSource();
+  const order = await placeOrder(reseller.profile, product);
+  const ownerApi = as(owner.user);
+  const me = as(reseller.user);
+
+  const actionsFor = async () => {
+    const [o, r] = await Promise.all([
+      ownerApi.get(`/api/owner/orders/${order._id}`),
+      me.get(`/api/reseller/orders/${order._id}`),
+    ]);
+    return { owner: o.body.data.order.actions, reseller: r.body.data.order.actions };
+  };
+
+  let now = await actionsFor();
+  assert.ok(now.owner.includes('changeDeliveryCharge') && now.owner.includes('editCustomer'));
+  assert.ok(now.reseller.includes('editCustomer'));
+  assert.ok(!now.reseller.includes('changeDeliveryCharge'), 'the reseller never changes the charge');
+
+  await confirm(order, reseller.profile, reseller.user);
+  for (const action of ['accept', 'pack']) {
+    // eslint-disable-next-line no-await-in-loop
+    await walk(order._id, action, owner.user, source);
+  }
+  now = await actionsFor();
+  assert.ok(now.owner.includes('changeDeliveryCharge') && now.owner.includes('editCustomer'), 'packed');
+  assert.ok(now.reseller.includes('editCustomer'), 'packed');
+
+  await walk(order._id, 'ship', owner.user, source);
+  now = await actionsFor();
+  assert.ok(!now.owner.includes('changeDeliveryCharge') && !now.owner.includes('editCustomer'), 'shipped');
+  assert.ok(!now.reseller.includes('editCustomer'), 'shipped');
+});
+
+test('the delivery-charge response is the order as GET returns it, and a lost race says why', async () => {
+  const { owner, reseller, product } = await shop();
+  const order = await placeOrder(reseller.profile, product);
+  const ownerApi = as(owner.user);
+
+  const res = await ownerApi.patch(`/api/owner/orders/${order._id}/delivery-charge`).send({ deliveryCharge: 95 });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  const fetched = await ownerApi.get(`/api/owner/orders/${order._id}`);
+  assert.deepEqual(res.body.data.order, fetched.body.data.order);
+  assert.equal(res.body.data.order.reseller.shopName, 'Test Shop');
+
+  const real = orderService.changeDeliveryCharge;
+  try {
+    // The other request moved the charge: nothing is locked, so it is a plain race.
+    orderService.changeDeliveryCharge = async () => {
+      throw new AppError(409, 'ALREADY_HANDLED', 'raced');
+    };
+    const raced = await ownerApi.patch(`/api/owner/orders/${order._id}/delivery-charge`).send({ deliveryCharge: 99 });
+    assert.equal(raced.status, 409);
+    assert.equal(raced.body.error.code, 'ALREADY_HANDLED');
+
+    // The other request shipped the parcel: the charge is now locked, and says so.
+    orderService.changeDeliveryCharge = async () => {
+      await Order.updateOne({ _id: order._id }, { $set: { status: ORDER_STATUS.SHIPPED } });
+      throw new AppError(409, 'ALREADY_HANDLED', 'raced');
+    };
+    const locked = await ownerApi.patch(`/api/owner/orders/${order._id}/delivery-charge`).send({ deliveryCharge: 99 });
+    assert.equal(locked.status, 409);
+    assert.equal(locked.body.error.code, 'DELIVERY_CHARGE_LOCKED');
+  } finally {
+    orderService.changeDeliveryCharge = real;
+  }
+});
+
+test('a customer edit answers with the order in the GET shape for each role', async () => {
+  const { owner, reseller, product } = await shop();
+  const order = await placeOrder(reseller.profile, product);
+
+  const ownerRes = await as(owner.user).patch(`/api/owner/orders/${order._id}/customer`).send({ name: 'Owner Fix' });
+  const ownerGet = await as(owner.user).get(`/api/owner/orders/${order._id}`);
+  assert.deepEqual(ownerRes.body.data.order, ownerGet.body.data.order);
+  assert.equal(ownerRes.body.data.order.reseller.shopName, 'Test Shop');
+
+  const resellerRes = await as(reseller.user)
+    .patch(`/api/reseller/orders/${order._id}/customer`)
+    .send({ name: 'Reseller Fix' });
+  const resellerGet = await as(reseller.user).get(`/api/reseller/orders/${order._id}`);
+  assert.deepEqual(resellerRes.body.data.order, resellerGet.body.data.order);
+});
+
+/* ---------------------------------------------------------------- pagination */
+
+test('the reseller list and the KYC queue page by cursor, and stay whole without one', async () => {
+  const owner = await f.makeOwner();
+  const ownerApi = as(owner.user);
+  const profiles = [];
+  for (let i = 0; i < 5; i += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    const { profile } = await f.makeReseller();
+    profiles.push(profile);
+    // eslint-disable-next-line no-await-in-loop
+    await KycSubmission.create({
+      reseller: profile._id,
+      status: REVIEW_STATUS.PENDING,
+      documents: [{ type: 'nid_front', storageKey: `kyc/${i}.jpg` }],
+    });
+  }
+
+  const whole = await ownerApi.get('/api/owner/resellers');
+  assert.equal(whole.body.data.resellers.length, 5);
+  assert.equal(whole.body.data.nextCursor, null);
+
+  const walkPages = async (path, key) => {
+    const seen = [];
+    let cursor = null;
+    let pages = 0;
+    do {
+      // eslint-disable-next-line no-await-in-loop
+      const res = await ownerApi.get(`${path}${path.includes('?') ? '&' : '?'}limit=2${cursor ? `&cursor=${cursor}` : ''}`);
+      assert.equal(res.status, 200, JSON.stringify(res.body));
+      seen.push(...res.body.data[key].map((row) => String(row.id)));
+      cursor = res.body.data.nextCursor;
+      pages += 1;
+    } while (cursor && pages < 10);
+    return { seen, pages };
+  };
+
+  const resellers = await walkPages('/api/owner/resellers', 'resellers');
+  assert.equal(resellers.pages, 3);
+  assert.deepEqual(resellers.seen, whole.body.data.resellers.map((r) => String(r.id)), 'same rows, same order');
+
+  const kyc = await walkPages('/api/owner/kyc?status=pending', 'submissions');
+  assert.equal(kyc.pages, 3);
+  assert.equal(new Set(kyc.seen).size, 5);
+
+  const bad = await ownerApi.get('/api/owner/resellers?limit=2&cursor=not-a-cursor');
+  assert.equal(bad.status, 400);
+  assert.equal(bad.body.error.code, 'BAD_CURSOR');
+});
+
+test('every order transition answers with the order in the GET shape, actions included', async () => {
+  const { owner, reseller, product } = await shop();
+  const source = await f.makeSource();
+  const ownerApi = as(owner.user);
+  const resellerApi = as(reseller.user);
+
+  const sameAsGet = async (res, api, role, id) => {
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    const fetched = await api.get(`/api/${role}/orders/${id}`);
+    assert.deepEqual(res.body.data.order, fetched.body.data.order);
+    assert.ok(Array.isArray(res.body.data.order.actions));
+  };
+
+  const a = await placeOrder(reseller.profile, product);
+  const confirmed = await resellerApi.post(`/api/reseller/orders/${a._id}/confirm`).send({});
+  await sameAsGet(confirmed, resellerApi, 'reseller', a._id);
+
+  const accepted = await ownerApi
+    .post(`/api/owner/orders/${a._id}/accept`)
+    .send({ sources: f.sourcesFor(await Order.findById(a._id), source) });
+  await sameAsGet(accepted, ownerApi, 'owner', a._id);
+  assert.equal(accepted.body.data.order.reseller.shopName, 'Test Shop');
+  assert.ok(accepted.body.data.order.actions.includes('pack'));
+
+  await sameAsGet(await ownerApi.post(`/api/owner/orders/${a._id}/pack`).send({}), ownerApi, 'owner', a._id);
+  await sameAsGet(
+    await ownerApi.post(`/api/owner/orders/${a._id}/ship`).send({ courierName: 'Sundarban' }),
+    ownerApi,
+    'owner',
+    a._id
+  );
+  const returned = await ownerApi.post(`/api/owner/orders/${a._id}/return`).send({ reason: 'Refused', restock: true });
+  await sameAsGet(returned, ownerApi, 'owner', a._id);
+  assert.deepEqual(returned.body.data.order.actions, []);
+
+  const b = await placeOrder(reseller.profile, product, { phone: '+8801912345679' });
+  const cancelled = await resellerApi.post(`/api/reseller/orders/${b._id}/cancel`).send({ reason: 'Changed mind' });
+  await sameAsGet(cancelled, resellerApi, 'reseller', b._id);
+
+  const c = await placeOrder(reseller.profile, product, { phone: '+8801912345670' });
+  await confirm(c, reseller.profile, reseller.user);
+  const ownerCancel = await ownerApi.post(`/api/owner/orders/${c._id}/cancel`).send({ reason: 'Out of stock' });
+  await sameAsGet(ownerCancel, ownerApi, 'owner', c._id);
+});
+
+test('the notification inbox pages by cursor and keeps the unread count whole', async () => {
+  const reseller = await f.makeReseller();
+  const base = Date.now();
+  await Notification.insertMany(
+    Array.from({ length: 35 }, (_, i) => ({
+      user: reseller.user._id,
+      eventType: EVENT_TYPE.ORDER_CONFIRMED,
+      title: `n${i}`,
+      readAt: i < 5 ? new Date() : null,
+      createdAt: new Date(base - i * 1000),
+    }))
+  );
+  const me = as(reseller.user);
+
+  const first = await me.get('/api/reseller/notifications');
+  assert.equal(first.status, 200, JSON.stringify(first.body));
+  assert.equal(first.body.data.notifications.length, 30, 'thirty by default');
+  assert.equal(first.body.data.unread, 30);
+  assert.ok(first.body.data.nextCursor);
+
+  const second = await me.get(`/api/reseller/notifications?cursor=${first.body.data.nextCursor}`);
+  assert.equal(second.body.data.notifications.length, 5);
+  assert.equal(second.body.data.nextCursor, null);
+  assert.equal(second.body.data.unread, 30);
+  const titles = [...first.body.data.notifications, ...second.body.data.notifications].map((n) => n.title);
+  assert.equal(new Set(titles).size, 35);
+  assert.equal(titles[0], 'n0', 'newest first');
+
+  const capped = await me.get('/api/reseller/notifications?limit=500');
+  assert.equal(capped.body.data.notifications.length, 35);
+  assert.equal(capped.body.data.nextCursor, null);
+
+  const bad = await me.get('/api/reseller/notifications?cursor=nonsense');
+  assert.equal(bad.status, 400);
+  assert.equal(bad.body.error.code, 'BAD_CURSOR');
+});
+
+test("a reseller's deposit and withdrawal histories page with a total", async () => {
+  const reseller = await f.makeReseller();
+  const base = Date.now();
+  await Deposit.insertMany(
+    Array.from({ length: 7 }, (_, i) => ({
+      reseller: reseller.profile._id,
+      amountPoisha: toPoisha(100 + i),
+      method: 'bkash',
+      status: REVIEW_STATUS.REJECTED,
+      createdAt: new Date(base - i * 1000),
+    }))
+  );
+  await Withdrawal.insertMany(
+    Array.from({ length: 3 }, (_, i) => ({
+      reseller: reseller.profile._id,
+      amountPoisha: toPoisha(10 + i),
+      method: 'bkash',
+      destinationNumber: '+8801712345678',
+      status: REVIEW_STATUS.REJECTED,
+      createdAt: new Date(base - i * 1000),
+    }))
+  );
+  const me = as(reseller.user);
+
+  const page1 = await me.get('/api/reseller/deposits?limit=5&page=1');
+  assert.equal(page1.status, 200, JSON.stringify(page1.body));
+  assert.equal(page1.body.data.deposits.length, 5);
+  assert.equal(page1.body.data.total, 7);
+  assert.equal(page1.body.data.deposits[0].amount, 100, 'newest first');
+  const page2 = await me.get('/api/reseller/deposits?limit=5&page=2');
+  assert.equal(page2.body.data.deposits.length, 2);
+  assert.equal(page2.body.data.page, 2);
+
+  const withdrawals = await me.get('/api/reseller/withdrawals?limit=2');
+  assert.equal(withdrawals.body.data.withdrawals.length, 2);
+  assert.equal(withdrawals.body.data.total, 3);
+  assert.equal(withdrawals.body.data.limit, 2);
 });

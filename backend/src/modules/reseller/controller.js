@@ -7,8 +7,8 @@ const KycSubmission = require('../../models/KycSubmission');
 
 const storage = require('../../config/storage');
 const imageService = require('../../services/images');
-const telegram = require('../../channels/telegram');
 const pricing = require('../../services/pricing');
+const { getSettings } = require('../../services/settings');
 const present = require('../../utils/present');
 const { ok } = require('../../middleware/error');
 const { badRequest, notFound, forbidden, conflict } = require('../../utils/errors');
@@ -24,8 +24,17 @@ const { KYC_STATUS, REVIEW_STATUS, KYC_DOC_TYPE } = require('../../domain/consta
  * `isActive` lives on the account, not the profile, and is merged in so the
  * interface can show the deactivated banner from the one call it already makes.
  */
-const getProfile = async (req, res) =>
-  ok(res, { profile: { ...req.reseller.toJSON(), isActive: req.user.isActive } });
+const getProfile = async (req, res) => {
+  const settings = await getSettings();
+  return ok(res, {
+    profile: {
+      ...req.reseller.toJSON(),
+      isActive: req.user.isActive,
+      // What a credit costs, beside how many they hold, for the SMS credits card.
+      smsPricePerCredit: toTaka(settings.smsPricePerCreditPoisha),
+    },
+  });
+};
 
 async function updateProfile(req, res) {
   const profile = req.reseller;
@@ -339,11 +348,6 @@ const {
   pushKey,
 } = require('../shared/notifications.controller');
 
-async function telegramLink(req, res) {
-  if (!telegram.isConfigured()) throw badRequest('NOT_CONFIGURED', 'Telegram is not set up yet');
-  const link = await telegram.createLinkToken(req.user._id);
-  return ok(res, link);
-}
 
 module.exports = {
   uploadLogo,
@@ -360,5 +364,4 @@ module.exports = {
   subscribePush,
   unsubscribePush,
   pushKey,
-  telegramLink,
 };

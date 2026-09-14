@@ -4,23 +4,26 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import type { Route } from 'next';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Bell,
   CalendarDays,
   ChevronRight,
   Ellipsis,
+  Lock,
   LogOut,
   Menu,
   WifiOff,
   X,
 } from 'lucide-react';
-import { useSession, useLogout } from '@/lib/session';
+import { ApiError } from '@/lib/api';
+import { useSession, useLogout, sessionKey } from '@/lib/session';
 import { useOnline } from '@/lib/use-online';
 import { syncPushRole } from '@/lib/push';
 import { t, type DictKey } from '@/lib/i18n/bn';
 import { formatToday } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { Avatar } from '@/components/ui/layout';
+import { Alert, Avatar } from '@/components/ui/layout';
 import { Logo } from '@/components/ui/logo';
 import { Skeleton, ListSkeleton } from '@/components/ui/skeleton';
 import type { Role } from '@/lib/types';
@@ -101,6 +104,35 @@ export function AppShell({
       router.replace(accountHref);
     }
   }, [session, isLoading, role, router, pathname, accountHref]);
+
+  /*
+   * Two refusals mean the session this screen holds is out of date: the owner
+   * issued a temporary password (PASSWORD_CHANGE_REQUIRED) or deactivated the
+   * reseller (RESELLER_INACTIVE) after `/auth/me` was last read. Refetching the
+   * session is enough, because the redirect above and the read-only banner
+   * below both follow what it says.
+   */
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    const stale = (error: unknown) => {
+      if (
+        error instanceof ApiError &&
+        (error.code === 'PASSWORD_CHANGE_REQUIRED' || error.code === 'RESELLER_INACTIVE')
+      ) {
+        void queryClient.invalidateQueries({ queryKey: sessionKey });
+      }
+    };
+    const offQueries = queryClient.getQueryCache().subscribe((event) => {
+      if (event.type === 'updated' && event.action.type === 'error') stale(event.action.error);
+    });
+    const offMutations = queryClient.getMutationCache().subscribe((event) => {
+      if (event.type === 'updated' && event.action.type === 'error') stale(event.action.error);
+    });
+    return () => {
+      offQueries();
+      offMutations();
+    };
+  }, [queryClient]);
 
   // Keeps the push worker's idea of who is signed in here current, so a tapped
   // notification opens this role's pages even after an account switch.
@@ -293,6 +325,7 @@ export function AppShell({
          * never re-runs, which is the usual reason these look broken.
          */}
         <main key={pathname} className="page-in mx-auto max-w-7xl px-4 py-8 pb-nav sm:px-6 lg:px-8">
+          {role === 'reseller' && !session.user.isActive && <DeactivatedBanner />}
           {children}
         </main>
       </div>
@@ -359,6 +392,24 @@ function TodayChip() {
       <CalendarDays aria-hidden className="h-3.5 w-3.5" />
       {formatToday()}
     </span>
+  );
+}
+
+/**
+ * A deactivated reseller's standing notice. See docs/adr/0011.
+ *
+ * Every page they open still works as a record, and the one thing they may
+ * still ask for, their money, is one tap away. The pages themselves hide the
+ * other writes; this says why they are gone.
+ */
+function DeactivatedBanner() {
+  return (
+    <Alert tone="warning" icon={Lock} title={t('inactive.bannerTitle')} className="mb-6">
+      <p>{t('inactive.bannerBody')}</p>
+      <Link href="/reseller/wallet" className="mt-1 inline-block font-semibold underline underline-offset-2">
+        {t('inactive.bannerWithdraw')}
+      </Link>
+    </Alert>
   );
 }
 

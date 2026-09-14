@@ -26,6 +26,8 @@ export type User = {
   phoneE164: string;
   role: Role;
   isActive: boolean;
+  /** When the owner deactivated this account; null while active. */
+  deactivatedAt?: string | null;
   lastLoginAt?: string;
   /** Set after the owner issued a temporary password. The shell sends them to Account. */
   mustChangePassword?: boolean;
@@ -179,8 +181,36 @@ export type Order = {
   /** Set on a return: whether the owner ticked "put back in stock". See docs/adr/0008. */
   restockedOnReturn: boolean;
   createdAt: string;
-  /** What the current role may do to this order right now. */
+  /**
+   * What the current role may do to this order right now: the transitions
+   * (`confirm`, `accept`, ...) and the edits (`changeDeliveryCharge`,
+   * `editCustomer`). The API derives both from its state machine, so a screen
+   * asks this list rather than keeping its own copy of which statuses allow what.
+   */
   actions: string[];
+};
+
+/** The names `Order.actions` may carry today. */
+export type OrderAction =
+  | 'confirm'
+  | 'accept'
+  | 'pack'
+  | 'ship'
+  | 'deliver'
+  | 'cancel'
+  | 'return'
+  | 'changeDeliveryCharge'
+  | 'editCustomer';
+
+/** The answer to correcting an order's customer details. PLAN-2 decision 9. */
+export type CustomerEditResult = {
+  order: Order;
+  /** Which of name, phone, address and district actually changed. */
+  changed: ('name' | 'phone' | 'address' | 'district')[];
+  /** The new district belongs to a different delivery zone than the order's. */
+  deliveryZoneChanged: boolean;
+  /** That zone and its charge, which the owner may apply. Null when unchanged. */
+  suggestedZone: { id: string; name: string; charge: number } | null;
 };
 
 /**
@@ -197,6 +227,12 @@ export type StatusHistoryEntry = {
   note?: string;
   paymentModeFrom?: PaymentMode;
   paymentModeTo?: PaymentMode;
+  /**
+   * Set on a step that is not a status change. `customer_edited` records a
+   * correction to the delivery details; its status is simply the status the
+   * order was in at the time.
+   */
+  event?: string;
 };
 
 export type CatalogItem = {
@@ -319,6 +355,9 @@ export type PublicShop = {
     poweredBy: string;
     brandLogoUrl?: string;
   };
+  /** False when the shop is closed; the page then shows no form. See docs/adr/0011. */
+  acceptingOrders?: boolean;
+  reason?: string | null;
   products: {
     id: string;
     name: string;
@@ -375,6 +414,24 @@ export type ResellerSummary = {
   available: number;
   smsCredits: number;
   createdAt: string;
+};
+
+/** A list paged by an opaque cursor. `nextCursor` is null on the last page. */
+export type CursorPaged<K extends string, T> = { nextCursor: string | null } & {
+  [P in K]: T[];
+};
+
+/** One row of the owner's audit log. `before` and `after` are whatever the action recorded. */
+export type AuditEntry = {
+  id: string;
+  at: string;
+  action: string;
+  targetType: string;
+  targetId: string | null;
+  actor: { id: string; name: string; role: Role } | null;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+  ip: string | null;
 };
 
 export type Paged<K extends string, T> = { page: number; limit: number; total: number } & {
@@ -448,4 +505,57 @@ export type SmsOverview = {
     creditsSpent: number;
     resellerCredits: number;
   };
+};
+
+/* ------------------------------------------------------ phase f: messaging -- */
+
+/** What a customer SMS would say. Rendered by the server; shown as is. */
+export type CustomerSmsPreview = {
+  text: string;
+  chars: number;
+  segments: number;
+  encoding: 'GSM-7' | 'UCS-2';
+  phone: string | null;
+  /** False when no SMS gateway is configured, so nothing could be sent. */
+  available: boolean;
+};
+
+export type CustomerSmsAction = 'accept' | 'ship' | 'cancel';
+
+export type TelegramStatus = {
+  configured: boolean;
+  linked: boolean;
+  linkedAt: string | null;
+  botUsername: string | null;
+};
+
+export type TelegramLinkToken = {
+  linkToken: string;
+  expiresAt: string;
+  botUsername: string | null;
+  deepLink: string | null;
+};
+
+export type PreferenceChannel = 'push' | 'telegram' | 'sms';
+
+export type NotificationPreferences = {
+  inApp: true;
+  smsAvailable: boolean;
+  channels: {
+    push: { available: boolean };
+    telegram: { available: boolean; linked: boolean };
+    sms: { available: boolean };
+  };
+  groups: {
+    key: 'orders' | 'wallet' | 'kyc' | 'alerts';
+    events: ({ eventType: string; locked: PreferenceChannel[] } & Record<PreferenceChannel, boolean>)[];
+  }[];
+};
+
+export type SmsCreditsInfo = {
+  featureEnabled: boolean;
+  smsEnabled: boolean;
+  available: boolean;
+  smsCredits: number;
+  pricePerCredit: number;
 };

@@ -56,9 +56,10 @@ function isSafePath(value) {
 /**
  * Which event a push was, as far as can be told.
  *
- * The push payload carries the event's `data` but not its type, so the type is
- * read when the server includes it and otherwise recognised by the fields only
- * that event writes (see backend/src/jobs). Anything unrecognised is null.
+ * The server includes `eventType` (and `url`) in the payload since Phase F. A
+ * push queued before that carries only the event's fields, so it is recognised
+ * by the fields only that event writes (see backend/src/jobs). Anything
+ * unrecognised is null.
  */
 function eventOf(data) {
   if (!data) return null;

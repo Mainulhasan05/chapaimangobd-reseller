@@ -132,6 +132,17 @@ function assertCustomerEditable(order) {
 }
 
 /**
+ * Things that are not transitions but still depend on status and role. They
+ * travel in the same `actions` list as the transitions so an interface asks one
+ * question, "is this in actions", instead of keeping its own copy of the
+ * status lists above and drifting from them.
+ */
+const CAPABILITIES = Object.freeze({
+  changeDeliveryCharge: { [ROLES.OWNER]: DELIVERY_CHARGE_EDITABLE },
+  editCustomer: { [ROLES.OWNER]: CUSTOMER_EDITABLE, [ROLES.RESELLER]: CUSTOMER_EDITABLE },
+});
+
+/**
  * The statuses the system may cancel from, checked once at load: a system
  * cancel posts nothing and restores nothing, so it must never be allowed to
  * reach an order that had already committed money or stock.
@@ -167,11 +178,18 @@ function assertCanTransition(order, action, role) {
   return transition;
 }
 
-/** Every action this role could take on this order right now, for the UI. */
+/**
+ * Every action this role could take on this order right now, for the UI: the
+ * transitions first, in table order, then the capabilities.
+ */
 function availableActions(order, role) {
-  return Object.entries(TRANSITIONS)
+  const transitions = Object.entries(TRANSITIONS)
     .filter(([, t]) => (t.from[role] || []).includes(order.status))
     .map(([action]) => action);
+  const capabilities = Object.entries(CAPABILITIES)
+    .filter(([, byRole]) => (byRole[role] || []).includes(order.status))
+    .map(([name]) => name);
+  return [...transitions, ...capabilities];
 }
 
 module.exports = {
@@ -182,6 +200,7 @@ module.exports = {
   assertDeliveryChargeEditable,
   CUSTOMER_EDITABLE,
   assertCustomerEditable,
+  CAPABILITIES,
   SYSTEM_CANCELLABLE,
   getTransition,
   assertCanTransition,

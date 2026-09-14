@@ -35,8 +35,15 @@ const TTL_MS = 5 * 60 * 1000;
 const MAX_ATTEMPTS = 5;
 const SENDS_PER_HOUR = 3;
 const SEND_WINDOW_MS = 60 * 60 * 1000;
+const RESEND_COOLDOWN_MS = 60 * 1000;
 
 const sendCounter = new MongoRateLimitStore({ prefix: 'otp-send', windowMs: SEND_WINDOW_MS });
+/*
+ * One send per phone and purpose per minute. The hourly allowance alone let a
+ * double-tap on "send again" spend two of the three codes in a second.
+ */
+const cooldown = new MongoRateLimitStore({ prefix: 'otp-cooldown', windowMs: RESEND_COOLDOWN_MS });
+const cooldownKey = (phoneE164, purpose) => `${purpose}:${phoneE164}`;
 
 /** Latest code per phone and purpose, for tests only. Never populated elsewhere. */
 const testCodes = new Map();
@@ -82,8 +89,22 @@ function assertCanSend() {
  * Counts one send against the phone's hourly allowance, atomically. Called for
  * every request that could send, including ones for a phone with no account,
  * so the limit itself does not reveal which numbers are registered.
+ *
+ * With a purpose, the per-minute resend cooldown is taken first, so a refused
+ * resend does not also spend one of the hour's codes. A refusal carries
+ * `retryAfter`, the whole seconds until the next code may be requested.
  */
-async function takeSendAllowance(phoneE164) {
+async function takeSendAllowance(phoneE164, purpose) {
+  if (purpose) {
+    const { totalHits: recent, resetTime } = await cooldown.increment(cooldownKey(phoneE164, purpose));
+    if (recent > 1) {
+      const retryAfter = Math.max(1, Math.ceil((resetTime.getTime() - Date.now()) / 1000));
+      const err = new AppError(429, 'OTP_COOLDOWN', `Wait ${retryAfter} seconds before asking for another code`);
+      err.details = { retryAfter };
+      throw err;
+    }
+  }
+
   const { totalHits } = await sendCounter.increment(phoneE164);
   if (totalHits > SENDS_PER_HOUR) {
     throw new AppError(429, 'OTP_SEND_LIMIT', 'Too many codes requested for this number, try again later');
@@ -106,7 +127,7 @@ async function send(phoneE164, purpose, { user = null, withChallenge = false, al
   if (!Object.values(OTP_PURPOSE).includes(purpose)) throw new Error(`otp: unknown purpose ${purpose}`);
 
   assertCanSend();
-  if (!allowanceTaken) await takeSendAllowance(phoneE164);
+  if (!allowanceTaken) await takeSendAllowance(phoneE164, purpose);
 
   const now = new Date();
   const code = generateCode();
@@ -155,6 +176,8 @@ async function send(phoneE164, purpose, { user = null, withChallenge = false, al
       logger.warn({ phone: phoneE164, purpose, code }, 'otp: SMS gateway not configured, code logged instead');
     } else {
       await Otp.updateOne({ _id: doc._id }, { $set: { voidedAt: new Date() } });
+      // Nothing arrived, so asking again straight away is fair.
+      await cooldown.resetKey(cooldownKey(phoneE164, purpose));
       logger.error({ purpose, status: result.status, error: result.error }, 'otp: code could not be sent');
       throw smsUnavailable();
     }
@@ -243,5 +266,6 @@ module.exports = {
   TTL_MS,
   MAX_ATTEMPTS,
   SENDS_PER_HOUR,
+  RESEND_COOLDOWN_MS,
   ...(env.isTest ? { __lastCodeFor: lastCodeFor } : {}),
 };

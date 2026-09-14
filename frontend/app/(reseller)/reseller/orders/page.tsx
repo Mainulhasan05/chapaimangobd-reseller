@@ -7,6 +7,7 @@ import type { Route } from 'next';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { Ban, ClipboardList, Eye, Plus } from 'lucide-react';
 import { api } from '@/lib/api';
+import { useReadOnlyAccount } from '@/lib/session';
 import { useDebounced } from '@/lib/use-debounced';
 import { t, tStatus } from '@/lib/i18n/bn';
 import { formatMoney, formatQuantity, formatAge } from '@/lib/format';
@@ -69,6 +70,7 @@ export default function ResellerOrdersPage() {
 function OrdersView() {
   const params = useSearchParams();
   // The dashboard links here with a filter already chosen.
+  const readOnly = useReadOnlyAccount();
   const [status, setStatus] = useState(() => params.get('status') ?? '');
   const [term, setTerm] = useState('');
   const [confirming, setConfirming] = useState<Order | null>(null);
@@ -132,7 +134,7 @@ function OrdersView() {
   const [autoOpenDismissed, setAutoOpenDismissed] = useState(false);
 
   const autoOpen =
-    openId && !autoOpenDismissed
+    openId && !autoOpenDismissed && !readOnly
       ? (rows.find((o) => o.id === openId && o.status === 'pending') ?? null)
       : null;
 
@@ -141,7 +143,7 @@ function OrdersView() {
   /** Everything here is also a full-width button on the phone card below. */
   const menuFor = (order: Order): MenuItem[] => [
     { label: t('order.viewDetail'), icon: Eye, onSelect: () => router.push(detailHref(order)) },
-    ...(order.actions.includes('cancel')
+    ...(!readOnly && order.actions.includes('cancel')
       ? [
           {
             label: t('app.cancel'),
@@ -159,9 +161,11 @@ function OrdersView() {
         title={t('nav.orders')}
         subtitle={t('order.confirmHelp')}
         action={
-          <Link href="/reseller/orders/new" className="hidden sm:block">
-            <Button size="sm">{t('order.manualOrder')}</Button>
-          </Link>
+          readOnly ? undefined : (
+            <Link href="/reseller/orders/new" className="hidden sm:block">
+              <Button size="sm">{t('order.manualOrder')}</Button>
+            </Link>
+          )
         }
       />
 
@@ -184,12 +188,14 @@ function OrdersView() {
         </div>
       </Toolbar>
 
-      <Link href="/reseller/orders/new" className="mb-4 block sm:hidden">
-        <Button full variant="outline">
-          <Plus className="h-4 w-4" />
-          {t('order.manualOrder')}
-        </Button>
-      </Link>
+      {!readOnly && (
+        <Link href="/reseller/orders/new" className="mb-4 block sm:hidden">
+          <Button full variant="outline">
+            <Plus className="h-4 w-4" />
+            {t('order.manualOrder')}
+          </Button>
+        </Link>
+      )}
 
       {orders.isLoading && <ListSkeleton />}
 
@@ -222,6 +228,7 @@ function OrdersView() {
               <li key={order.id}>
                 <OrderCard
                   order={order}
+                  readOnly={readOnly}
                   href={detailHref(order)}
                   onConfirm={() => setConfirming(order)}
                   onCancel={() => setCancelling(order)}
@@ -326,7 +333,7 @@ function OrdersView() {
                    */}
                   <Td className="text-right">
                     <div className="flex items-center justify-end gap-1">
-                      {order.actions.includes('confirm') && (
+                      {!readOnly && order.actions.includes('confirm') && (
                         <Button size="sm" onClick={() => setConfirming(order)}>
                           {t('app.confirm')}
                         </Button>
@@ -384,17 +391,19 @@ function OrdersView() {
  */
 function OrderCard({
   order,
+  readOnly,
   href,
   onConfirm,
   onCancel,
 }: {
   order: Order;
+  readOnly: boolean;
   href: Route;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
-  const canConfirm = order.actions.includes('confirm');
-  const canCancel = order.actions.includes('cancel');
+  const canConfirm = !readOnly && order.actions.includes('confirm');
+  const canCancel = !readOnly && order.actions.includes('cancel');
 
   return (
     <Card className="p-4">

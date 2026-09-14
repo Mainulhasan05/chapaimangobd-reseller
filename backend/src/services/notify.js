@@ -2,11 +2,16 @@
 
 const { logger } = require('../config/logger');
 const Notification = require('../models/Notification');
+const User = require('../models/User');
 const { enqueue } = require('./outbox');
 const ResellerProfile = require('../models/ResellerProfile');
+const gateway = require('../channels/sms');
 const { getSettings } = require('./settings');
+const { preferenceFor } = require('./notificationPrefs');
 const { NOTIFICATION_CHANNEL, EVENT_TYPE, ROLES } = require('../domain/constants');
 const { textFor } = require('../domain/notificationText');
+const { urlFor } = require('../domain/notificationLinks');
+const { RESELLER_SMS_DEFAULT } = require('../domain/notificationPrefs');
 
 /**
  * The in-app record is always written and is the source of truth. Every other
@@ -18,39 +23,46 @@ const { textFor } = require('../domain/notificationText');
  * conflict, which would send the same message twice.
  */
 
-/** Money events are worth paying for. Everything else stays free. */
-const SMS_WORTHY = new Set([
-  EVENT_TYPE.DEPOSIT_APPROVED,
-  EVENT_TYPE.DEPOSIT_REJECTED,
-  EVENT_TYPE.WITHDRAWAL_APPROVED,
-  EVENT_TYPE.ORDER_CANCELLED,
-  EVENT_TYPE.BALANCE_NEAR_LIMIT,
-]);
+/** Kept for callers that ask; the defaults themselves live in domain/notificationPrefs.js. */
+const SMS_WORTHY = RESELLER_SMS_DEFAULT;
 
+/**
+ * The channels an event goes out on, for this user.
+ *
+ * Three layers, each able only to narrow the one before: the owner's feature
+ * switches, then the user's own per-event preferences (services/notificationPrefs.js),
+ * then whatever the channel itself needs.
+ */
 async function resolveChannels(user, eventType) {
   const channels = [NOTIFICATION_CHANNEL.IN_APP];
   const settings = await getSettings();
+  const prefs = await preferenceFor(user, eventType);
 
-  const profile =
-    user.role === ROLES.RESELLER ? await ResellerProfile.findOne({ user: user._id }) : null;
-  const prefs = profile ? profile.channelPrefs : { webPush: true, telegram: true, sms: false };
-
-  if (settings.features.webPush && prefs.webPush) channels.push(NOTIFICATION_CHANNEL.WEB_PUSH);
+  if (settings.features.webPush && prefs.push) channels.push(NOTIFICATION_CHANNEL.WEB_PUSH);
   if (settings.features.telegram && prefs.telegram) channels.push(NOTIFICATION_CHANNEL.TELEGRAM);
 
-  // SMS costs money per message, so it needs the global flag, the reseller
-  // preference, credits in hand, and an event that justifies the spend.
-  if (
-    settings.features.sms &&
-    prefs.sms &&
-    profile &&
-    profile.smsCredits > 0 &&
-    SMS_WORTHY.has(eventType)
-  ) {
+  if (prefs.sms && (await smsAllowed(user, eventType, settings))) {
     channels.push(NOTIFICATION_CHANNEL.SMS);
   }
 
   return channels;
+}
+
+async function smsAllowed(user, eventType, settings) {
+  /*
+   * The owner's SMS is owner-paid (docs/adr/0013) and needs only a gateway. A
+   * new-device alert is left out: the login flow always sends that one itself,
+   * and including it here would send it twice.
+   */
+  if (user.role === ROLES.OWNER) {
+    return gateway.isConfigured() && eventType !== EVENT_TYPE.ALERT_NEW_DEVICE;
+  }
+
+  // Reseller-paid: the master switch, the owner's flag for this reseller, and
+  // credits in hand.
+  if (!settings.features.sms) return false;
+  const profile = await ResellerProfile.findOne({ user: user._id });
+  return Boolean(profile && profile.channelPrefs.sms && profile.smsCredits > 0);
 }
 
 /**
@@ -68,25 +80,37 @@ async function notify({ user, eventType, title, body, data = {} }) {
 
   try {
     const text = textFor(eventType, data);
+
+    // A bare id is not enough to know whose screens a link points into.
+    const recipient = user.role ? user : await User.findById(user).select('role');
+    if (!recipient) return null;
+
+    /*
+     * The event type and the page to open ride along with the data, so the
+     * service worker and the inbox open the right screen without each guessing
+     * from the fields. See domain/notificationLinks.js.
+     */
+    const enriched = { ...data, eventType, url: urlFor(recipient.role, eventType, data) };
+
     const notification = await Notification.create({
-      user: user._id || user,
+      user: recipient._id,
       eventType,
       title: title || text.title,
       body: body || text.body,
-      data,
+      data: enriched,
     });
 
-    const channels = await resolveChannels(user, eventType);
+    const channels = await resolveChannels(recipient, eventType);
     const external = channels.filter((c) => c !== NOTIFICATION_CHANNEL.IN_APP);
 
     if (external.length > 0) {
       await enqueue({
-        user: user._id || user,
+        user: recipient._id,
         eventType,
         channels: external,
         // The resolved wording, not the caller's arguments: what goes out on
         // Telegram must read the same as what is in the list.
-        payload: { title: notification.title, body: notification.body, data },
+        payload: { title: notification.title, body: notification.body, data: enriched },
       });
     }
 

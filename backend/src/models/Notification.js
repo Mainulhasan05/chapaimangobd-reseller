@@ -17,5 +17,7 @@ const notificationSchema = new mongoose.Schema(
 );
 
 notificationSchema.index({ user: 1, readAt: 1, createdAt: -1 });
+// The inbox pages by (createdAt, _id) per user; see utils/cursor.js.
+notificationSchema.index({ user: 1, createdAt: -1, _id: -1 });
 
 module.exports = mongoose.model('Notification', notificationSchema);

@@ -9,6 +9,7 @@ import {
   MapPin,
   MessageSquare,
   Package,
+  ScrollText,
   Settings,
   Store,
   UserCog,
@@ -22,7 +23,7 @@ import { AppShell, type NavItem } from '@/components/app-shell';
 import type { Order, Paged } from '@/lib/types';
 
 /**
- * Eleven destinations, four of which reach the bottom bar on a phone.
+ * Fourteen destinations, four of which reach the bottom bar on a phone.
  *
  * The four are the ones touched every day: the day's numbers, the fulfilment
  * queue, the catalog behind it, and the money waiting for a decision. Setup
@@ -51,11 +52,16 @@ const NAV: NavItem[] = [
    */
   { href: '/owner/sms', labelKey: 'nav.sms', icon: MessageSquare, section: 'nav.groupSetup' },
   { href: '/owner/settings', labelKey: 'nav.settings', icon: Settings, section: 'nav.groupSetup' },
+  // Who changed what. Read when something needs explaining, so it sits with setup.
+  { href: '/owner/audit', labelKey: 'nav.audit', icon: ScrollText, section: 'nav.groupSetup' },
   { href: '/owner/account', labelKey: 'nav.account', icon: UserCog, section: 'nav.groupSetup' },
 ];
 
 export default function OwnerLayout({ children }: { children: React.ReactNode }) {
   const { data: session } = useSession();
+  // No background reads while a temporary password is still in use: the API
+  // refuses them (PASSWORD_CHANGE_REQUIRED) and the shell is on its way to Account.
+  const ready = Boolean(session) && !session?.user.mustChangePassword;
 
   /*
    * Orders waiting to be accepted. A confirmed order is one the reseller has
@@ -67,18 +73,18 @@ export default function OwnerLayout({ children }: { children: React.ReactNode })
   const waiting = useQuery({
     queryKey: ['owner', 'orders', 'confirmed'],
     queryFn: () => api.get<Paged<'orders', Order>>('/owner/orders?status=confirmed&limit=5'),
-    enabled: Boolean(session),
+    enabled: ready,
     refetchInterval: 60_000,
   });
 
   /*
-   * Shares a cache key with the notifications page, so opening that page and
-   * marking things read updates the bell without a second request.
+   * Only the count is wanted, so one row is asked for. The key is the prefix of
+   * the notifications page's own, so marking things read there refreshes the bell.
    */
   const notifications = useQuery({
     queryKey: ['notifications'],
-    queryFn: () => api.get<{ unread: number }>('/owner/notifications'),
-    enabled: Boolean(session),
+    queryFn: () => api.get<{ unread: number }>('/owner/notifications?limit=1'),
+    enabled: ready,
     refetchInterval: 60_000,
   });
 

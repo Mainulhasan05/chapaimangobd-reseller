@@ -356,7 +356,7 @@ async function forgotPassword(req, res) {
   otp.assertCanSend();
 
   const user = await User.findOne({ phoneE164 });
-  await otp.takeSendAllowance(phoneE164);
+  await otp.takeSendAllowance(phoneE164, OTP_PURPOSE.RESET_PASSWORD);
 
   if (user && maySignIn(user)) {
     await otp.send(phoneE164, OTP_PURPOSE.RESET_PASSWORD, { user, allowanceTaken: true });

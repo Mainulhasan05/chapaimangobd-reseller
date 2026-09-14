@@ -1,32 +1,9 @@
 'use strict';
 
-const mongoose = require('mongoose');
 const AuditLog = require('../../models/AuditLog');
 const { ok } = require('../../middleware/error');
-const { badRequest } = require('../../utils/errors');
+const { encodeCursor, afterCursor } = require('../../utils/cursor');
 const { startOfBusinessDay, endOfBusinessDay } = require('../../utils/dhakaTime');
-
-/**
- * The cursor is the last row's (createdAt, _id), opaque to the client. Both
- * parts are needed: several entries routinely share a millisecond, such as a
- * deactivation and the credit-limit change saved with it.
- */
-const encodeCursor = (row) =>
-  Buffer.from(`${row.createdAt.toISOString()}|${row._id}`).toString('base64url');
-
-function decodeCursor(cursor) {
-  const invalid = () => badRequest('BAD_CURSOR', 'That page link is no longer valid');
-  let at;
-  let id;
-  try {
-    [at, id] = Buffer.from(cursor, 'base64url').toString('utf8').split('|');
-  } catch {
-    throw invalid();
-  }
-  const date = new Date(at);
-  if (Number.isNaN(date.getTime()) || !mongoose.isValidObjectId(id)) throw invalid();
-  return { at: date, id: new mongoose.Types.ObjectId(id) };
-}
 
 const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -54,10 +31,8 @@ async function list(req, res) {
     if (to) filter.createdAt.$lt = endOfBusinessDay(to);
   }
 
-  if (cursor) {
-    const { at, id } = decodeCursor(cursor);
-    filter.$or = [{ createdAt: { $lt: at } }, { createdAt: at, _id: { $lt: id } }];
-  }
+  // The cursor is the last row's (createdAt, _id); see utils/cursor.js.
+  if (cursor) Object.assign(filter, afterCursor(cursor, -1));
 
   const rows = await AuditLog.find(filter)
     .sort({ createdAt: -1, _id: -1 })

@@ -39,6 +39,11 @@ function errorHandler(err, req, res, _next) {
   if (err instanceof AppError) {
     const body = { code: err.code, message: err.message };
     if (err.fields) body.fields = err.fields;
+    // Machine-readable extras a client acts on, such as `retryAfter` seconds.
+    if (err.details) Object.assign(body, err.details);
+    if (err.details && Number.isFinite(err.details.retryAfter)) {
+      res.set('Retry-After', String(err.details.retryAfter));
+    }
     return fail(res, err.status, body);
   }
 

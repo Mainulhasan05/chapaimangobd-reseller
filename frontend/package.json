@@ -7,7 +7,9 @@
     "dev:turbo": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:e2e": "playwright test",
+    "test:e2e:typecheck": "tsc --noEmit -p e2e/tsconfig.json"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",
@@ -27,6 +29,7 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

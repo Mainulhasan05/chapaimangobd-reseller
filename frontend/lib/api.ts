@@ -12,6 +12,7 @@
  */
 
 import { TRANSPORT, copyFor, translateField, type ErrorCopy } from './errors';
+import { formatNumber } from './format';
 
 export type ApiEnvelope<T> = { ok: true; data: T } | { ok: false; error: ApiErrorBody };
 
@@ -19,12 +20,15 @@ export type ApiErrorBody = {
   code: string;
   message: string;
   fields?: Record<string, string>;
+  /** Seconds until asking again can work, on a 429 such as OTP_COOLDOWN. */
+  retryAfter?: number;
 };
 
 export class ApiError extends Error {
   readonly code: string;
   readonly status: number;
   readonly fields?: Record<string, string>;
+  readonly retryAfter?: number;
   /** Developer-facing detail. Never shown to a user in production. */
   readonly hint?: string;
 
@@ -34,6 +38,7 @@ export class ApiError extends Error {
     this.status = status;
     this.code = body.code;
     this.fields = body.fields;
+    this.retryAfter = typeof body.retryAfter === 'number' ? body.retryAfter : undefined;
     this.hint = body.hint;
   }
 
@@ -253,7 +258,10 @@ export function fieldErrors(error: unknown): Record<string, string> {
  */
 export function errorMessage(error: unknown): string {
   if (error instanceof ApiError) {
-    return copyFor(error.code)?.message ?? error.message;
+    const copy = copyFor(error.code)?.message;
+    if (!copy) return error.message;
+    // A wait the server measured, such as the one-minute gap between codes.
+    return copy.replace('{seconds}', formatNumber(error.retryAfter ?? 60));
   }
   if (error instanceof DOMException && error.name === 'TimeoutError') {
     return TRANSPORT.TIMEOUT.message;

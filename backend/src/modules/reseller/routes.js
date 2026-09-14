@@ -5,6 +5,8 @@ const controller = require('./controller');
 const orders = require('./orders.controller');
 const wallet = require('./wallet.controller');
 const customers = require('./customers.controller');
+const messaging = require('../shared/messaging.controller');
+const prefsSchema = require('../shared/notificationPrefs.schema');
 const schema = require('./schema');
 const validate = require('../../middleware/validate');
 const asyncHandler = require('../../utils/asyncHandler');
@@ -31,7 +33,14 @@ router.use(authenticate, requireRole(ROLES.RESELLER), loadReseller);
  * notifications read is housekeeping on their own inbox. Every other write is
  * a 403 RESELLER_INACTIVE. See docs/adr/0011.
  */
-router.use(readOnlyWhenInactive(['POST /withdrawals', 'POST /notifications/read']));
+router.use(
+  readOnlyWhenInactive([
+    'POST /withdrawals',
+    'POST /notifications/read',
+    // Stopping messages is housekeeping too: nobody should be unable to unlink.
+    'DELETE /telegram/link',
+  ])
+);
 
 /*
  * Every upload is a round trip to R2 or the image host and up to five megabytes
@@ -159,6 +168,7 @@ router.post(
   asyncHandler(wallet.createWithdrawal)
 );
 
+router.get('/sms', asyncHandler(wallet.smsCredits));
 router.post('/sms/purchase', validate({ body: schema.purchaseSms }), asyncHandler(wallet.purchaseSms));
 
 /* notifications */
@@ -171,6 +181,22 @@ router.post(
   asyncHandler(controller.subscribePush)
 );
 router.post('/push/unsubscribe', asyncHandler(controller.unsubscribePush));
-router.post('/telegram/link', asyncHandler(controller.telegramLink));
+// `/telegram/link` is the original name for issuing a token and still works.
+router.post('/telegram/link', asyncHandler(messaging.telegramLinkToken));
+router.post('/telegram/link-token', asyncHandler(messaging.telegramLinkToken));
+router.delete('/telegram/link', asyncHandler(messaging.telegramUnlink));
+router.get('/telegram', asyncHandler(messaging.telegramStatus));
+
+/*
+ * Which events reach this reseller on which channel. In-app is always on. The
+ * SMS column only matters while SMS is on for everyone and for this reseller;
+ * the response says so as `smsAvailable`.
+ */
+router.get('/notification-preferences', asyncHandler(messaging.getPreferences));
+router.put(
+  '/notification-preferences',
+  validate({ body: prefsSchema.updatePreferences }),
+  asyncHandler(messaging.updatePreferences)
+);
 
 module.exports = router;
