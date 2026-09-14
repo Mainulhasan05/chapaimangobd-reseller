@@ -90,6 +90,11 @@ const COPY: Record<string, ErrorCopy> = {
   /* pricing */
   BELOW_COST: { message: 'আপনার বিক্রয় মূল্য মালিকের দামের চেয়ে কম হতে পারবে না।' },
   ABOVE_MAX: { message: 'আপনার বিক্রয় মূল্য সর্বোচ্চ অনুমোদিত দামের চেয়ে বেশি হতে পারবে না।' },
+  REGULAR_PRICE_TOO_LOW: { message: 'নিয়মিত দাম আপনার বিক্রয়মূল্যের চেয়ে বেশি হতে হবে।' },
+
+  /* landing page */
+  TOO_MANY_IMAGES: { message: 'ল্যান্ডিং পেজে সর্বোচ্চ ৬টি ছবি রাখা যায়। আগে একটি মুছুন।' },
+  TOO_MANY_REVIEWS: { message: 'ল্যান্ডিং পেজে সর্বোচ্চ ১২টি রিভিউ রাখা যায়। আগে একটি মুছুন।' },
   BAD_MAX: { message: 'সর্বোচ্চ দাম মূল দামের চেয়ে কম হতে পারবে না।' },
 
   /* quantity and catalog */
@@ -185,7 +190,10 @@ const FIELD_COPY: Record<string, string> = {
   'Already in use': 'এটি আগেই ব্যবহৃত',
   'Name is required': 'নাম লিখুন',
   'Phone number is required': 'মোবাইল নম্বর লিখুন',
-  'Use at least 8 characters': 'অন্তত ৮টি অক্ষর দিন',
+  'Use at least 6 characters': 'অন্তত ৬টি অক্ষর দিন',
+  'Must be above your price': 'আপনার বিক্রয়মূল্যের চেয়ে বেশি দিন',
+  'Write the review or add a screenshot': 'রিভিউ লিখুন বা স্ক্রিনশট দিন',
+  'Enter a full link': 'https:// সহ পুরো লিংক দিন',
   'Enter a valid Bangladeshi mobile number': 'সঠিক বাংলাদেশি মোবাইল নম্বর দিন',
   'Enter the 6 digit code': '৬ সংখ্যার কোডটি লিখুন',
   'Wrong code': 'কোডটি সঠিক নয়',

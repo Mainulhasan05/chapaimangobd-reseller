@@ -61,6 +61,10 @@ function CatalogRow({ product }: { product: CatalogItem }) {
   const [price, setPrice] = useState(() =>
     formatMoneyPlain(product.sellPrice ?? product.costPrice)
   );
+  // Blank means no struck-through price on the landing page.
+  const [regularPrice, setRegularPrice] = useState(() =>
+    product.regularPrice != null ? formatMoneyPlain(product.regularPrice) : ''
+  );
   const [hidePrice, setHidePrice] = useState(product.hidePrice);
   const [isListed, setIsListed] = useState(product.isListed);
 
@@ -68,6 +72,7 @@ function CatalogRow({ product }: { product: CatalogItem }) {
     mutationFn: () =>
       api.put(`/reseller/catalog/${product.id}`, {
         sellPrice: Number(price),
+        regularPrice: regularPrice.trim() ? Number(regularPrice) : null,
         hidePrice,
         isListed,
       }),
@@ -137,6 +142,25 @@ function CatalogRow({ product }: { product: CatalogItem }) {
         />
       </Field>
 
+      <Field
+        label={t('catalog.regularPrice')}
+        htmlFor={`regular-${product.id}`}
+        error={errors.regularPrice}
+        hint={
+          Number(regularPrice) > Number(price)
+            ? `${t('landing.save')} ${formatMoney(Number(regularPrice) - Number(price))} / ${tUnit(product.unit)}`
+            : t('catalog.regularPriceHint')
+        }
+        className="mb-3"
+      >
+        <MoneyInput
+          id={`regular-${product.id}`}
+          disabled={readOnly}
+          value={regularPrice}
+          onChange={(e) => setRegularPrice(e.target.value)}
+        />
+      </Field>
+
       {/*
        * Switches, not sixteen pixel checkboxes. Both of these are visible to
        * customers the moment they change, so the whole row is the target.
@@ -157,7 +181,7 @@ function CatalogRow({ product }: { product: CatalogItem }) {
         />
       </div>
 
-      {save.error && !errors.sellPrice && (
+      {save.error && !errors.sellPrice && !errors.regularPrice && (
         <p className="mb-2 text-xs text-danger">{errorMessage(save.error)}</p>
       )}
 

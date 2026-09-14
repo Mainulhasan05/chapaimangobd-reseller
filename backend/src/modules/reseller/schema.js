@@ -2,6 +2,7 @@
 
 const { z } = require('zod');
 const { PAYMENT_MODE, DEPOSIT_METHOD, values } = require('../../domain/constants');
+const { TEMPLATES: LANDING_TEMPLATES } = require('../../domain/landing');
 
 const objectId = z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid identifier');
 const money = z.coerce.number().nonnegative().max(10000000);
@@ -30,10 +31,15 @@ const updateProfile = z.object({
   about: optionalText(600),
   bkashNumber: optionalText(20),
   nagadNumber: optionalText(20),
+
+  // The page design. Content is the owner's; see domain/landing.js.
+  landingTemplate: z.enum(Object.values(LANDING_TEMPLATES)).optional(),
 });
 
 const setCatalogPrice = z.object({
   sellPrice: money,
+  // Null or zero clears it. Checked against the sell price in the controller.
+  regularPrice: money.nullable().optional(),
   hidePrice: z.boolean().optional(),
   isListed: z.boolean().optional(),
 });

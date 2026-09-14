@@ -1,11 +1,10 @@
 import { notFound } from 'next/navigation';
-import Image from 'next/image';
 import type { Metadata } from 'next';
 import type { PublicShop, DeliveryZone } from '@/lib/types';
-import { OrderForm } from '@/components/order-form';
-import { Logo } from '@/components/ui/logo';
 import { t } from '@/lib/i18n/bn';
-import { Globe, MapPin, MessageCircle, Phone, Store } from 'lucide-react';
+import { isLandingTemplate } from '@/lib/landing';
+import { LandingPage } from '@/components/landing/templates';
+import { PreviewBanner } from '@/components/landing/parts';
 
 /**
  * Server rendered, unlike the dashboards. This page is unauthenticated, is the
@@ -14,6 +13,9 @@ import { Globe, MapPin, MessageCircle, Phone, Store } from 'lucide-react';
  *
  * It calls the API origin directly rather than through the browser rewrite,
  * because there is no cookie to forward and no proxy hop worth paying for.
+ *
+ * What it renders is a landing page in the design the reseller chose, built
+ * from content the owner wrote once for every shop. See components/landing.
  */
 const apiOrigin = process.env.API_ORIGIN ?? 'http://localhost:4000';
 
@@ -25,8 +27,32 @@ async function loadShop(slug: string): Promise<PublicShop | null> {
   });
   if (!res.ok) return null;
   const body = await res.json();
-  return body.ok ? (body.data as PublicShop) : null;
+  if (!body.ok) return null;
+  /*
+   * A response cached before the API carried landing content has neither field,
+   * and the data cache outlives a deploy by up to the revalidate window. Such a
+   * shop renders the default design with nothing but its products.
+   */
+  const data = body.data as PublicShop;
+  return { ...data, template: data.template ?? 'bagan', landing: data.landing ?? EMPTY_LANDING };
 }
+
+const EMPTY_LANDING: PublicShop['landing'] = {
+  headline: '',
+  subtitle: '',
+  heroImages: [],
+  videoUrl: '',
+  rating: null,
+  customerCount: '',
+  deliveryNote: '',
+  guaranteeNote: '',
+  badges: [],
+  whyUs: [],
+  features: [],
+  tips: [],
+  reviews: [],
+  faqs: [],
+};
 
 async function loadZones(): Promise<DeliveryZone[]> {
   const res = await fetch(`${apiOrigin}/api/public/delivery-zones`, { next: { revalidate: 300 } });
@@ -35,11 +61,12 @@ async function loadZones(): Promise<DeliveryZone[]> {
   return body.ok ? (body.data.zones as DeliveryZone[]) : [];
 }
 
-export async function generateMetadata({
-  params,
-}: {
+type PageProps = {
   params: Promise<{ slug: string }>;
-}): Promise<Metadata> {
+  searchParams: Promise<{ template?: string }>;
+};
+
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   // params is a Promise in Next 16; synchronous access was removed, not deprecated.
   const { slug } = await params;
   const shop = await loadShop(slug);
@@ -48,154 +75,40 @@ export async function generateMetadata({
   /*
    * This link's whole life is being pasted into a chat, so the preview card is
    * the shop's storefront. Without it WhatsApp renders a bare URL and the
-   * reseller's name never appears.
+   * reseller's name never appears. The owner's first photograph sells better
+   * than a logo, so it leads when there is one.
    */
+  const image = shop.landing.heroImages[0]?.url ?? shop.shop.logoUrl;
+  const description = shop.landing.subtitle || t('shop.metaDescription');
   return {
-    title: shop.shop.name,
+    title: shop.landing.headline ? `${shop.shop.name} · ${shop.landing.headline}` : shop.shop.name,
+    description,
     openGraph: {
       title: shop.shop.name,
-      description: t('shop.metaDescription'),
-      images: shop.shop.logoUrl ? [{ url: shop.shop.logoUrl }] : undefined,
+      description,
+      images: image ? [{ url: image }] : undefined,
     },
   };
 }
 
-export default async function ShopPage({ params }: { params: Promise<{ slug: string }> }) {
-  const { slug } = await params;
+export default async function ShopPage({ params, searchParams }: PageProps) {
+  const [{ slug }, query] = await Promise.all([params, searchParams]);
   const [shop, zones] = await Promise.all([loadShop(slug), loadZones()]);
 
   if (!shop) notFound();
 
+  /*
+   * `?template=` lets a reseller look at a design before choosing it. It only
+   * changes what this one visit renders; the design customers get is the saved
+   * one, and the banner says so, so a shared preview link cannot pass for it.
+   */
+  const preview = isLandingTemplate(query.template) && query.template !== shop.template;
+  const template = preview && isLandingTemplate(query.template) ? query.template : shop.template;
+
   return (
-    // `pb-nav` keeps the last field clear of the order bar pinned to the bottom.
-    <main className="mx-auto max-w-2xl px-4 py-6 pb-nav">
-      {/*
-       * The storefront header. This is the first thing a customer sees after
-       * tapping a link in a chat, so it carries the shop's own mark where there
-       * is one and falls back to the brand rather than to an empty gap.
-       */}
-      <header className="card elev-2 mb-6 flex flex-col items-center gap-3 p-6 text-center">
-        {shop.shop.logoUrl ? (
-          <Image
-            src={shop.shop.logoUrl}
-            alt={shop.shop.name}
-            width={72}
-            height={72}
-            className="elev-1 h-18 w-18 rounded-2xl object-cover"
-          />
-        ) : (
-          <Logo size="lg" />
-        )}
-        <h1 className="text-2xl font-bold tracking-tight">{shop.shop.name}</h1>
-
-        {shop.shop.about && (
-          <p className="max-w-prose text-sm text-muted-foreground">{shop.shop.about}</p>
-        )}
-
-        {/*
-         * A way to reach a person, before a price list.
-         *
-         * A customer who has just followed a link from a chat is deciding
-         * whether to hand money to a stranger. A phone number they can tap is
-         * the cheapest possible answer to that, and it costs the page nothing
-         * when the reseller has not filled one in.
-         */}
-        {(shop.shop.phone || shop.shop.whatsapp || shop.shop.facebookUrl) && (
-          <div className="flex flex-wrap justify-center gap-2">
-            {shop.shop.phone && (
-              <ContactLink href={`tel:${shop.shop.phone}`} icon={Phone} label={shop.shop.phone} />
-            )}
-            {shop.shop.whatsapp && (
-              <ContactLink
-                // wa.me wants digits only, and a Bangladeshi number is written
-                // locally as 01... which the international form drops.
-                href={`https://wa.me/${waNumber(shop.shop.whatsapp)}`}
-                icon={MessageCircle}
-                label="WhatsApp"
-                external
-              />
-            )}
-            {shop.shop.facebookUrl && (
-              <ContactLink
-                href={shop.shop.facebookUrl}
-                // lucide dropped its brand glyphs, so the page link gets the
-                // generic one rather than a wrong-looking lookalike.
-                icon={Globe}
-                label="Facebook"
-                external
-              />
-            )}
-          </div>
-        )}
-
-        {shop.shop.address && (
-          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <MapPin aria-hidden className="h-3.5 w-3.5 shrink-0" />
-            {shop.shop.address}
-          </p>
-        )}
-      </header>
-
-      {/*
-       * A closed shop keeps its storefront: the name and the ways to reach the
-       * reseller are still what a customer came for, and a bare 404 would look
-       * like a broken link. There is simply no form. See docs/adr/0011.
-       */}
-      {shop.acceptingOrders === false ? (
-        <section className="card flex flex-col items-center gap-2 px-6 py-12 text-center" aria-live="polite">
-          <span
-            aria-hidden
-            className="mb-2 flex h-12 w-12 items-center justify-center rounded-2xl bg-muted text-muted-foreground"
-          >
-            <Store className="h-5 w-5" />
-          </span>
-          <h2 className="text-lg font-semibold">{t('shop.notAcceptingTitle')}</h2>
-          <p className="max-w-sm text-sm text-muted-foreground">{t('shop.notAcceptingHelp')}</p>
-        </section>
-      ) : (
-        <OrderForm slug={slug} shop={shop} zones={zones} />
-      )}
-
-      <footer className="mt-10 text-center text-xs text-muted-foreground">
-        {shop.shop.poweredBy}
-      </footer>
-    </main>
-  );
-}
-
-/**
- * A Bangladeshi mobile number as wa.me wants it.
- *
- * People write their number the way they say it, 01712..., and wa.me needs the
- * country code with no punctuation. A number already carrying 880 is left alone,
- * so a reseller who typed the international form does not end up with it twice.
- */
-function waNumber(raw: string): string {
-  const digits = raw.replace(/\D/g, '');
-  if (digits.startsWith('880')) return digits;
-  return `880${digits.replace(/^0/, '')}`;
-}
-
-/** One tappable way to reach the shop. Sized for a thumb, not a mouse. */
-function ContactLink({
-  href,
-  icon: Icon,
-  label,
-  external,
-}: {
-  href: string;
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  external?: boolean;
-}) {
-  return (
-    <a
-      href={href}
-      {...(external ? { target: '_blank', rel: 'noreferrer' } : {})}
-      className="tap inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-2 text-sm font-semibold transition-colors hover:bg-muted"
-    >
-      <Icon className="h-4 w-4 shrink-0" />
-      {label}
-    </a>
+    <>
+      {preview && <PreviewBanner />}
+      <LandingPage template={template} slug={slug} shop={shop} zones={zones} />
+    </>
   );
 }

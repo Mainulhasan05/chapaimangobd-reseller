@@ -160,7 +160,7 @@ export default function RegisterPage() {
         label={t('auth.password')}
         autoComplete="new-password"
         hint={t('auth.passwordHint')}
-        minLength={8}
+        minLength={6}
         value={form.password}
         onChange={set('password')}
         error={errors.password}

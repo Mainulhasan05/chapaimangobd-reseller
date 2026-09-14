@@ -3,6 +3,11 @@
 const { z } = require('zod');
 const { UNITS } = require('../../utils/quantity');
 const { DEPOSIT_METHOD, values, SMS_STATUS, SMS_PURPOSE } = require('../../domain/constants');
+const {
+  ICONS: LANDING_ICONS,
+  LIMITS: LANDING_LIMITS,
+  TEXT_LIMITS: LANDING_TEXT,
+} = require('../../domain/landing');
 
 const objectId = z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid identifier');
 // Multipart bodies arrive as strings, so numbers coerce at the boundary.
@@ -222,6 +227,57 @@ const updateSettings = z.object({
     .optional(),
 });
 
+/* landing page */
+
+/**
+ * The owner's landing content, text only. Images and reviews arrive on their own
+ * multipart routes. Every list is sent whole: the editor holds the full list,
+ * so a reorder or a deletion is simply the new list, with no index arithmetic.
+ */
+const lt = LANDING_TEXT;
+const landingText = (max) => z.string().trim().max(max);
+const updateLanding = z
+  .object({
+    headline: landingText(lt.headline).optional(),
+    subtitle: landingText(lt.subtitle).optional(),
+    videoUrl: z
+      .union([z.literal(''), z.string().trim().url('Enter a full link').max(lt.videoUrl)])
+      .optional(),
+    rating: z.number().min(0).max(5).nullable().optional(),
+    customerCount: landingText(lt.customerCount).optional(),
+    deliveryNote: landingText(lt.deliveryNote).optional(),
+    guaranteeNote: landingText(lt.guaranteeNote).optional(),
+    badges: z
+      .array(
+        z.object({ icon: z.enum(LANDING_ICONS), label: landingText(lt.badgeLabel).min(1) })
+      )
+      .max(LANDING_LIMITS.badges)
+      .optional(),
+    whyUs: z.array(landingText(lt.listItem).min(1)).max(LANDING_LIMITS.whyUs).optional(),
+    features: z.array(landingText(lt.listItem).min(1)).max(LANDING_LIMITS.features).optional(),
+    tips: z
+      .array(
+        z.object({
+          icon: z.enum(LANDING_ICONS),
+          title: landingText(lt.tipTitle).min(1),
+          text: landingText(lt.tipText).min(1),
+        })
+      )
+      .max(LANDING_LIMITS.tips)
+      .optional(),
+    faqs: z
+      .array(z.object({ q: landingText(lt.faqQuestion).min(1), a: landingText(lt.faqAnswer).min(1) }))
+      .max(LANDING_LIMITS.faqs)
+      .optional(),
+  })
+  .strict();
+
+/** A review arrives as multipart, because it may carry a screenshot. */
+const addLandingReview = z.object({
+  name: z.string().trim().max(lt.reviewName).optional().default(''),
+  text: z.string().trim().max(lt.reviewText).optional().default(''),
+});
+
 /* sms */
 
 /**
@@ -265,6 +321,8 @@ const subscribePush = z.object({
 });
 
 module.exports = {
+  updateLanding,
+  addLandingReview,
   subscribePush,
   objectId,
   createSource,

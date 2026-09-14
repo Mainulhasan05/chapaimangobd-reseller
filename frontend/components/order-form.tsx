@@ -19,6 +19,7 @@ type Line = { product: string; quantity: number };
 
 /** The submit button lives outside the form, in the bar pinned to the viewport. */
 const FORM_ID = 'shop-order-form';
+const PRODUCTS_ID = 'order-products';
 
 export function OrderForm({
   slug,
@@ -129,7 +130,7 @@ export function OrderForm({
       >
         {generalError && <Alert tone="danger">{generalError}</Alert>}
 
-        <div className="mb-6 space-y-3">
+        <div id={PRODUCTS_ID} className="mb-6 scroll-mt-24 space-y-3">
           {shop.products.map((product) => {
             const quantity = lines[product.id] ?? 0;
 
@@ -153,11 +154,22 @@ export function OrderForm({
                       {!product.inStock && <Badge tone="danger">{t('catalog.outOfStock')}</Badge>}
                     </div>
 
-                    <p className="mt-0.5 font-semibold text-[oklch(0.45_0.14_70)]">
+                    {/* The landing designs set the price colour; the fallback is the old mango ink. */}
+                    <p className="mt-0.5 font-semibold text-[var(--lp-price,oklch(0.45_0.14_70))]">
                       {product.priceHidden
                         ? t('shop.priceOnCall')
                         : `${formatMoney(product.price ?? 0)} / ${tUnit(product.unit)}`}
                     </p>
+                    {product.regularPrice != null && product.price != null && (
+                      <p className="flex flex-wrap items-center gap-x-2 text-xs">
+                        <s className="tabular text-muted-foreground">
+                          {formatMoney(product.regularPrice)}
+                        </s>
+                        <span className="font-semibold text-red-700">
+                          {formatMoney(product.regularPrice - product.price)} {t('landing.save')}
+                        </span>
+                      </p>
+                    )}
                     <p className="text-xs text-muted-foreground">
                       {t('catalog.minOrderQty')} {formatNumber(product.minOrderQty)} {tUnit(product.unit)}
                     </p>
@@ -298,16 +310,23 @@ export function OrderForm({
           </div>
         )}
 
-        <Button
-          type="submit"
-          form={FORM_ID}
-          full
-          size="lg"
-          loading={submit.isPending}
-          disabled={selected.length === 0}
-        >
-          {selected.length === 0 ? t('shop.emptyCart') : t('shop.placeOrder')}
-        </Button>
+        {/*
+         * With nothing chosen, the bar is a way to the products rather than a
+         * disabled button. On a landing page the form is far below the fold, and
+         * a greyed-out control pinned to the screen reads as a broken page.
+         */}
+        {selected.length === 0 ? (
+          <a
+            href={`#${PRODUCTS_ID}`}
+            className="tap flex h-12 w-full items-center justify-center rounded-lg bg-primary px-6 text-base font-semibold text-primary-foreground hover:brightness-110"
+          >
+            {t('landing.orderNow')}
+          </a>
+        ) : (
+          <Button type="submit" form={FORM_ID} full size="lg" loading={submit.isPending}>
+            {t('shop.placeOrder')}
+          </Button>
+        )}
       </StickyBar>
     </>
   );

@@ -2,13 +2,15 @@
 
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { ShieldAlert } from 'lucide-react';
+import { ExternalLink, ShieldAlert } from 'lucide-react';
 import { api, errorMessage, fieldErrors } from '@/lib/api';
 import { useReadOnlyAccount, useSession, sessionKey } from '@/lib/session';
 import { t } from '@/lib/i18n/bn';
-import type { ResellerProfile } from '@/lib/types';
-import { Alert, Card, CardHeader, PageHeader } from '@/components/ui/layout';
-import { Button } from '@/components/ui/button';
+import { LANDING_TEMPLATES } from '@/lib/landing';
+import { cn } from '@/lib/utils';
+import type { LandingTemplate, ResellerProfile } from '@/lib/types';
+import { Alert, Badge, Card, CardHeader, PageHeader } from '@/components/ui/layout';
+import { Button, Spinner } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/components/ui/toast';
@@ -106,6 +108,8 @@ function ShopSettings({ profile }: { profile: ResellerProfile }) {
       <div className="mb-4">
         <ShareShopCard url={shopUrl} shopName={profile.shopName} />
       </div>
+
+      <DesignPicker profile={profile} readOnly={readOnly} />
 
       <Card className="mb-4">
         {/*
@@ -295,5 +299,88 @@ function ShopSettings({ profile }: { profile: ResellerProfile }) {
         </Button>
       </Card>
     </>
+  );
+}
+
+/**
+ * Which landing design customers see. Choosing saves at once, like the open
+ * switch, because there is nothing else to fill in; each design can be looked
+ * at first in a new tab, with the reseller's own products and contact details.
+ */
+function DesignPicker({ profile, readOnly }: { profile: ResellerProfile; readOnly: boolean }) {
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const current = profile.landingTemplate ?? 'bagan';
+
+  const choose = useMutation({
+    mutationFn: (landingTemplate: LandingTemplate) =>
+      api.patch('/reseller/profile', { landingTemplate }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: sessionKey });
+      toast(t('shop.designSaved'));
+    },
+  });
+
+  return (
+    <Card className="mb-4">
+      <CardHeader title={t('shop.design')} subtitle={t('shop.designHelp')} />
+
+      {choose.error && <Alert tone="danger">{errorMessage(choose.error)}</Alert>}
+
+      <div role="radiogroup" aria-label={t('shop.design')} className="grid gap-3 sm:grid-cols-3">
+        {LANDING_TEMPLATES.map((design) => {
+          const selected = design.id === current;
+          const pending = choose.isPending && choose.variables === design.id;
+          return (
+            <div
+              key={design.id}
+              className={cn(
+                'flex flex-col overflow-hidden rounded-xl border bg-surface transition-shadow',
+                selected ? 'border-primary ring-2 ring-primary' : 'border-border'
+              )}
+            >
+              <button
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                disabled={readOnly || choose.isPending}
+                onClick={() => !selected && choose.mutate(design.id)}
+                className="tap flex flex-1 flex-col text-left disabled:cursor-default"
+              >
+                {/* A miniature of the design: its header colour, a headline bar, its button. */}
+                <span aria-hidden className="block p-3" style={{ background: design.swatch[0] }}>
+                  <span className="mb-1.5 block h-2 w-2/3 rounded-full bg-white/80" />
+                  <span className="mb-3 block h-2 w-1/2 rounded-full bg-white/50" />
+                  <span className="block h-5 w-20 rounded-md" style={{ background: design.swatch[1] }} />
+                </span>
+                <span className="block p-3">
+                  <span className="flex items-center justify-between gap-2 font-semibold">
+                    {t(design.labelKey)}
+                    {selected && (
+                      <Badge tone="success" dot>
+                        {t('shop.designChosen')}
+                      </Badge>
+                    )}
+                    {pending && <Spinner />}
+                  </span>
+                  <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
+                    {t(design.helpKey)}
+                  </span>
+                </span>
+              </button>
+              <a
+                href={`/r/${profile.slug}?template=${design.id}`}
+                target="_blank"
+                rel="noreferrer"
+                className="tap flex items-center justify-center gap-1.5 border-t border-border px-3 py-2.5 text-sm font-semibold text-primary-ink hover:bg-muted"
+              >
+                <ExternalLink aria-hidden className="h-4 w-4" />
+                {t('shop.designPreview')}
+              </a>
+            </div>
+          );
+        })}
+      </div>
+    </Card>
   );
 }

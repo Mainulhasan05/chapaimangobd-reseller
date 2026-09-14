@@ -7,6 +7,7 @@ const orders = require('./orders.controller');
 const finance = require('./finance.controller');
 const reports = require('./reports.controller');
 const settings = require('./settings.controller');
+const landing = require('./landing.controller');
 const sms = require('./sms.controller');
 const customers = require('./customers.controller');
 const auditLog = require('./audit.controller');
@@ -210,6 +211,32 @@ router.post(
 );
 router.delete('/settings/brand-logo', asyncHandler(settings.removeBrandLogo));
 router.get('/settings/sms-balance', asyncHandler(settings.smsBalance));
+
+/*
+ * landing page
+ *
+ * The content every public shop page is built from. Photos and reviews are
+ * multipart and public, so they go to the image host like the brand logo.
+ */
+router.get('/landing', asyncHandler(landing.get));
+router.patch('/landing', validate({ body: schema.updateLanding }), asyncHandler(landing.update));
+router.post(
+  '/landing/hero-images',
+  uploadLimiter,
+  upload.array('images', 6),
+  handleUploadErrors,
+  asyncHandler(landing.addHeroImages)
+);
+router.delete('/landing/hero-images/:imageId', asyncHandler(landing.removeHeroImage));
+router.post(
+  '/landing/reviews',
+  uploadLimiter,
+  upload.single('image'),
+  handleUploadErrors,
+  validate({ body: schema.addLandingReview }),
+  asyncHandler(landing.addReview)
+);
+router.delete('/landing/reviews/:reviewId', asyncHandler(landing.removeReview));
 router.get('/system/health', asyncHandler(settings.systemHealth));
 
 /*

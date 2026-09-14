@@ -136,7 +136,7 @@ export default function ForgotPasswordPage() {
         label={t('auth.newPassword')}
         autoComplete="new-password"
         hint={t('auth.passwordHint')}
-        minLength={8}
+        minLength={6}
         value={newPassword}
         onChange={setNewPassword}
         error={errors.newPassword}

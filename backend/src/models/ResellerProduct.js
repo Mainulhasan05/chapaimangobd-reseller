@@ -25,6 +25,21 @@ const resellerProductSchema = new mongoose.Schema(
       min: 0,
       validate: { validator: isSafeMoney, message: '{PATH} must be a whole number of poisha' },
     },
+    /*
+     * The "was" price a landing page strikes through, beside the sell price.
+     * Optional, and only ever shown when it is above the sell price: a regular
+     * price at or below what the customer pays is not a discount, and printing
+     * one would be a false claim on the reseller's own page.
+     */
+    regularPricePoisha: {
+      type: Number,
+      default: null,
+      min: 0,
+      validate: {
+        validator: (v) => v == null || isSafeMoney(v),
+        message: '{PATH} must be a whole number of poisha',
+      },
+    },
     // The price is still stored, only withheld from the public response body.
     hidePrice: { type: Boolean, default: false },
     isListed: { type: Boolean, default: true },

@@ -76,6 +76,8 @@ export type ResellerProfile = {
   whatsappNumber?: string;
   facebookUrl?: string;
   payment?: { bkash?: string; nagad?: string };
+  /** The public page design. The content itself is the owner's. */
+  landingTemplate?: LandingTemplate;
   kycStatus: KycStatus;
   balancePoisha: number;
   creditLimitPoisha: number;
@@ -250,6 +252,8 @@ export type CatalogItem = {
   isAvailable: boolean;
   activated: boolean;
   sellPrice: number | null;
+  /** The struck-through "was" price on the public page, if any. */
+  regularPrice: number | null;
   hidePrice: boolean;
   isListed: boolean;
 };
@@ -340,6 +344,42 @@ export type Withdrawal = {
   createdAt: string;
 };
 
+/** A public page design. See backend domain/landing.js. */
+export type LandingTemplate = 'bagan' | 'krishok' | 'offer';
+
+/** A named glyph, mapped to an icon by the page. Never an uploaded image. */
+export type LandingIcon =
+  | 'leaf'
+  | 'shield'
+  | 'truck'
+  | 'star'
+  | 'heart'
+  | 'package'
+  | 'clock'
+  | 'sun'
+  | 'check'
+  | 'gift'
+  | 'snowflake'
+  | 'wallet';
+
+/** The owner-written content every design is drawn from. */
+export type LandingContent = {
+  headline: string;
+  subtitle: string;
+  heroImages: ProductImage[];
+  videoUrl: string;
+  rating: number | null;
+  customerCount: string;
+  deliveryNote: string;
+  guaranteeNote: string;
+  badges: { icon: LandingIcon; label: string }[];
+  whyUs: string[];
+  features: string[];
+  tips: { icon: LandingIcon; title: string; text: string }[];
+  reviews: { id: string; name: string; text: string; image: ProductImage | null }[];
+  faqs: { q: string; a: string }[];
+};
+
 /** The customer-facing shop, which never carries a cost price. */
 export type PublicShop = {
   shop: {
@@ -355,6 +395,9 @@ export type PublicShop = {
     poweredBy: string;
     brandLogoUrl?: string;
   };
+  /** The design the reseller chose, and the owner's content it draws on. */
+  template: LandingTemplate;
+  landing: LandingContent;
   /** False when the shop is closed; the page then shows no form. See docs/adr/0011. */
   acceptingOrders?: boolean;
   reason?: string | null;
@@ -369,6 +412,8 @@ export type PublicShop = {
     inStock: boolean;
     priceHidden: boolean;
     price?: number;
+    /** The struck-through price. Only present when above `price`. */
+    regularPrice?: number;
   }[];
 };
 

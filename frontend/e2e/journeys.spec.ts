@@ -77,10 +77,7 @@ async function expectWalletBalance(page: Page, taka: number) {
   await page.goto('/reseller/wallet');
   const stat = page.locator('.card').filter({ has: page.getByText(t('wallet.balance'), { exact: true }) }).first();
   await expect(stat).toContainText(formatMoney(taka));
-  await expectNoHorizontalScroll(page, {
-    knownBug:
-      'reseller wallet: the deposit and withdraw buttons are whitespace-nowrap side by side and overflow 360px',
-  });
+  await expectNoHorizontalScroll(page);
 }
 
 async function ownerOrderId(orderCode: string): Promise<string> {

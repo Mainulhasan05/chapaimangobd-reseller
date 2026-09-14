@@ -4,6 +4,10 @@ const mongoose = require('mongoose');
 const { KYC_STATUS, values } = require('../domain/constants');
 const { isSafeMoney } = require('../utils/money');
 const publicImageSchema = require('./publicImage');
+const {
+  TEMPLATES: LANDING_TEMPLATES,
+  DEFAULT_TEMPLATE: DEFAULT_LANDING_TEMPLATE,
+} = require('../domain/landing');
 
 const money = (def = 0) => ({
   type: Number,
@@ -56,6 +60,17 @@ const resellerProfileSchema = new mongoose.Schema(
       nagad: { type: String, trim: true, maxlength: 20 },
     },
     address: { type: String, maxlength: 500 },
+
+    /*
+     * Which design the public page is drawn with. Only the design: the content
+     * is the owner's and the contact details above are the reseller's own. See
+     * domain/landing.js.
+     */
+    landingTemplate: {
+      type: String,
+      enum: Object.values(LANDING_TEMPLATES),
+      default: DEFAULT_LANDING_TEMPLATE,
+    },
 
     kycStatus: {
       type: String,

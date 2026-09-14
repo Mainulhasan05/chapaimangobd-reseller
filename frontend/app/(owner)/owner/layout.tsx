@@ -6,6 +6,7 @@ import {
   ClipboardList,
   Contact,
   LayoutDashboard,
+  LayoutTemplate,
   MapPin,
   MessageSquare,
   Package,
@@ -44,6 +45,8 @@ const NAV: NavItem[] = [
   { href: '/owner/kyc', labelKey: 'nav.kyc', icon: BadgeCheck, section: 'nav.groupMoney' },
   { href: '/owner/reports', labelKey: 'nav.reports', icon: ChartColumn, section: 'nav.groupMoney' },
   { href: '/owner/sources', labelKey: 'nav.sources', icon: Store, section: 'nav.groupSetup' },
+  // The content every reseller's public page is drawn from.
+  { href: '/owner/landing', labelKey: 'nav.landing', icon: LayoutTemplate, section: 'nav.groupSetup' },
   { href: '/owner/zones', labelKey: 'nav.zones', icon: MapPin, section: 'nav.groupSetup' },
   /*
    * SMS sits in setup because it is configured once, but it is the one setup

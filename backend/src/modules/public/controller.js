@@ -18,6 +18,8 @@ const { toTaka } = require('../../utils/money');
 const present = require('../../utils/present');
 const { SHOP_CLOSED_REASON } = require('../../domain/constants');
 const { shopAvailability } = require('../../domain/shop');
+const { DEFAULT_TEMPLATE } = require('../../domain/landing');
+const landing = require('../../services/landing');
 
 /** The shop a customer sees. Reseller branding, with a small powered-by line. */
 async function getShop(req, res) {
@@ -48,7 +50,7 @@ async function getShop(req, res) {
     isAvailable: true,
   });
   const productById = new Map(products.map((p) => [String(p._id), p]));
-  const settings = await getSettings();
+  const [settings, landingContent] = await Promise.all([getSettings(), landing.getLanding()]);
 
   const items = listings
     .map((listing) => {
@@ -68,6 +70,12 @@ async function getShop(req, res) {
         // A price present in the JSON is public, whatever the front end does.
         priceHidden: listing.hidePrice,
         ...(listing.hidePrice ? {} : { price: toTaka(listing.sellPricePoisha) }),
+        // The struck-through price, only beside a visible price it is above.
+        ...(!listing.hidePrice &&
+        listing.regularPricePoisha != null &&
+        listing.regularPricePoisha > listing.sellPricePoisha
+          ? { regularPrice: toTaka(listing.regularPricePoisha) }
+          : {}),
       };
     })
     .filter(Boolean);
@@ -100,6 +108,12 @@ async function getShop(req, res) {
       poweredBy: settings.poweredByText,
       brandLogoUrl: settings.brandLogoUrl || undefined,
     },
+    /*
+     * The page design the reseller chose, and the owner's content it is drawn
+     * from. Contact details are the reseller's and are all in `shop` above.
+     */
+    template: profile.landingTemplate || DEFAULT_TEMPLATE,
+    landing: landingContent,
     acceptingOrders: availability.acceptingOrders,
     // null while open; 'inactive' when the owner has deactivated the reseller.
     reason: availability.reason,

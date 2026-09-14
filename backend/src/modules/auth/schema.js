@@ -3,7 +3,7 @@
 const { z } = require('zod');
 
 const phone = z.string().min(6, 'Phone number is required').max(20);
-const password = z.string().min(8, 'Use at least 8 characters').max(200);
+const password = z.string().min(6, 'Use at least 6 characters').max(200);
 // Latin digits only. The form converts Bengali digits before sending.
 const otp = z.string().trim().regex(/^\d{6}$/, 'Enter the 6 digit code');
 

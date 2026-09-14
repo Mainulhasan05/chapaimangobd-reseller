@@ -139,9 +139,11 @@ export default function WalletPage() {
 
       {/*
        * The two actions were `sm` buttons tucked into the page header, which on a
-       * phone put them in the top right corner at thirty-two pixels tall.
+       * phone put them in the top right corner at thirty-two pixels tall. Both
+       * Bengali labels are too long to sit side by side at 360px, so they stack
+       * until there is room.
        */}
-      <div className="mb-6 flex gap-2 [&>button]:flex-1">
+      <div className="mb-6 grid grid-cols-1 gap-2 sm:grid-cols-2">
         {!readOnly && (
           <Button onClick={() => setDepositOpen(true)}>
             <ArrowDownToLine className="h-4 w-4" />

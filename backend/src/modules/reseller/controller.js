@@ -62,6 +62,7 @@ async function updateProfile(req, res) {
   if (shopName !== undefined) profile.shopName = shopName;
   if (address !== undefined) profile.address = address;
   if (formActive !== undefined) profile.formActive = formActive;
+  if (body.landingTemplate !== undefined) profile.landingTemplate = body.landingTemplate;
 
   /*
    * The shopfront. An empty string is a deletion, not a value: these are all
@@ -225,6 +226,9 @@ async function getKyc(req, res) {
 /* ------------------------------------------------------------------- catalog */
 
 /** Everything the owner sells, annotated with this reseller own pricing. */
+const regularPriceOf = (listing) =>
+  listing.regularPricePoisha == null ? null : toTaka(listing.regularPricePoisha);
+
 async function listCatalog(req, res) {
   const products = await Product.find({ isArchived: false }).sort({ sortOrder: 1, createdAt: -1 });
   const listings = await ResellerProduct.find({ reseller: req.reseller._id });
@@ -248,6 +252,7 @@ async function listCatalog(req, res) {
       // A product reaches the public form only through a listed row here.
       activated: Boolean(listing),
       sellPrice: listing ? toTaka(listing.sellPricePoisha) : null,
+      regularPrice: listing ? regularPriceOf(listing) : null,
       hidePrice: listing ? listing.hidePrice : false,
       isListed: listing ? listing.isListed : false,
     };
@@ -264,6 +269,22 @@ async function setCatalogPrice(req, res) {
   const sellPricePoisha = toPoisha(req.body.sellPrice, 'sellPrice');
   pricing.assertSellPrice(sellPricePoisha, product);
 
+  /*
+   * A struck-through price has to be above the price paid, or the page would
+   * advertise a saving that does not exist. Zero and null both mean "none".
+   */
+  let regularPricePoisha;
+  if (req.body.regularPrice !== undefined) {
+    regularPricePoisha = req.body.regularPrice
+      ? toPoisha(req.body.regularPrice, 'regularPrice')
+      : null;
+    if (regularPricePoisha !== null && regularPricePoisha <= sellPricePoisha) {
+      throw badRequest('REGULAR_PRICE_TOO_LOW', 'The regular price must be above your price', {
+        regularPrice: 'Must be above your price',
+      });
+    }
+  }
+
   const existing = await ResellerProduct.findOne({ reseller: req.reseller._id, product: product._id });
 
   const listing = await ResellerProduct.findOneAndUpdate(
@@ -271,6 +292,7 @@ async function setCatalogPrice(req, res) {
     {
       $set: {
         sellPricePoisha,
+        ...(regularPricePoisha !== undefined ? { regularPricePoisha } : {}),
         ...(req.body.hidePrice !== undefined ? { hidePrice: req.body.hidePrice } : {}),
         ...(req.body.isListed !== undefined ? { isListed: req.body.isListed } : {}),
       },
@@ -282,7 +304,7 @@ async function setCatalogPrice(req, res) {
    * What a customer is charged is the kind of thing argued about later, so a
    * price or visibility change is recorded. Only the fields that moved.
    */
-  const LISTING_FIELDS = ['sellPricePoisha', 'hidePrice', 'isListed'];
+  const LISTING_FIELDS = ['sellPricePoisha', 'regularPricePoisha', 'hidePrice', 'isListed'];
   const moved = LISTING_FIELDS.filter((f) => !existing || existing[f] !== listing[f]);
   if (moved.length > 0) {
     await audit.record({
@@ -304,6 +326,7 @@ async function setCatalogPrice(req, res) {
     listing: {
       product: product._id,
       sellPrice: toTaka(listing.sellPricePoisha),
+      regularPrice: regularPriceOf(listing),
       hidePrice: listing.hidePrice,
       isListed: listing.isListed,
     },
