@@ -23,9 +23,10 @@ app.use(helmet());
 
 // In production the browser only ever talks to the Next origin, which rewrites
 // to this API, so no cross-origin request should exist. See docs/adr/0005.
-// In development the Next dev server may call directly, so allow that one origin.
+// In development the Next dev server may call directly, so allow those origins:
+// APP_URL plus anything CORS_ORIGINS adds.
 if (!env.isProd) {
-  app.use(cors({ origin: env.APP_URL, credentials: true }));
+  app.use(cors({ origin: env.corsOrigins, credentials: true }));
 }
 
 app.use(express.json({ limit: '100kb' }));

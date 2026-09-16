@@ -13,6 +13,10 @@ const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(4000),
   APP_URL: z.string().url().default('http://localhost:3000'),
+  // Further browser origins allowed to call this API cross-origin, comma
+  // separated. APP_URL is always allowed; this names the ones it cannot, such
+  // as a second front end domain or a phone on the LAN hitting the dev server.
+  CORS_ORIGINS: z.string().optional(),
 
   MONGODB_URI: z.string().min(1, 'MONGODB_URI is required'),
 
@@ -203,5 +207,14 @@ env.smsConfigured = Boolean(env.smsApiKey && env.smsSenderId);
 env.telegramConfigured = Boolean(env.TELEGRAM_BOT_TOKEN);
 env.telegramWebhook = Boolean(env.telegramConfigured && env.TELEGRAM_WEBHOOK_URL);
 env.publicAppUrl = env.PUBLIC_APP_URL ? env.PUBLIC_APP_URL.replace(/\/+$/, '') : null;
+
+/*
+ * One ready list, so app.js never parses a string. Trailing slashes are cut
+ * because a browser's Origin header never carries one, and `cors` compares the
+ * two as exact strings: `http://x/` in the .env would silently match nothing.
+ */
+env.corsOrigins = [env.APP_URL, ...(env.CORS_ORIGINS || '').split(',')]
+  .map((origin) => origin.trim().replace(/\/+$/, ''))
+  .filter(Boolean);
 
 module.exports = env;
