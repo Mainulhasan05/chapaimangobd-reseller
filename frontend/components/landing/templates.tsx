@@ -1,5 +1,5 @@
 import Image from 'next/image';
-import { ShoppingBag, Truck } from 'lucide-react';
+import { Phone, ShoppingBag, Truck } from 'lucide-react';
 import { t } from '@/lib/i18n/bn';
 import { formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -49,6 +49,25 @@ export function LandingPage({ template, ...props }: Props & { template: LandingT
       <Design {...props} />
       <FloatingContact shop={props.shop.shop} />
     </div>
+  );
+}
+
+/**
+ * The reseller's number in the header, where a buyer looks for it first. The
+ * number itself from `sm` up; on a phone a round call button, because the
+ * header is already carrying the shop name and the order button.
+ */
+function HeaderCall({ shop }: { shop: PublicShop['shop'] }) {
+  if (!shop.phone) return null;
+  return (
+    <a
+      href={`tel:${shop.phone}`}
+      aria-label={`${t('landing.callNow')} ${shop.phone}`}
+      className="tap inline-flex h-10 min-w-10 shrink-0 items-center justify-center gap-1.5 rounded-full border-2 border-(--lp-primary) px-2 text-sm font-bold text-(--lp-ink) sm:px-3"
+    >
+      <Phone aria-hidden className="h-4 w-4" />
+      <span className="tabular hidden sm:inline">{shop.phone}</span>
+    </a>
   );
 }
 
@@ -200,6 +219,7 @@ function Krishok({ slug, shop, zones }: Props) {
         <div className="mx-auto flex max-w-5xl items-center gap-3 px-4 py-2.5">
           <ShopMark shop={info} size={38} />
           <p className="min-w-0 flex-1 truncate font-bold text-(--lp-ink)">{info.name}</p>
+          <HeaderCall shop={info} />
           <Cta tone="primary" className="min-h-10 px-4 text-sm">
             {t('shop.orderNow')}
           </Cta>
@@ -358,6 +378,7 @@ function Offer({ slug, shop, zones }: Props) {
           <p className="min-w-0 flex-1 truncate font-(family-name:--lp-heading) text-lg font-bold text-(--lp-ink)">
             {info.name}
           </p>
+          <HeaderCall shop={info} />
         </div>
       </header>
 

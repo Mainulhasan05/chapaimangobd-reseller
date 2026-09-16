@@ -29,6 +29,18 @@ const nextConfig: NextConfig = {
   },
 
   images: {
+    /*
+     * Served as hosted, not re-encoded by this server. Every public image is
+     * already shrunk to WebP in the browser before upload (lib/image-optimize)
+     * and delivered from ImgBB's CDN, so the optimizer only added a hop - and a
+     * fatal one: it downloads the original first with a timeout of seven
+     * seconds, fixed in Next 16 regardless of `imgOptTimeoutInSeconds`, and
+     * i.ibb.co regularly takes longer than that from Bangladesh. Each miss was a
+     * 504 and an empty box where the photograph should be. Loaded directly, a
+     * slow image arrives late instead of never.
+     */
+    unoptimized: true,
+
     // images.domains is deprecated in Next 16; remotePatterns is the replacement.
     //
     // Public images are hosted on ImgBB, which serves them from i.ibb.co and
