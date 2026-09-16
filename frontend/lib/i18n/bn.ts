@@ -1051,6 +1051,61 @@ export const bn = {
   'report.spend': 'মোট কিনেছে',
   'report.lastOrder': 'শেষ অর্ডার',
   'report.untracked': 'হিসাব নেই',
+  /*
+   * Complaints, and the orchard record they add up to.
+   *
+   * The wording stays away from "review": a review is something a customer
+   * writes on a landing page, and this is the owner writing down what somebody
+   * said on the phone so that the orchard behind it can be counted.
+   */
+  'complaint.title': 'অভিযোগ',
+  'complaint.plural': 'অভিযোগ',
+  'complaint.add': 'অভিযোগ লিখুন',
+  'complaint.addHint': 'কাস্টমার কী বলল, আর কোন পণ্যে সমস্যা',
+  'complaint.none': 'এই অর্ডারে কোনো অভিযোগ নেই',
+  'complaint.noneAll': 'কোনো অভিযোগ নেই',
+  'complaint.kind': 'কী সমস্যা',
+  'complaint.note': 'বিস্তারিত',
+  'complaint.notePlaceholder': 'কাস্টমার ঠিক কী বলেছে',
+  'complaint.items': 'কোন পণ্যে সমস্যা',
+  'complaint.itemsHint': 'যে পণ্যে সমস্যা সেটি বাছুন — তাহলেই বোঝা যাবে কোন বাগান থেকে এসেছিল',
+  'complaint.noItems': 'কোনো পণ্যের সমস্যা নয় (যেমন ডেলিভারি)',
+  'complaint.open': 'খোলা',
+  'complaint.resolved': 'সমাধান হয়েছে',
+  'complaint.resolve': 'সমাধান হয়েছে চিহ্নিত করুন',
+  'complaint.resolution': 'কী করা হলো',
+  'complaint.resolvedOn': 'সমাধান',
+  'complaint.saved': 'অভিযোগ লেখা হয়েছে',
+  'complaint.openCount': '{n} টি খোলা অভিযোগ',
+  'complaint.noSource': 'বাগান জানা নেই',
+  'complaint.noSourceHint': 'অর্ডারটি গ্রহণ করার আগেই অভিযোগ এসেছে, তাই কোন বাগান তা জানা যায়নি',
+  'complaint.forOrder': 'অর্ডার',
+  'complaint.all': 'সব',
+
+  /* The kinds. Kept short: this is picked on a phone, mid phone call. */
+  'complaint.kind.quality': 'মান খারাপ',
+  'complaint.kind.damaged': 'পচা / নষ্ট',
+  'complaint.kind.short_weight': 'ওজনে কম',
+  'complaint.kind.wrong_item': 'ভুল পণ্য',
+  'complaint.kind.late': 'দেরিতে পৌঁছেছে',
+  'complaint.kind.other': 'অন্যান্য',
+
+  /* The orchard's record. */
+  'source.record': 'এই বাগানের রেকর্ড',
+  'source.supplied': 'সরবরাহ করেছে',
+  'source.suppliedOrders': 'যত অর্ডারে',
+  'source.complaintRate': 'অভিযোগের হার',
+  'source.returnRate': 'ফেরতের হার',
+  'source.noRecord': 'এখনো কিছু নেওয়া হয়নি',
+  'source.recentOrders': 'সাম্প্রতিক অর্ডার',
+  'source.viewOrders': 'সব অর্ডার দেখুন',
+  'source.detail': 'বিস্তারিত',
+  'source.avoid': 'এই বাগান এড়িয়ে চলুন',
+  'source.avoidHint': 'অভিযোগের হার বেশি',
+  'source.clean': 'রেকর্ড ভালো',
+  'source.archivedNote': 'এই বাগান আর ব্যবহার হচ্ছে না',
+  'report.sources': 'বাগান রিপোর্ট',
+  'report.sourcesHint': 'কোন বাগানে কত অভিযোগ, কোনটা এড়াতে হবে',
   'report.print': 'প্রিন্ট / PDF',
   'report.download': 'ডাউনলোড',
   'report.downloadHint': 'প্রিন্ট বক্সে "Save as PDF" বেছে নিন',
@@ -1143,6 +1198,12 @@ export function tUnit(unit: string): string {
 export function tStatus(status: string): string {
   const key = `order.${status}` as DictKey;
   return key in bn ? bn[key] : status;
+}
+
+/** What a customer said was wrong. Unknown kinds show as they are. */
+export function tComplaintKind(kind: string): string {
+  const key = `complaint.kind.${kind}` as DictKey;
+  return key in bn ? bn[key] : kind;
 }
 
 /** A ledger entry kind, such as `DELIVERY_ADJUSTMENT`. Unknown kinds show as they are. */

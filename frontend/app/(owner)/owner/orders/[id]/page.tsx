@@ -1,11 +1,13 @@
 'use client';
 
 import { use, useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { MessageSquareWarning } from 'lucide-react';
 import { api, errorMessage } from '@/lib/api';
 import { t } from '@/lib/i18n/bn';
-import type { Order } from '@/lib/types';
-import { Alert } from '@/components/ui/layout';
+import type { Complaint, Order } from '@/lib/types';
+import { Alert, Card, CardHeader } from '@/components/ui/layout';
+import { ListSkeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/toast';
 import { OrderPage, primeOrder } from '@/components/order-page';
@@ -14,6 +16,8 @@ import { CancelOrderModal } from '@/components/cancel-order-modal';
 import { ShipModal } from '@/components/ship-order-modal';
 import { ReturnOrderModal } from '@/components/return-order-modal';
 import { DeliveryChargeModal } from '@/components/delivery-charge-field';
+import { ComplaintModal } from '@/components/complaint-modal';
+import { ComplaintList } from '@/components/complaints-panel';
 
 /**
  * The transitions that need nothing but a click. The rest ask a question first:
@@ -36,6 +40,17 @@ export default function OwnerOrderPage({ params }: { params: Promise<{ id: strin
   const [shipping, setShipping] = useState<Order | null>(null);
   const [returning, setReturning] = useState<Order | null>(null);
   const [editingCharge, setEditingCharge] = useState<Order | null>(null);
+  const [complaining, setComplaining] = useState<Order | null>(null);
+
+  /*
+   * What was said about this order. Its own query rather than a field on the
+   * order, because a complaint is not part of the order: it does not change its
+   * status, it does not move money, and the reseller never sees it.
+   */
+  const complaints = useQuery({
+    queryKey: ['complaints', 'order', id],
+    queryFn: () => api.get<{ complaints: Complaint[] }>(`/owner/orders/${id}/complaints`),
+  });
 
   const transition = useMutation({
     mutationFn: ({ action }: { action: string }) =>
@@ -96,6 +111,28 @@ export default function OwnerOrderPage({ params }: { params: Promise<{ id: strin
         backHref="/owner/orders"
         actions={actionsFor}
         onEditDeliveryCharge={setEditingCharge}
+        /*
+         * Complaints under the order, on the owner's copy only. This is the
+         * screen somebody lands on when a customer rings about a bad parcel,
+         * so it is where it has to be possible to write that down — and where
+         * the orchard behind each line is already named.
+         */
+        below={(order) => (
+          <Card>
+            <CardHeader
+              title={t('complaint.title')}
+              subtitle={t('complaint.addHint')}
+              action={
+                <Button variant="outline" size="sm" onClick={() => setComplaining(order)}>
+                  <MessageSquareWarning className="h-4 w-4" />
+                  {t('complaint.add')}
+                </Button>
+              }
+            />
+            {complaints.isLoading && <ListSkeleton rows={2} />}
+            {complaints.isSuccess && <ComplaintList complaints={complaints.data.complaints} />}
+          </Card>
+        )}
       />
 
       <AcceptOrderModal order={accepting} onClose={() => setAccepting(null)} />
@@ -103,6 +140,7 @@ export default function OwnerOrderPage({ params }: { params: Promise<{ id: strin
       <ShipModal order={shipping} onClose={() => setShipping(null)} />
       <ReturnOrderModal order={returning} onClose={() => setReturning(null)} />
       <DeliveryChargeModal order={editingCharge} onClose={() => setEditingCharge(null)} />
+      <ComplaintModal order={complaining} onClose={() => setComplaining(null)} />
     </>
   );
 }

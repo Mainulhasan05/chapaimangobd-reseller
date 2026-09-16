@@ -168,6 +168,12 @@ orderSchema.index({ reseller: 1, businessDate: 1 });
 // Drives the aging report: confirmed orders going stale while mangoes rot.
 orderSchema.index({ status: 1, confirmedAt: 1 });
 orderSchema.index({ 'items.product': 1, status: 1 });
+/*
+ * Everything ever collected from one orchard. Asked whenever a complaint is
+ * traced back: the question is never about one order, it is "what else came
+ * from there". Without it that is a full collection scan.
+ */
+orderSchema.index({ 'items.source': 1, createdAt: -1 });
 orderSchema.index(
   { reseller: 1, submissionId: 1 },
   { unique: true, partialFilterExpression: { submissionId: { $type: 'string' } } }

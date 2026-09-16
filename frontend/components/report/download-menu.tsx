@@ -29,6 +29,7 @@ export type ReportKind =
   | 'pick-list'
   | 'sales'
   | 'products'
+  | 'sources'
   | 'resellers'
   | 'customers'
   | 'due';
@@ -38,6 +39,8 @@ const REPORTS: { kind: ReportKind; labelKey: DictKey; hintKey: DictKey; ranged: 
   { kind: 'pick-list', labelKey: 'report.pickList', hintKey: 'report.pickListHint', ranged: true },
   { kind: 'sales', labelKey: 'report.sales', hintKey: 'report.salesHint', ranged: true },
   { kind: 'products', labelKey: 'report.products', hintKey: 'report.productsHint', ranged: true },
+  // Which orchard to stop buying from. See backend models/Complaint.js.
+  { kind: 'sources', labelKey: 'report.sources', hintKey: 'report.sourcesHint', ranged: true },
   { kind: 'resellers', labelKey: 'report.resellers', hintKey: 'report.resellersHint', ranged: true },
   // A buyer's record spans every order they ever placed, so it takes no dates.
   { kind: 'customers', labelKey: 'report.customers', hintKey: 'report.customersHint', ranged: false },

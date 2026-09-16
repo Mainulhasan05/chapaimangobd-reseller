@@ -1,5 +1,8 @@
 'use client';
 
+import Link from 'next/link';
+import type { Route } from 'next';
+
 import { useState } from 'react';
 import { Plus, Store } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -18,6 +21,7 @@ import {
   Tr,
 } from '@/components/ui/layout';
 import { Button, Spinner } from '@/components/ui/button';
+import { DownloadMenu } from '@/components/report/download-menu';
 import { Field, Input, Textarea } from '@/components/ui/form';
 import { PhoneField } from '@/components/ui/phone-field';
 import { Modal } from '@/components/ui/modal';
@@ -46,10 +50,14 @@ export default function OwnerSourcesPage() {
         title={t('nav.sources')}
         subtitle={t('source.help')}
         action={
-          <Button onClick={() => setCreating(true)}>
-            <Plus className="h-4 w-4" />
-            {t('nav.sources')}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Which orchard to stop buying from, as a sheet to take to market. */}
+            <DownloadMenu range={null} only={['sources']} />
+            <Button onClick={() => setCreating(true)}>
+              <Plus className="h-4 w-4" />
+              {t('nav.sources')}
+            </Button>
+          </div>
         }
       />
 
@@ -84,11 +92,28 @@ export default function OwnerSourcesPage() {
           <tbody>
             {sources.data.sources.map((source) => (
               <Tr key={source._id}>
-                <Td className="font-medium">{source.name}</Td>
+                {/*
+                 * The name is the way in to the orchard's record. That page is
+                 * where a complaint about one parcel turns into a decision
+                 * about everything else that came from the same place.
+                 */}
+                <Td className="font-medium">
+                  <Link
+                    href={`/owner/sources/${source._id}` as Route}
+                    className="rounded-md text-primary-ink hover:underline"
+                  >
+                    {source.name}
+                  </Link>
+                </Td>
                 <Td className="text-sm text-muted-foreground">{source.address ?? '—'}</Td>
                 <Td className="tabular text-sm">{source.phoneE164 ?? '—'}</Td>
                 <Td className="text-right">
                   <div className="flex justify-end gap-2">
+                    <Link href={`/owner/sources/${source._id}` as Route}>
+                      <Button size="sm" variant="outline">
+                        {t('source.record')}
+                      </Button>
+                    </Link>
                     <Button size="sm" variant="outline" onClick={() => setEditing(source)}>
                       {t('app.edit')}
                     </Button>

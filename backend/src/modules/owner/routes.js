@@ -10,6 +10,7 @@ const settings = require('./settings.controller');
 const landing = require('./landing.controller');
 const sms = require('./sms.controller');
 const customers = require('./customers.controller');
+const complaints = require('./complaints.controller');
 const auditLog = require('./audit.controller');
 const notifications = require('../shared/notifications.controller');
 const messaging = require('../shared/messaging.controller');
@@ -49,6 +50,12 @@ router.patch(
   validate({ body: schema.updateSource }),
   asyncHandler(catalog.updateSource)
 );
+/*
+ * One orchard, with what it has supplied and everything said about it. The
+ * screen a complaint leads to: the question it answers is whether to keep
+ * buying from here. Registered before the PATCH so the id route reads normally.
+ */
+router.get('/sources/:id', validate({ query: schema.dateRange }), asyncHandler(complaints.getSource));
 router.delete('/sources/:id', asyncHandler(catalog.archiveSource));
 
 /* products */
@@ -165,6 +172,17 @@ router.patch(
   validate({ body: schema.overrideDeliveryCharge }),
   asyncHandler(orders.overrideDeliveryCharge)
 );
+/*
+ * What a customer said was wrong. Never changes the order's status and never
+ * moves money: the order happened, and a return or a refund is its own
+ * decision with its own ledger entries. See models/Complaint.js.
+ */
+router.get('/orders/:id/complaints', asyncHandler(complaints.orderComplaints));
+router.post(
+  '/orders/:id/complaints',
+  validate({ body: schema.createComplaint }),
+  asyncHandler(complaints.createComplaint)
+);
 // Delivery name, phone and address, until the order ships. PLAN-2 decision 9.
 router.patch(
   '/orders/:id/customer',
@@ -192,6 +210,18 @@ router.post(
   asyncHandler(finance.decideWithdrawal)
 );
 
+/* complaints */
+router.get(
+  '/complaints',
+  validate({ query: schema.listComplaints }),
+  asyncHandler(complaints.listComplaints)
+);
+router.post(
+  '/complaints/:id/resolve',
+  validate({ body: schema.resolveComplaint }),
+  asyncHandler(complaints.resolveComplaint)
+);
+
 /* audit log */
 router.get('/audit', validate({ query: schema.listAudit }), asyncHandler(auditLog.list));
 
@@ -215,6 +245,8 @@ router.get('/reports/sales', range, asyncHandler(reports.sales));
 router.get('/reports/resellers', range, asyncHandler(reports.resellerPerformance));
 // Stock on the shelf against what has been leaving it.
 router.get('/reports/products', range, asyncHandler(reports.productsReport));
+// Every orchard side by side, worst record first. The report this exists for.
+router.get('/reports/sources', range, asyncHandler(complaints.sourcesReport));
 // Who buys, and who refuses parcels. See models/Customer.js.
 router.get(
   '/reports/customers',

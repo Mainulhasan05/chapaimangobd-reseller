@@ -133,6 +133,34 @@ const product = (p) => ({
   sortOrder: p.sortOrder,
 });
 
+/**
+ * One complaint. Every name on it is read from the complaint's own snapshots,
+ * never from a populated Source or Product: a renamed orchard must not rewrite
+ * the record being used to judge it. See models/Complaint.js.
+ */
+const complaint = (c) => ({
+  id: c._id,
+  order: c.order,
+  orderCode: c.orderCode,
+  reseller: c.reseller,
+  customerPhone: c.customerPhoneE164,
+  businessDate: c.businessDate,
+  kind: c.kind,
+  note: c.note,
+  items: (c.items || []).map((i) => ({
+    itemId: i.itemId,
+    product: i.product,
+    productName: i.productNameBn,
+    // Null when the order had not been accepted yet: no orchard was chosen.
+    source: i.source || null,
+    sourceName: i.sourceNameBn || null,
+  })),
+  resolved: Boolean(c.resolved),
+  resolvedAt: c.resolvedAt || null,
+  resolution: c.resolution || null,
+  createdAt: c.createdAt,
+});
+
 const wallet = (profile) => ({
   balance: toTaka(profile.balancePoisha),
   creditLimit: toTaka(profile.creditLimitPoisha),
@@ -140,4 +168,15 @@ const wallet = (profile) => ({
   smsCredits: profile.smsCredits,
 });
 
-module.exports = { line, totals, order, orderFor, publicOrder, ledgerEntry, product, wallet, images };
+module.exports = {
+  line,
+  totals,
+  order,
+  orderFor,
+  publicOrder,
+  ledgerEntry,
+  product,
+  complaint,
+  wallet,
+  images,
+};

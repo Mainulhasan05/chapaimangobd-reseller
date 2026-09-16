@@ -179,6 +179,34 @@ const SHOP_CLOSED_REASON = Object.freeze({
   CLOSED: 'closed',
 });
 
+/**
+ * What a customer said was wrong with an order. See models/Complaint.js.
+ *
+ * Deliberately short. A list this is picked from on a phone, in the middle of a
+ * phone call, is a list somebody scrolls past if it runs to fifteen options, and
+ * the note beside it is where the detail actually belongs. `LATE` and `OTHER`
+ * are the two that usually name no orchard: nothing about them is the fruit.
+ */
+const COMPLAINT_KIND = Object.freeze({
+  // The fruit was poor: unripe, overripe, tasteless.
+  QUALITY: 'quality',
+  // Rotten or crushed on arrival.
+  DAMAGED: 'damaged',
+  // Less than was paid for.
+  SHORT_WEIGHT: 'short_weight',
+  WRONG_ITEM: 'wrong_item',
+  LATE: 'late',
+  OTHER: 'other',
+});
+
+/** The kinds that are about the fruit, and so are worth counting per source. */
+const SOURCE_COMPLAINT_KINDS = Object.freeze([
+  COMPLAINT_KIND.QUALITY,
+  COMPLAINT_KIND.DAMAGED,
+  COMPLAINT_KIND.SHORT_WEIGHT,
+  COMPLAINT_KIND.WRONG_ITEM,
+]);
+
 /** Written as the cancel reason on every pending order a deactivation cancels. */
 const RESELLER_DEACTIVATED_REASON = 'reseller_deactivated';
 
@@ -204,6 +232,8 @@ module.exports = {
   OTP_PURPOSE,
   SYSTEM_ACTOR,
   SHOP_CLOSED_REASON,
+  COMPLAINT_KIND,
+  SOURCE_COMPLAINT_KINDS,
   RESELLER_DEACTIVATED_REASON,
   values,
 };

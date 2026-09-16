@@ -10,6 +10,7 @@ import {
   ClipboardCheck,
   ClipboardList,
   Clock,
+  MessageSquareWarning,
   Package,
   ShoppingBag,
   Truck,
@@ -467,7 +468,9 @@ export default function OwnerDashboardPage() {
               (data?.pendingDeposits ?? 0) +
                 (data?.pendingWithdrawals ?? 0) +
                 (data?.awaitingAcceptance ?? 0) +
-                (data?.agingOrders ?? 0) ===
+                (data?.agingOrders ?? 0) +
+                (data?.pendingKyc ?? 0) +
+                (data?.openComplaints ?? 0) ===
               0
                 ? t('dash.queueEmpty')
                 : undefined
@@ -507,6 +510,17 @@ export default function OwnerDashboardPage() {
               label={t('owner.pendingKyc')}
               count={formatNumber(data?.pendingKyc ?? 0)}
               href="/owner/kyc"
+            />
+            {/*
+             * A customer who took the parcel, paid, and then rang to say the
+             * fruit was bad leaves no other mark anywhere: the order reads as a
+             * clean delivery for ever. This is the only place it shows.
+             */}
+            <QueueTile
+              icon={MessageSquareWarning}
+              label={t('complaint.title')}
+              count={formatNumber(data?.openComplaints ?? 0)}
+              href="/owner/complaints"
             />
           </QueuePanel>
 

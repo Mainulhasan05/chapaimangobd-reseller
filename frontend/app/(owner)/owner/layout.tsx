@@ -9,6 +9,7 @@ import {
   LayoutTemplate,
   MapPin,
   MessageSquare,
+  MessageSquareWarning,
   Package,
   ScrollText,
   Settings,
@@ -43,6 +44,17 @@ const NAV: NavItem[] = [
   { href: '/owner/resellers', labelKey: 'nav.resellers', icon: Users, section: 'nav.groupMoney' },
   { href: '/owner/customers', labelKey: 'nav.customers', icon: Contact, section: 'nav.groupMoney' },
   { href: '/owner/kyc', labelKey: 'nav.kyc', icon: BadgeCheck, section: 'nav.groupMoney' },
+  /*
+   * What customers said was wrong. Sits with the money rather than with setup
+   * because it is read, worked through and closed out like the other queues,
+   * not configured once a season.
+   */
+  {
+    href: '/owner/complaints',
+    labelKey: 'complaint.title',
+    icon: MessageSquareWarning,
+    section: 'nav.groupMoney',
+  },
   { href: '/owner/reports', labelKey: 'nav.reports', icon: ChartColumn, section: 'nav.groupMoney' },
   { href: '/owner/sources', labelKey: 'nav.sources', icon: Store, section: 'nav.groupSetup' },
   // The content every reseller's public page is drawn from.

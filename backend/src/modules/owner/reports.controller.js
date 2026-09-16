@@ -9,6 +9,7 @@ const Product = require('../../models/Product');
 const OutboxMessage = require('../../models/OutboxMessage');
 const ResellerProfile = require('../../models/ResellerProfile');
 const Customer = require('../../models/Customer');
+const Complaint = require('../../models/Complaint');
 const User = require('../../models/User');
 
 const { getSettings } = require('../../services/settings');
@@ -97,6 +98,7 @@ async function dashboard(_req, res) {
     lowStock,
     deadLetters,
     activeResellers,
+    openComplaints,
   ] = await Promise.all([
     Order.aggregate([
       { $match: { status: { $in: OPEN_STATUSES } } },
@@ -150,6 +152,12 @@ async function dashboard(_req, res) {
     // `isActive` is a User field, not a profile one: a deactivated reseller is
     // switched off at the account. See docs/adr/0011.
     User.countDocuments({ role: ROLES.RESELLER, isActive: true }),
+    /*
+     * Complaints nobody has closed out. A customer who took the parcel, paid,
+     * and then rang to say the fruit was bad leaves no other mark anywhere: the
+     * order reads as a clean delivery for ever. See models/Complaint.js.
+     */
+    Complaint.countDocuments({ resolved: false }),
   ]);
 
   const byStatus = Object.fromEntries(statusCounts.map((s) => [s._id, s.count]));
@@ -177,6 +185,7 @@ async function dashboard(_req, res) {
     pendingDeposits,
     pendingWithdrawals,
     pendingKyc,
+    openComplaints,
     activeResellers,
     health: {
       lowStock,

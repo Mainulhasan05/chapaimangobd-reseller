@@ -24,6 +24,13 @@ function buildOrderFilter(query = {}, { agingHours } = {}) {
 
   if (query.status) filter.status = { $in: String(query.status).split(',') };
   if (query.reseller) filter.reseller = query.reseller;
+  /*
+   * Every order carrying a line collected from this orchard. A source lives on
+   * the line, not the order (docs/adr/0006), so this reaches into the array;
+   * `{ 'items.source': 1, createdAt: -1 }` on Order is what makes it a scan of
+   * that orchard rather than of everything.
+   */
+  if (query.source) filter['items.source'] = query.source;
 
   if (query.from || query.to) {
     filter.businessDate = {};

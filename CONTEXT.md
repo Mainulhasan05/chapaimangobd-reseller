@@ -73,6 +73,35 @@ returned. Off unless ticked, because mangoes that have travelled are usually gon
 on the order as `restockedOnReturn` and in the audit log. A cancel, unlike a return, always
 gives back the stock it took. See docs/adr/0008.
 
+## Quality
+
+**Complaint** — one thing a customer said was wrong with an order. Written down by the
+owner; the customer never touches it. It never changes an order's status and never moves
+money: the order happened, and a return or a refund is a separate decision with its own
+ledger entries. This exists because the only negative signals were `cancelled` and
+`returned`, which are both fulfilment outcomes — a customer who takes the parcel, pays,
+and then rings to say the fruit was rotten previously left no trace at all.
+
+Never called a "review": a review is a testimonial on a landing page, and this is evidence.
+
+**Complaint kind** — `quality`, `damaged`, `short_weight`, `wrong_item`, `late`, `other`.
+Only the first four are about the fruit, so only those count against a **source**; a late
+parcel is the courier's doing and must not cost an orchard its record.
+
+**Blamed line** — a complaint names the order lines at fault, not the order. A source is
+chosen per line at accept (docs/adr/0006), so one order can carry two orchards' fruit and
+only one of them sent a bad crate. A complaint about the delivery names no lines, and one
+logged before accept names lines whose source is still null, because nobody had decided yet.
+Every name on a complaint is a **snapshot**, so renaming an orchard cannot launder its
+history.
+
+**Source record** — what one orchard supplied and how often it went wrong: distinct orders
+(never lines, or an order with two crates from one orchard would count twice), quantity,
+returns, complaints, and a `complaintRate` built only from the fruit kinds. The rate is
+`null`, never zero, for an orchard nobody has bought from: no record is a different
+statement from a clean one. Below five orders the UI refuses to draw a conclusion at all —
+two complaints out of two is a hundred per cent and means almost nothing.
+
 ## Money
 
 All money is **poisha**, an integer. One taka is one hundred poisha. Field names end in

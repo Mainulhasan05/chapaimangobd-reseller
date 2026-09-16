@@ -2,7 +2,13 @@
 
 const { z } = require('zod');
 const { UNITS } = require('../../utils/quantity');
-const { DEPOSIT_METHOD, values, SMS_STATUS, SMS_PURPOSE } = require('../../domain/constants');
+const {
+  DEPOSIT_METHOD,
+  values,
+  SMS_STATUS,
+  SMS_PURPOSE,
+  COMPLAINT_KIND,
+} = require('../../domain/constants');
 const {
   ICONS: LANDING_ICONS,
   LIMITS: LANDING_LIMITS,
@@ -144,6 +150,8 @@ const orderFilters = {
   status: z.string().optional(),
   q: z.string().trim().max(80).optional(),
   reseller: objectId.optional(),
+  // Orders carrying a line collected from this orchard. See utils/orderFilter.js.
+  source: objectId.optional(),
   from: dateString.optional(),
   to: dateString.optional(),
   aging: boolish.optional(),
@@ -184,6 +192,40 @@ const orderSummary = z.object(orderFilters).refine(rangeIsForwards, backwardsRan
  */
 const orderSheet = z
   .object({ ...orderFilters, max: z.coerce.number().int().min(1).max(1000).default(500) })
+  .refine(rangeIsForwards, backwardsRange);
+
+/* complaints */
+
+/**
+ * Logging what a customer said was wrong. See models/Complaint.js.
+ *
+ * `itemIds` names which lines are at fault, and through them which orchard. It
+ * may be empty: a complaint about the delivery blames no fruit and therefore no
+ * source. The handler reads everything else about those lines off the order, so
+ * nothing here can put a name into the record that decides who gets avoided.
+ */
+const createComplaint = z.object({
+  kind: z.enum(values(COMPLAINT_KIND)),
+  // Required, and required to say something: a complaint with no words is a
+  // number nobody can act on when the question comes up again in six weeks.
+  note: z.string().trim().min(3, 'Say what went wrong').max(1000),
+  itemIds: z.array(objectId).max(20).optional().default([]),
+});
+
+const resolveComplaint = z.object({
+  resolution: z.string().trim().max(1000).optional(),
+});
+
+const listComplaints = z
+  .object({
+    kind: z.string().optional(),
+    source: objectId.optional(),
+    resolved: boolish.optional(),
+    from: dateString.optional(),
+    to: dateString.optional(),
+    page: z.coerce.number().int().min(1).default(1),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+  })
   .refine(rangeIsForwards, backwardsRange);
 
 /*
@@ -419,6 +461,9 @@ module.exports = {
   orderSummary,
   orderSheet,
   customersReport,
+  createComplaint,
+  resolveComplaint,
+  listComplaints,
   shipOrder,
   transitionBody,
   cancelBody,

@@ -59,6 +59,7 @@ export function OrderPage({
   backHref,
   actions,
   onEditDeliveryCharge,
+  below,
 }: {
   scope: 'owner' | 'reseller';
   id: string;
@@ -66,6 +67,12 @@ export function OrderPage({
   actions: (order: Order) => React.ReactNode;
   /** Owner only. Offered while the order has not shipped. */
   onEditDeliveryCharge?: (order: Order) => void;
+  /**
+   * Anything that belongs under the order but is not part of it. The owner puts
+   * the complaints here: they are about the order without being on it, and the
+   * reseller never sees them.
+   */
+  below?: (order: Order) => React.ReactNode;
 }) {
   const queryClient = useQueryClient();
   const readOnly = useReadOnlyAccount();
@@ -153,6 +160,8 @@ export function OrderPage({
           onEditCustomer={canEditCustomer ? () => setEditingCustomer(order) : undefined}
         />
       </Card>
+
+      {below && <div className="mx-auto mt-5 max-w-3xl">{below(order)}</div>}
 
       <CustomerEditSheet
         scope={scope}

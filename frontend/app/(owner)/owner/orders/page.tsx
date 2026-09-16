@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import type { Route } from 'next';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ban, ClipboardList, Eye, PackageCheck, Truck, Undo2 } from 'lucide-react';
@@ -11,7 +11,7 @@ import { useDebounced } from '@/lib/use-debounced';
 import { t, tStatus } from '@/lib/i18n/bn';
 import { formatMoney, formatAge, formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import type { Order, OrdersSummary, Paged } from '@/lib/types';
+import type { Order, OrdersSummary, Paged, SourceDetail } from '@/lib/types';
 import { primeOrder } from '@/components/order-page';
 import {
   Alert,
@@ -110,11 +110,28 @@ const COLUMNS: ColumnDef<SortKey>[] = [
 ];
 
 export default function OwnerOrdersPage() {
+  return (
+    <Suspense fallback={<ListSkeleton />}>
+      <OwnerOrdersView />
+    </Suspense>
+  );
+}
+
+function OwnerOrdersView() {
+  /*
+   * An orchard's page links here with `?source=`, which is how a complaint
+   * about one parcel becomes "everything else that came from there". Read once,
+   * as the initial filter, rather than kept in sync with the URL: the toolbar
+   * below owns the filters from that point on.
+   */
+  const params = useSearchParams();
+  const source = params.get('source') ?? '';
+
   const queryClient = useQueryClient();
   const toast = useToast();
   const router = useRouter();
 
-  const [status, setStatus] = useState<string>('confirmed');
+  const [status, setStatus] = useState<string>(source ? '' : 'confirmed');
   const [aging, setAging] = useState(false);
   const [term, setTerm] = useState('');
   /*
@@ -125,6 +142,8 @@ export default function OwnerOrdersPage() {
    * hide exactly the orders that have been waiting longest. Today is one tap
    * away, and it is what the download button offers by default.
    */
+  // Arriving from an orchard means asking about its whole history, so a link
+  // with a source on it opens on every status rather than on the queue.
   const [preset, setPreset] = useState<PresetKey | 'custom'>('all');
   const [range, setRange] = useState<DateRange>(null);
   const [accepting, setAccepting] = useState<Order | null>(null);
@@ -137,12 +156,13 @@ export default function OwnerOrdersPage() {
   /** Everything narrowing the list, as the API spells it. */
   const filters =
     `${status ? `&status=${status}` : ''}` +
+    `${source ? `&source=${source}` : ''}` +
     `${aging ? '&aging=true' : ''}` +
     `${search ? `&q=${encodeURIComponent(search)}` : ''}` +
     rangeQuery(range);
 
   const orders = useInfiniteQuery({
-    queryKey: ['owner', 'orders', status, aging, search, range],
+    queryKey: ['owner', 'orders', status, aging, search, range, source],
     queryFn: ({ pageParam }) =>
       api.get<Paged<'orders', Order>>(
         `/owner/orders?limit=${PAGE_SIZE}&page=${pageParam}${filters}`
@@ -166,7 +186,7 @@ export default function OwnerOrdersPage() {
    * now carry every filter except the status they are counting.
    */
   const summary = useQuery({
-    queryKey: ['owner', 'orders', 'summary', aging, search, range],
+    queryKey: ['owner', 'orders', 'summary', aging, search, range, source],
     queryFn: () =>
       api.get<OrdersSummary>(
         `/owner/orders/summary?${filters.replace(/^&/, '').replace(/(^|&)status=[^&]*/, '')}`
@@ -176,6 +196,18 @@ export default function OwnerOrdersPage() {
 
   const counts = summary.data?.byStatus ?? {};
   const money = summary.data?.money;
+
+  /*
+   * Which orchard, when arriving from one. Only the name is wanted, but the
+   * list has to say so: a filtered list that does not explain itself reads as
+   * a list with orders missing from it.
+   */
+  const sourceDetail = useQuery({
+    queryKey: ['owner', 'source', source],
+    queryFn: () => api.get<SourceDetail>(`/owner/sources/${source}`),
+    enabled: Boolean(source),
+    staleTime: 5 * 60_000,
+  });
 
   const loaded = orders.data?.pages.flatMap((page) => page.orders) ?? [];
   const total = orders.data?.pages[0]?.total ?? 0;
@@ -333,7 +365,7 @@ export default function OwnerOrdersPage() {
            */
           <DownloadMenu
             range={range}
-            extra={{ status: status || undefined }}
+            extra={{ status: status || undefined, source: source || undefined }}
             only={['orders', 'pick-list', 'sales']}
           />
         }
@@ -346,6 +378,23 @@ export default function OwnerOrdersPage() {
        * is the question this screen is opened for and two fields plus a keyboard
        * is a long way to go to ask it. The custom pair is still one tap away.
        */}
+      {source && (
+        <Alert tone="primary" title={sourceDetail.data?.source.name}>
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span>{t('source.viewOrders')}</span>
+            <Link
+              href={`/owner/sources/${source}` as Route}
+              className="font-semibold text-primary-ink hover:underline"
+            >
+              {t('source.record')}
+            </Link>
+            <Link href="/owner/orders" className="font-semibold hover:underline">
+              {t('app.clear')}
+            </Link>
+          </span>
+        </Alert>
+      )}
+
       <DateRangeFilter
         className="mb-4"
         preset={preset}

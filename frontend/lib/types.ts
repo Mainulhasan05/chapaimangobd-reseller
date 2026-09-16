@@ -283,6 +283,84 @@ export type Source = {
   isArchived: boolean;
 };
 
+/** What a customer said was wrong. See backend models/Complaint.js. */
+export type ComplaintKind =
+  | 'quality'
+  | 'damaged'
+  | 'short_weight'
+  | 'wrong_item'
+  | 'late'
+  | 'other';
+
+export type Complaint = {
+  id: string;
+  order: string;
+  orderCode: string;
+  reseller?: { shopName: string } | string;
+  customerPhone?: string;
+  businessDate: string;
+  kind: ComplaintKind;
+  note: string;
+  items: {
+    itemId: string;
+    product?: string;
+    productName?: string;
+    /** Null when the order had not been accepted: no orchard was chosen yet. */
+    source: string | null;
+    sourceName: string | null;
+  }[];
+  resolved: boolean;
+  resolvedAt?: string | null;
+  resolution?: string | null;
+  createdAt: string;
+};
+
+/**
+ * One orchard's track record. `complaintRate` is a percentage and is null, not
+ * zero, when nothing has been supplied: an orchard nobody has bought from has
+ * no record, which is a different thing from a clean one.
+ */
+export type SourceRecord = {
+  orders: number;
+  quantity: number;
+  cost: number;
+  returned: number;
+  complaints: number;
+  /** Complaints about the fruit itself, which is what the rate is built from. */
+  fruitComplaints: number;
+  openComplaints: number;
+  byKind: Partial<Record<ComplaintKind, number>>;
+  complaintRate: number | null;
+  returnRate: number | null;
+};
+
+export type SourceDetail = {
+  source: Source;
+  record: SourceRecord;
+  complaints: Complaint[];
+  orders: Order[];
+};
+
+export type SourcesReport = {
+  from: string | null;
+  to: string | null;
+  sources: ({
+    id: string;
+    name: string;
+    phone: string | null;
+    address: string | null;
+    isArchived: boolean;
+  } & SourceRecord)[];
+  totals: {
+    sources: number;
+    supplying: number;
+    orders: number;
+    complaints: number;
+    openComplaints: number;
+    returned: number;
+  };
+};
+
 export type DeliveryZone = {
   id: string;
   _id?: string;
@@ -467,6 +545,8 @@ export type OwnerDashboard = {
   pendingDeposits: number;
   pendingWithdrawals: number;
   pendingKyc: number;
+  /** Complaints nobody has closed out. */
+  openComplaints: number;
   activeResellers: number;
   health: { lowStock: number; deadLetters: number; smsEnabled: boolean };
 };
