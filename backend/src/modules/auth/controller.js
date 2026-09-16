@@ -201,10 +201,11 @@ async function login(req, res) {
   await clearFailedLogins(user._id);
 
   /*
-   * The owner holds every reseller's money, so a password alone is not enough
-   * from a browser that has not proved itself in the last thirty days. No
-   * session is issued here: the code, bound to this password check by the
-   * challenge id, has to come back first.
+   * The owner's new-device check, which is off unless `OWNER_DEVICE_OTP` turns
+   * it on. With it on, a password alone is not enough from a browser that has
+   * not proved itself in the last thirty days, and no session is issued here:
+   * the code, bound to this password check by the challenge id, has to come
+   * back first. See docs/adr/0014 for why the default changed.
    */
   if (user.role === ROLES.OWNER && env.ownerDeviceOtp) {
     const device = await tokens.findTrustedDevice(req, user);

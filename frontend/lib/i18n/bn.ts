@@ -1022,6 +1022,102 @@ export const bn = {
   'zone.help': 'ক্রেতা জেলা বাছাই করলে এই চার্জ যোগ হবে',
   'zone.districtsHint': 'প্রতি লাইনে একটি জেলা',
   'source.help': 'যেখান থেকে পণ্য সংগ্রহ করা হয়',
+
+  /*
+   * Reports and printing.
+   *
+   * Every report in the owner panel is a page that prints, so the wording has to
+   * carry the one thing the button cannot: that a PDF comes out of the browser's
+   * own print sheet, under "Save as PDF", rather than landing in Downloads by
+   * itself. Said once, on the button's hint, rather than in a dialog nobody reads.
+   */
+  // On a dispatch block: the courier collects nothing here.
+  'order.paid': 'টাকা নেওয়া হয়েছে',
+  // A deactivated reseller, on a report row. See docs/adr/0011.
+  'app.inactive': 'বন্ধ',
+  // Written in by hand in the orchard: what actually came back.
+  'report.actual': 'পাওয়া গেল',
+  'report.products': 'স্টক ও বিক্রয় রিপোর্ট',
+  'report.productsHint': 'হাতে কত আছে, কত যাচ্ছে',
+  'report.customers': 'কাস্টমার রিপোর্ট',
+  'report.customersHint': 'কে বেশি কেনে, কে পার্সেল ফেরত দেয়',
+  'report.stock': 'স্টক',
+  'report.perDay': 'দিনে গড়',
+  'report.daysLeft': 'চলবে (দিন)',
+  'report.topCustomers': 'সেরা ক্রেতা',
+  'report.riskyCustomers': 'ঝুঁকিপূর্ণ নম্বর',
+  'report.riskyHint': 'যারা পার্সেল নেয়নি বা ফেরত দিয়েছে',
+  'report.delivered': 'পৌঁছেছে',
+  'report.spend': 'মোট কিনেছে',
+  'report.lastOrder': 'শেষ অর্ডার',
+  'report.untracked': 'হিসাব নেই',
+  'report.print': 'প্রিন্ট / PDF',
+  'report.download': 'ডাউনলোড',
+  'report.downloadHint': 'প্রিন্ট বক্সে "Save as PDF" বেছে নিন',
+  'report.generatedAt': 'তৈরি:',
+  'report.reports': 'রিপোর্ট',
+  'report.orderSheet': 'অর্ডার শিট',
+  'report.orderSheetHint': 'কুরিয়ার ও প্যাকিংয়ের জন্য পূর্ণ ঠিকানাসহ',
+  'report.sales': 'বিক্রয় রিপোর্ট',
+  'report.salesHint': 'দিন, পণ্য ও পেমেন্ট অনুযায়ী',
+  'report.resellers': 'রিসেলার রিপোর্ট',
+  'report.resellersHint': 'কে কত বিক্রি করল, কার কত বাকি',
+  'report.due': 'বাকি রিপোর্ট',
+  'report.dueHint': 'রিসেলারদের বকেয়া ও ক্রেডিট সীমা',
+  'report.pickList': 'সংগ্রহ তালিকা',
+  'report.pickListHint': 'আজ কোন বাগান থেকে কত আনতে হবে',
+  'report.noRows': 'এই সময়ে কিছু নেই',
+  'report.truncated': 'অনেক বেশি অর্ডার। প্রথম {n} টি দেখানো হচ্ছে — তারিখ ছোট করুন।',
+  'report.orderCount': '{n} টি অর্ডার',
+  'report.rowCount': '{n} টি সারি',
+  'report.openReports': 'সব রিপোর্ট',
+  'report.pickChoose': 'কোন রিপোর্ট লাগবে?',
+  'report.forDate': 'তারিখ',
+  'report.summary': 'সারসংক্ষেপ',
+  'report.byDay': 'দিন অনুযায়ী',
+  'report.byProduct': 'পণ্য অনুযায়ী',
+  'report.byPayment': 'পেমেন্ট অনুযায়ী',
+  'report.notTraded': 'বাতিল ও ফেরত',
+  'report.signature': 'স্বাক্ষর',
+  'report.checkedBy': 'যাচাই করলেন',
+  'report.total': 'সর্বমোট',
+
+  /* The date filter above a list. */
+  'range.label': 'তারিখ',
+  'range.today': 'আজ',
+  'range.yesterday': 'গতকাল',
+  'range.last7': '৭ দিন',
+  'range.last30': '৩০ দিন',
+  'range.thisMonth': 'এই মাস',
+  'range.all': 'সব সময়',
+  'range.custom': 'নিজে বাছুন',
+  'range.from': 'শুরু',
+  'range.to': 'শেষ',
+  'range.apply': 'দেখান',
+  'range.invalid': 'শুরুর তারিখ শেষের পরে হতে পারে না',
+
+  /* The owner dashboard's added figures. */
+  'owner.salesToday': 'আজকের বিক্রি',
+  'owner.ownerRevenue': 'আমার আয়',
+  'owner.ownerRevenueHint': 'পণ্যের দাম + ডেলিভারি চার্জ',
+  'owner.goodsValue': 'পণ্যের দাম',
+  'owner.deliveryCollected': 'ডেলিভারি চার্জ',
+  'owner.customerValue': 'কাস্টমার মোট',
+  'owner.resellerMargin': 'রিসেলারদের লাভ',
+  'owner.codInFlight': 'কুরিয়ারে টাকা',
+  'owner.codInFlightHint': 'পাঠানো হয়েছে, এখনো হাতে আসেনি',
+  'owner.closedToday': 'আজ শেষ হয়েছে',
+  'owner.pendingKyc': 'KYC অপেক্ষায়',
+  'owner.activeResellers': 'চালু রিসেলার',
+  'owner.lowStock': 'স্টক শেষ',
+  'owner.deadLetters': 'নোটিফিকেশন ব্যর্থ',
+  'owner.smsOff': 'SMS বন্ধ আছে',
+  'owner.health': 'সিস্টেম',
+  'owner.healthOk': 'সব ঠিক আছে',
+  'owner.trend': '৭ দিনের ধারা',
+  'owner.pickToday': 'আজ আনতে হবে',
+  'owner.pickUndecided': 'বাগান ঠিক হয়নি',
+  'owner.noMoneyToday': 'আজ এখনো কোনো বিক্রি হয়নি',
 } as const;
 
 export type DictKey = keyof typeof bn;

@@ -103,7 +103,7 @@ OTP, customer SMS, Telegram and multi-instance work, in short:
 
 | Variable | Why it matters |
 |---|---|
-| `OWNER_DEVICE_OTP` | Owner sign-in from an untrusted device needs an SMS code. Default `true`; **must be `true` in production** (boot refuses `false`). |
+| `OWNER_DEVICE_OTP` | Owner sign-in from an untrusted device needs an SMS code. Default `false`. Set `true` where more than one person holds the owner password. |
 | `OTP_PEPPER` | Optional secret mixed into stored OTP hashes; falls back to the refresh secret. |
 | `AUTOMAS_API_KEY`, `AUTOMAS_SENDER_ID` | The SMS gateway. In production, registration, password reset and new-device owner login cannot work without it. The older `SMS_API_KEY` / `SMS_SENDER_ID` names are still read. |
 | `PUBLIC_APP_URL` | Where customers reach the site, for the tracking link in customer SMS. Unset, the link is left out. |
@@ -140,8 +140,10 @@ The frontend has one variable, `API_ORIGIN`, which Next bakes into the build.
    lock and Telegram polling takes a lease, so enabling it everywhere is safe;
    leaving it off everywhere means reconciliation, the digest, the KYC purge and
    Telegram polling never run.
-5. **`OWNER_DEVICE_OTP` must be `true`** (or unset) and the SMS gateway
-   configured, or the owner cannot sign in from a new device.
+5. **`OWNER_DEVICE_OTP`:** off by default, so the owner signs in with a
+   password alone. Set it to `true` — and configure the SMS gateway — if more
+   than one person holds that password. With it on and no gateway, the owner
+   cannot sign in from a new device at all.
 6. **`COOKIE_SECURE`:** leave unset or `true`, and serve over HTTPS.
 7. **`PUBLIC_APP_URL`:** the public `https://` origin, for customer SMS links.
 8. **`TELEGRAM_*`:** a token to enable it. With a webhook, set both

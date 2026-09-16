@@ -9,6 +9,8 @@ const {
   TEXT_LIMITS: LANDING_TEXT,
 } = require('../../domain/landing');
 
+const { businessDate, startOfBusinessDay } = require('../../utils/dhakaTime');
+
 const objectId = z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid identifier');
 // Multipart bodies arrive as strings, so numbers coerce at the boundary.
 const money = z.coerce.number().nonnegative().max(10000000);
@@ -34,6 +36,44 @@ const boolish = z.preprocess((value) => {
   }
   return value;
 }, z.boolean());
+
+/**
+ * A Dhaka business date, `YYYY-MM-DD`.
+ *
+ * Every report and every export reads a date off the query string and hands it
+ * to `startOfBusinessDay`, which builds `new Date(`${value}T00:00:00+06:00`)`.
+ * An unvalidated value made that an Invalid Date, which Mongoose then refused to
+ * cast: `?from=yesterday` was a 500 rather than a 400. The shape is checked here
+ * and the calendar is checked below, because `2026-02-31` parses and is not a day.
+ */
+const dateString = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Use a YYYY-MM-DD date')
+  /*
+   * Round-tripped, not merely parsed. `new Date('2026-02-31T00:00:00+06:00')`
+   * is not an Invalid Date: it rolls forward to the 3rd of March, so a null
+   * check here would have accepted the 31st of February and quietly answered
+   * with a different day's orders under the heading the caller asked for.
+   */
+  .refine((value) => {
+    const parsed = startOfBusinessDay(value);
+    // A month of 13 never parses at all, and formatting an Invalid Date throws.
+    if (Number.isNaN(parsed.getTime())) return false;
+    return businessDate(parsed) === value;
+  }, 'Not a real date');
+
+/**
+ * The range every report and export shares. Both ends are optional and both are
+ * inclusive Dhaka calendar days; `from` after `to` is refused here rather than
+ * quietly answering with nothing, because an empty report reads as "no orders"
+ * and that is a different statement from "you asked for a backwards range".
+ */
+const dateRange = z
+  .object({ from: dateString.optional(), to: dateString.optional() })
+  .refine((v) => !v.from || !v.to || v.from <= v.to, {
+    message: 'The start date must not be after the end date',
+    path: ['from'],
+  });
 
 /* sources */
 const createSource = z.object({
@@ -95,16 +135,56 @@ const reviewDecision = z.object({
 });
 
 /* orders */
-const listOrders = z.object({
+/**
+ * Everything that narrows a list of orders, in one place, because the list, the
+ * counts beside it, the printable sheet and the CSV must all mean the same thing
+ * by "these orders". Extended rather than duplicated for each of those.
+ */
+const orderFilters = {
   status: z.string().optional(),
   q: z.string().trim().max(80).optional(),
   reseller: objectId.optional(),
-  from: z.string().optional(),
-  to: z.string().optional(),
+  from: dateString.optional(),
+  to: dateString.optional(),
   aging: boolish.optional(),
-  page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(100).default(20),
+};
+
+const backwardsRange = {
+  message: 'The start date must not be after the end date',
+  path: ['from'],
+};
+
+const rangeIsForwards = (v) => !v.from || !v.to || v.from <= v.to;
+
+const listOrders = z
+  .object({
+    ...orderFilters,
+    page: z.coerce.number().int().min(1).default(1),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+  })
+  .refine(rangeIsForwards, backwardsRange);
+
+/**
+ * The customer report. No dates: a customer record is a standing projection of
+ * every order that number has placed, not a property of a period. See
+ * models/Customer.js.
+ */
+const customersReport = z.object({
+  limit: z.coerce.number().int().min(1).max(200).default(50),
 });
+
+/** The same filters, for the counts and money shown beside the list. */
+const orderSummary = z.object(orderFilters).refine(rangeIsForwards, backwardsRange);
+
+/**
+ * The printable sheet: the same filters, but unpaged, because a dispatch sheet
+ * with page two missing is worse than no sheet. `max` caps it so a mistyped
+ * range cannot ask for the entire order history in one response; the handler
+ * says when it had to stop rather than silently truncating.
+ */
+const orderSheet = z
+  .object({ ...orderFilters, max: z.coerce.number().int().min(1).max(1000).default(500) })
+  .refine(rangeIsForwards, backwardsRange);
 
 /*
  * The owner's "send SMS to customer" box, on accept, ship and cancel only.
@@ -333,7 +413,12 @@ module.exports = {
   updateZone,
   updateReseller,
   reviewDecision,
+  dateString,
+  dateRange,
   listOrders,
+  orderSummary,
+  orderSheet,
+  customersReport,
   shipOrder,
   transitionBody,
   cancelBody,

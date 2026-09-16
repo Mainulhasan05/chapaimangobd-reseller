@@ -258,7 +258,7 @@ export function AppShell({
          * else to go. At `lg` the sidebar has both, so the bar names the page
          * instead.
          */}
-        <header className="sticky top-0 z-30 border-b border-border bg-surface/90 backdrop-blur">
+        <header className="print-hide sticky top-0 z-30 border-b border-border bg-surface/90 backdrop-blur">
           <div className="mx-auto flex h-16 max-w-7xl items-center gap-2 px-4 sm:gap-3 sm:px-6 lg:px-8">
             {/*
              * The way into the full map, on the screens that have no sidebar.
@@ -324,7 +324,7 @@ export function AppShell({
          * key React keeps the same element across a navigation and the animation
          * never re-runs, which is the usual reason these look broken.
          */}
-        <main key={pathname} className="page-in mx-auto max-w-7xl px-4 py-8 pb-nav sm:px-6 lg:px-8">
+        <main key={pathname} className="page-in mx-auto max-w-7xl px-4 py-8 pb-nav sm:px-6 lg:px-8 print:pb-0">
           {role === 'reseller' && !session.user.isActive && <DeactivatedBanner />}
           {children}
         </main>

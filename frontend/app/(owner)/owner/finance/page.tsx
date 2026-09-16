@@ -20,6 +20,8 @@ import {
   Th,
   Tr,
 } from '@/components/ui/layout';
+import { rangeOf } from '@/components/ui/date-range';
+import { DownloadMenu } from '@/components/report/download-menu';
 import { Segmented, Toolbar, ToolbarSpacer } from '@/components/ui/toolbar';
 import { Button, Spinner } from '@/components/ui/button';
 import { Field, Input, Textarea } from '@/components/ui/form';
@@ -81,6 +83,11 @@ export default function OwnerFinancePage() {
       <PageHeader
         title={tab === 'deposits' ? t('nav.deposits') : t('nav.withdrawals')}
         subtitle={t('owner.approve')}
+        /*
+         * A deposit is somebody paying down what they owe, so the sheet worth
+         * having open beside this screen is the one that says what is owed.
+         */
+        action={<DownloadMenu range={rangeOf('last30')} only={['due', 'resellers']} />}
       />
 
       <Toolbar>

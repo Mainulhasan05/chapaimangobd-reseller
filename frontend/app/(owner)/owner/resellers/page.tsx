@@ -29,6 +29,8 @@ import {
   useSort,
   type ColumnDef,
 } from '@/components/ui/layout';
+import { rangeOf } from '@/components/ui/date-range';
+import { DownloadMenu } from '@/components/report/download-menu';
 import { Segmented, SearchInput, SortSelect, Toolbar, ToolbarSpacer } from '@/components/ui/toolbar';
 import { Button, Spinner } from '@/components/ui/button';
 import { Field, MoneyInput, Select, Textarea } from '@/components/ui/form';
@@ -148,7 +150,16 @@ export default function OwnerResellersPage() {
 
   return (
     <>
-      <PageHeader title={t('nav.resellers')} subtitle={t('wallet.negativeHelp')} />
+      <PageHeader
+        title={t('nav.resellers')}
+        subtitle={t('wallet.negativeHelp')}
+        /*
+         * The two reports this screen raises the question for: who sold what,
+         * and who owes what. Both default to the last thirty days, which is the
+         * window a reseller conversation is usually about.
+         */
+        action={<DownloadMenu range={rangeOf('last30')} only={['resellers', 'due']} />}
+      />
 
       <div className="mb-5 grid gap-4 sm:grid-cols-3">
         <Stat

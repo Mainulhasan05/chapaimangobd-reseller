@@ -133,6 +133,16 @@ router.post(
 
 /* orders */
 router.get('/orders', validate({ query: schema.listOrders }), asyncHandler(orders.listOrders));
+/*
+ * The counts and money for the filter the list is showing. Registered before
+ * `/orders/:id` because Express matches in order and `summary` would otherwise
+ * be read as an order id and answered with a cast error.
+ */
+router.get(
+  '/orders/summary',
+  validate({ query: schema.orderSummary }),
+  asyncHandler(orders.ordersSummary)
+);
 router.get('/orders/:id', asyncHandler(orders.getOrder));
 // The exact text a customer SMS would carry, before the owner ticks the box.
 router.get(
@@ -185,14 +195,47 @@ router.post(
 /* audit log */
 router.get('/audit', validate({ query: schema.listAudit }), asyncHandler(auditLog.list));
 
-/* reports */
+/*
+ * reports
+ *
+ * Every one of these reads a Dhaka date off the query string. Validated rather
+ * than trusted: an unchecked value reached `new Date()` as an Invalid Date and
+ * came back out of Mongoose as a 500, so `?from=last-week` was a crash report
+ * instead of a bad request.
+ */
+const range = validate({ query: schema.dateRange });
+
 router.get('/reports/dashboard', asyncHandler(reports.dashboard));
 router.get('/reports/receivables', asyncHandler(resellers.receivables));
-router.get('/reports/products-sold', asyncHandler(reports.productsSold));
-router.get('/reports/orders-by-day', asyncHandler(reports.ordersByDay));
+router.get('/reports/products-sold', range, asyncHandler(reports.productsSold));
+router.get('/reports/orders-by-day', range, asyncHandler(reports.ordersByDay));
+// What traded over a range: totals, by day, by product, by payment mode.
+router.get('/reports/sales', range, asyncHandler(reports.sales));
+// Who sold it, against where their wallet stands today.
+router.get('/reports/resellers', range, asyncHandler(reports.resellerPerformance));
+// Stock on the shelf against what has been leaving it.
+router.get('/reports/products', range, asyncHandler(reports.productsReport));
+// Who buys, and who refuses parcels. See models/Customer.js.
+router.get(
+  '/reports/customers',
+  validate({ query: schema.customersReport }),
+  asyncHandler(reports.customersReport)
+);
+// What has to be collected, and from which orchard. See docs/adr/0006.
+router.get('/reports/pick-list', range, asyncHandler(reports.pickList));
+// Every order matching a filter, unpaged, for the printable dispatch sheet.
+router.get(
+  '/reports/order-sheet',
+  validate({ query: schema.orderSheet }),
+  asyncHandler(reports.orderSheet)
+);
 router.get('/reports/reconcile', asyncHandler(finance.reconcile));
-router.get('/exports/orders.csv', asyncHandler(reports.exportOrders));
-router.get('/exports/ledger.csv', asyncHandler(reports.exportLedger));
+router.get(
+  '/exports/orders.csv',
+  validate({ query: schema.orderSummary }),
+  asyncHandler(reports.exportOrders)
+);
+router.get('/exports/ledger.csv', range, asyncHandler(reports.exportLedger));
 
 /* settings */
 router.get('/settings', asyncHandler(settings.get));

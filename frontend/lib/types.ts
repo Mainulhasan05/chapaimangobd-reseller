@@ -435,17 +435,158 @@ export type PublicOrder = {
   deliveredAt?: string;
 };
 
+/**
+ * What an order was worth, to each party.
+ *
+ * `ownerRevenue` is the wallet debit: goods at cost price plus delivery. It is
+ * the owner's top line, and it is deliberately not `customerTotal`, which
+ * includes the reseller's margin and is therefore somebody else's money.
+ */
+export type TradeMoney = {
+  orders: number;
+  ownerRevenue: number;
+  goods: number;
+  delivery: number;
+  customerTotal: number;
+  resellerMargin: number;
+};
+
 export type OwnerDashboard = {
   today: string;
   ordersToday: number;
+  money: TradeMoney;
+  /** Open statuses only. What closed today is `closedToday`. */
   byStatus: Partial<Record<OrderStatus, number>>;
+  closedToday: { delivered: number; cancelled: number; returned: number };
+  /** Shipped and paid on delivery: cash the couriers are still carrying. */
+  codInFlight: { orders: number; amount: number };
   awaitingAcceptance: number;
   agingOrders: number;
   agingThresholdHours: number;
   totalReceivable: number;
   pendingDeposits: number;
   pendingWithdrawals: number;
+  pendingKyc: number;
+  activeResellers: number;
+  health: { lowStock: number; deadLetters: number; smsEnabled: boolean };
 };
+
+/** Counts and money for exactly the orders a filter selects. */
+export type OrdersSummary = {
+  byStatus: Partial<Record<OrderStatus, number>>;
+  total: number;
+  /** Stale confirmed orders within the same dates. Its own query, not a slice. */
+  aging: number;
+  money: TradeMoney;
+};
+
+export type SalesReport = {
+  from: string;
+  to: string;
+  totals: TradeMoney;
+  days: ({ date: string } & TradeMoney)[];
+  products: {
+    product: string;
+    name: string;
+    unit: string;
+    quantity: number;
+    goods: number;
+    customerTotal: number;
+    orders: number;
+  }[];
+  paymentModes: ({ mode: PaymentMode } & TradeMoney)[];
+  cancelled: { orders: number; customerTotal: number };
+  returned: { orders: number; customerTotal: number };
+};
+
+export type ResellerReport = {
+  from: string;
+  to: string;
+  totals: TradeMoney;
+  resellers: ({
+    id: string;
+    shopName: string;
+    slug: string;
+    user?: User;
+    isActive: boolean;
+    cancelled: number;
+    /** Signed: negative owes the owner. */
+    balance: number;
+    owed: number;
+    creditLimit: number;
+  } & TradeMoney)[];
+};
+
+/**
+ * What to collect and from where. A source is null until the order is accepted,
+ * because that is when an orchard is chosen. See docs/adr/0006.
+ */
+export type PickList = {
+  from: string;
+  to: string;
+  products: {
+    product: string;
+    name: string;
+    unit: string;
+    quantity: number;
+    orders: number;
+    sources: { sourceName: string | null; quantity: number; orders: number }[];
+  }[];
+};
+
+export type ProductsReport = {
+  from: string;
+  to: string;
+  /** Inclusive day count of the range, which `perDay` is divided by. */
+  days: number;
+  products: {
+    product: string;
+    name: string;
+    unit: string;
+    isAvailable: boolean;
+    trackStock: boolean;
+    /** Null when stock is not tracked; a zero there would read as "sold out". */
+    stock: number | null;
+    costPrice: number;
+    quantity: number;
+    perDay: number;
+    daysLeft: number | null;
+    goods: number;
+    customerTotal: number;
+    orders: number;
+  }[];
+};
+
+export type CustomerReportRow = {
+  id: string;
+  phone: string;
+  /** The most-used name on this number. Names are not identity here. */
+  name: string;
+  nameCount: number;
+  orders: number;
+  delivered: number;
+  cancelled: number;
+  returned: number;
+  /** Delivered orders only: money collected, not money hoped for. */
+  spend: number;
+  lastOrderAt?: string;
+};
+
+export type CustomersReport = {
+  totals: {
+    customers: number;
+    orders: number;
+    delivered: number;
+    cancelled: number;
+    returned: number;
+    spend: number;
+  };
+  top: CustomerReportRow[];
+  risky: CustomerReportRow[];
+};
+
+/** Every order matching a filter, unpaged, for the printable sheet. */
+export type OrderSheet = { orders: Order[]; total: number; truncated: boolean };
 
 export type ResellerSummary = {
   id: string;

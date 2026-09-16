@@ -29,11 +29,19 @@ const schema = z.object({
   // six digit code by brute force in a millisecond. Falls back to the refresh
   // secret when unset. Changing it voids codes already sent, nothing else.
   OTP_PEPPER: z.string().min(32, 'OTP_PEPPER must be at least 32 chars').optional(),
-  // The owner's new-device OTP (docs/adr/0014). On unless set false, and false
-  // is refused in production. The test helpers turn it off so the many tests
-  // that sign the owner in do not each need a code; the identity tests turn it
-  // back on.
-  OWNER_DEVICE_OTP: z.enum(['true', 'false', '1', '0']).default('true'),
+  /*
+   * The owner's new-device OTP (docs/adr/0014), off unless switched on.
+   *
+   * It used to be on everywhere and could not be turned off in production. The
+   * owner runs this business from one phone, and a code on every sign-in from a
+   * browser that had cleared its cookies meant waiting on the SMS gateway to
+   * reach their own orders — a gateway which, when it is the thing that has
+   * broken, locks them out exactly when they need to look.
+   *
+   * What it costs: the owner's password alone now opens every reseller's money.
+   * Set this to `true` for any setup where more than one person holds it.
+   */
+  OWNER_DEVICE_OTP: z.enum(['true', 'false', '1', '0']).default('false'),
   ACCESS_TOKEN_TTL: z.string().default('15m'),
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(30),
 
@@ -156,10 +164,6 @@ if (env.NODE_ENV === 'production' && cookieSecureSetting === false) {
   // A session cookie sent over plain HTTP is a session anyone on the cafe wifi
   // can take. There is no production setup where that is the right answer.
   problems.push('COOKIE_SECURE cannot be false in production');
-}
-if (env.NODE_ENV === 'production' && (env.OWNER_DEVICE_OTP === 'false' || env.OWNER_DEVICE_OTP === '0')) {
-  // The owner's password alone would open every reseller's money again.
-  problems.push('OWNER_DEVICE_OTP cannot be false in production');
 }
 if (env.TELEGRAM_WEBHOOK_URL && !env.TELEGRAM_WEBHOOK_SECRET) {
   // An unauthenticated webhook lets anyone post a forged /start and link a chat.

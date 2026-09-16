@@ -121,7 +121,7 @@ login) reports which integrations are live.
 | `ACCESS_TOKEN_TTL` | `15m` | Access token lifetime, in `jsonwebtoken` notation. |
 | `REFRESH_TOKEN_TTL_DAYS` | `30` | Refresh token lifetime in days. |
 | `OTP_PEPPER` | the refresh secret | Mixed into every stored OTP hash. At least 32 characters when set. Changing it voids codes already sent, nothing else. |
-| `OWNER_DEVICE_OTP` | `true` | The owner's new-device code (docs/adr/0014). `false` is for local development and tests only; **refused in production**. |
+| `OWNER_DEVICE_OTP` | `false` | The owner's new-device code (docs/adr/0014). Off by default: the owner signs in with a password alone. `true` requires a working SMS gateway. |
 | `COOKIE_SECURE` | follows `NODE_ENV` | Unset means secure in production, plain elsewhere. **`false` is refused in production.** |
 | `COOKIE_DOMAIN` | unset | Sets the cookies' `Domain`. Leave unset for a single-origin deployment. |
 | `TRUST_PROXY` | `0` | How many proxies in front of the Next server append `X-Forwarded-For`. Next's `/api` rewrite passes the header through and adds no hop of its own. Wrong values lump every client into one rate-limit bucket or trust a forged address; see the deploy checklist in the root `README.md`. |
@@ -163,8 +163,8 @@ Read only by the seed scripts, not validated at boot:
 | `OWNER_NAME` | `Owner` | Its display name. |
 
 Boot refuses these combinations: the two JWT secrets equal; `COOKIE_SECURE=false`
-or `OWNER_DEVICE_OTP=false` with `NODE_ENV=production`; `TELEGRAM_WEBHOOK_URL`
-without `TELEGRAM_WEBHOOK_SECRET`.
+with `NODE_ENV=production`; `TELEGRAM_WEBHOOK_URL` without
+`TELEGRAM_WEBHOOK_SECRET`.
 
 ### Integrations
 

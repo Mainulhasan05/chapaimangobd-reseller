@@ -2,10 +2,11 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { ClipboardList, Download, TrendingDown } from 'lucide-react';
+import Link from 'next/link';
+import { ClipboardList, Download, FileText, TrendingDown } from 'lucide-react';
 import { api, errorMessage } from '@/lib/api';
 import { t, tUnit } from '@/lib/i18n/bn';
-import { formatMoney, formatNumber, formatSignedMoney, businessDate } from '@/lib/format';
+import { formatMoney, formatNumber, formatSignedMoney } from '@/lib/format';
 import {
   Alert,
   Badge,
@@ -21,7 +22,15 @@ import {
   Tr,
 } from '@/components/ui/layout';
 import { Button, Spinner } from '@/components/ui/button';
-import { Field, Input } from '@/components/ui/form';
+import {
+  DateRangeFilter,
+  formatRange,
+  rangeOf,
+  rangeParams,
+  type DateRange,
+  type PresetKey,
+} from '@/components/ui/date-range';
+import { DownloadMenu, reportHref } from '@/components/report/download-menu';
 
 type Receivables = {
   /** What resellers owe the owner: the negative ledger balances. */
@@ -59,10 +68,51 @@ type ProductsSold = {
   }[];
 };
 
+/**
+ * One report, as a card. A card rather than a link, because on a phone this is
+ * the tap target and a line of text is not one.
+ */
+function ReportCard({
+  kind,
+  label,
+  hint,
+  range,
+}: {
+  kind: Parameters<typeof reportHref>[0];
+  label: string;
+  hint: string;
+  range: DateRange;
+}) {
+  return (
+    <Link href={reportHref(kind, range)} className="card-interactive">
+      <Card className="flex h-full items-start gap-3 p-4">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-subtle">
+          <FileText className="h-4 w-4 text-primary-ink" />
+        </span>
+        <span className="min-w-0">
+          <span className="block text-sm font-semibold">{label}</span>
+          <span className="block text-xs text-muted-foreground">{hint}</span>
+        </span>
+      </Card>
+    </Link>
+  );
+}
+
 export default function OwnerReportsPage() {
-  const today = businessDate();
-  const [from, setFrom] = useState(today);
-  const [to, setTo] = useState(today);
+  /*
+   * One range for the whole screen.
+   *
+   * It drives the table below, every report link, and both CSV exports. They
+   * each used to decide for themselves — the table read two date fields and the
+   * exports read nothing at all, so pressing "orders CSV" under a one-day view
+   * downloaded the entire history. A reporting screen with more than one idea of
+   * which days it is showing is a screen that cannot be trusted.
+   */
+  const [preset, setPreset] = useState<PresetKey | 'custom'>('last7');
+  const [range, setRange] = useState<DateRange>(() => rangeOf('last7'));
+  const from = range?.from;
+  const to = range?.to;
+  const query = range ? `?${rangeParams(range)}` : '';
 
   const receivables = useQuery({
     queryKey: ['owner', 'receivables'],
@@ -71,7 +121,7 @@ export default function OwnerReportsPage() {
 
   const sold = useQuery({
     queryKey: ['owner', 'sold', from, to],
-    queryFn: () => api.get<ProductsSold>(`/owner/reports/products-sold?from=${from}&to=${to}`),
+    queryFn: () => api.get<ProductsSold>(`/owner/reports/products-sold${query}`),
   });
 
   const reconcile = useMutation({
@@ -85,24 +135,80 @@ export default function OwnerReportsPage() {
     <>
       <PageHeader
         title={t('nav.reports')}
-        action={
-          <div className="flex flex-wrap gap-2">
-            {/* Plain links, because the export streams as a file download. */}
-            <a href="/api/owner/exports/orders.csv" download>
-              <Button variant="outline" size="sm">
-                <Download className="h-4 w-4" />
-                {t('nav.orders')} CSV
-              </Button>
-            </a>
-            <a href="/api/owner/exports/ledger.csv" download>
-              <Button variant="outline" size="sm">
-                <Download className="h-4 w-4" />
-                {t('wallet.ledger')} CSV
-              </Button>
-            </a>
-          </div>
-        }
+        subtitle={formatRange(range)}
+        action={<DownloadMenu range={range} />}
       />
+
+      {/*
+       * The range every figure and every link on this page is built from.
+       * Opens on the last seven days: a reports screen asked about one day is
+       * usually asked from the orders screen instead.
+       */}
+      <DateRangeFilter
+        className="mb-5"
+        preset={preset}
+        range={range}
+        onChange={(nextPreset, nextRange) => {
+          setPreset(nextPreset);
+          setRange(nextRange);
+        }}
+      />
+
+      {/*
+       * Every report, as cards rather than a menu, because this is the screen
+       * someone opens when they do not already know which one they want.
+       */}
+      <section className="mb-6">
+        <h2 className="mb-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          {t('report.reports')}
+        </h2>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <ReportCard kind="sales" label={t('report.sales')} hint={t('report.salesHint')} range={range} />
+          <ReportCard
+            kind="resellers"
+            label={t('report.resellers')}
+            hint={t('report.resellersHint')}
+            range={range}
+          />
+          <ReportCard kind="due" label={t('report.due')} hint={t('report.dueHint')} range={range} />
+          <ReportCard
+            kind="orders"
+            label={t('report.orderSheet')}
+            hint={t('report.orderSheetHint')}
+            range={range}
+          />
+          <ReportCard
+            kind="pick-list"
+            label={t('report.pickList')}
+            hint={t('report.pickListHint')}
+            range={range}
+          />
+
+          {/*
+           * The two CSVs, which are a different thing from a report: a file to
+           * open in a spreadsheet rather than a sheet to print. They now carry
+           * the range above them, which is the whole reason they are here and
+           * not in the header.
+           */}
+          <Card className="flex flex-col gap-2 p-4">
+            <p className="text-sm font-semibold">CSV</p>
+            <div className="flex flex-wrap gap-2">
+              <a href={`/api/owner/exports/orders.csv${query}`} download>
+                <Button variant="outline" size="sm">
+                  <Download className="h-4 w-4" />
+                  {t('nav.orders')}
+                </Button>
+              </a>
+              <a href={`/api/owner/exports/ledger.csv${query}`} download>
+                <Button variant="outline" size="sm">
+                  <Download className="h-4 w-4" />
+                  {t('wallet.ledger')}
+                </Button>
+              </a>
+            </div>
+          </Card>
+        </div>
+      </section>
 
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
         <Stat
@@ -232,16 +338,18 @@ export default function OwnerReportsPage() {
       </Card>
 
       <Card>
-        <CardHeader title={t('nav.products')} />
-
-        <div className="mb-5 grid gap-4 sm:grid-cols-2">
-          <Field label={t('reports.from')} htmlFor="from" className="mb-0">
-            <Input id="from" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-          </Field>
-          <Field label={t('reports.to')} htmlFor="to" className="mb-0">
-            <Input id="to" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
-          </Field>
-        </div>
+        <CardHeader
+          title={t('nav.products')}
+          subtitle={formatRange(range)}
+          action={
+            <Link href={reportHref('sales', range)}>
+              <Button variant="outline" size="sm">
+                <Download className="h-4 w-4" />
+                {t('report.download')}
+              </Button>
+            </Link>
+          }
+        />
 
         {sold.isLoading && (
           <div className="flex justify-center py-6">

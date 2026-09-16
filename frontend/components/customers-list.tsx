@@ -21,6 +21,7 @@ import {
   Th,
   Tr,
 } from '@/components/ui/layout';
+import { DownloadMenu } from '@/components/report/download-menu';
 import { SearchInput, Toolbar } from '@/components/ui/toolbar';
 import { ListSkeleton } from '@/components/ui/skeleton';
 import { LoadMore } from '@/components/ui/load-more';
@@ -72,7 +73,18 @@ export function CustomersList({
 
   return (
     <>
-      <PageHeader title={t('cust.title')} subtitle={t('cust.help')} />
+      <PageHeader
+        title={t('cust.title')}
+        subtitle={t('cust.help')}
+        /*
+         * Owner only. A reseller's view of a buyer is computed from their own
+         * orders, and the report reads the shared record, which would show them
+         * a competitor's sales.
+         */
+        action={
+          base === '/owner' ? <DownloadMenu range={null} only={['customers']} /> : undefined
+        }
+      />
 
       <Toolbar>
         <SearchInput value={term} onChange={setTerm} placeholder={t('cust.search')} />

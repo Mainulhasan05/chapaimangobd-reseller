@@ -538,3 +538,110 @@
     background: var(--muted);
   }
 }
+
+/*
+ * ---------------------------------------------------------------- printing
+ *
+ * Every report in the owner panel is a normal page that prints well, rather
+ * than a file the server renders. That is not a shortcut: the whole app is in
+ * Bengali, and Bengali needs real text shaping — reordered vowels, conjuncts —
+ * which the browser already does correctly for every screen here. Generating
+ * the same text server-side would mean re-implementing that against an
+ * embedded font and hoping every product name came out right.
+ *
+ * The cost is one extra tap: Print, then "Save as PDF", which both Chrome on
+ * Android and every desktop browser offer from the same dialog.
+ */
+@media print {
+  /*
+   * Paper is white and ink is expensive, so the dark theme must not follow the
+   * page onto it. The tokens are reset rather than the rules, so every
+   * component keeps its own styling and simply lands in print colours.
+   */
+  :root,
+  :root[data-theme='dark'],
+  :root:not([data-theme='light']) {
+    --background: #fff;
+    --surface: #fff;
+    --foreground: #000;
+    --muted: #f4f4f5;
+    --muted-foreground: #3f3f46;
+    --subtle: #f4f4f5;
+    --border: #d4d4d8;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  @page {
+    size: A4 portrait;
+    margin: 12mm 10mm;
+  }
+
+  /* Anything whose job is to be pressed has no job on paper. */
+  .print-hide,
+  nav,
+  aside,
+  button:not(.print-keep),
+  [role='navigation'] {
+    display: none !important;
+  }
+
+  .print-only {
+    display: revert !important;
+  }
+
+  /*
+   * The shell centres and pads the content column for a phone. On paper the
+   * page margin above is already the margin, so the column is let go entirely.
+   */
+  main {
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /*
+   * A block that must not be split across two sheets: an order on a dispatch
+   * sheet, a row in a statement. A courier handed half an address is handed
+   * nothing, so this is the rule the whole print layout is built around.
+   */
+  .print-block {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .print-break {
+    break-before: page;
+    page-break-before: always;
+  }
+
+  /* Repeat the column headings when a table runs onto a second sheet. */
+  thead {
+    display: table-header-group;
+  }
+
+  tr,
+  img {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /*
+   * Shadows and rounded cards are screen affordances: they say "this is a
+   * surface you can touch". On paper they print as grey smudges.
+   */
+  .elev-1,
+  .elev-2,
+  .card-interactive {
+    box-shadow: none !important;
+  }
+
+  a {
+    text-decoration: none !important;
+    color: inherit !important;
+  }
+}

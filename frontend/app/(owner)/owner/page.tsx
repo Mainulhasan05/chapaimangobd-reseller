@@ -5,19 +5,22 @@ import { useQuery } from '@tanstack/react-query';
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
+  BadgeCheck,
   ChartColumn,
   ClipboardCheck,
   ClipboardList,
   Clock,
   Package,
   ShoppingBag,
+  Truck,
+  TriangleAlert,
   Wallet,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
-import { t } from '@/lib/i18n/bn';
-import { formatMoney, formatNumber, formatAge } from '@/lib/format';
-import type { Order, OwnerDashboard, Paged, ResellerSummary } from '@/lib/types';
+import { t, tUnit } from '@/lib/i18n/bn';
+import { businessDate, formatMoney, formatNumber, formatAge } from '@/lib/format';
+import type { Order, OwnerDashboard, PickList, Paged, ResellerSummary } from '@/lib/types';
 import {
   Badge,
   Card,
@@ -37,6 +40,9 @@ import { CountUp, Greeting, HeroCard } from '@/components/dashboard/metrics';
 import { ActionCard, ActionGrid } from '@/components/dashboard/actions';
 import { PipelineBar } from '@/components/dashboard/pipeline-bar';
 import { QueuePanel, QueueTile, RailList, RailRow } from '@/components/dashboard/rail';
+import { TrendChart, type TrendPoint } from '@/components/dashboard/trend-chart';
+import { daysAgo, rangeParams } from '@/components/ui/date-range';
+import { ReportButton } from '@/components/report/download-menu';
 
 export default function OwnerDashboardPage() {
   const { data: session } = useSession();
@@ -55,6 +61,36 @@ export default function OwnerDashboardPage() {
   const aging = useQuery({
     queryKey: ['owner', 'aging'],
     queryFn: () => api.get<Paged<'orders', Order>>('/owner/orders?aging=true&limit=8'),
+  });
+
+  /*
+   * What has to be collected today, and from which orchard.
+   *
+   * The owner's first job of the morning is not a screen of orders, it is a
+   * quantity per product and somewhere to drive to. It was derivable from the
+   * order lines all along and appeared on no screen, so the morning started by
+   * opening orders one at a time and adding kilos up by hand.
+   */
+  const pick = useQuery({
+    queryKey: ['owner', 'pick-list', 'today'],
+    queryFn: () => api.get<PickList>('/owner/reports/pick-list'),
+    refetchInterval: 5 * 60_000,
+  });
+
+  /*
+   * The last seven days of trade, as a line.
+   *
+   * The endpoint has existed since the first reports were written and nothing
+   * called it, so the dashboard could say what happened today and never whether
+   * that was a good day or a quiet one.
+   */
+  const trend = useQuery({
+    queryKey: ['owner', 'orders-by-day', 'week'],
+    queryFn: () =>
+      api.get<{ days: { date: string; orders: number; customerTotal: number }[] }>(
+        `/owner/reports/orders-by-day?${rangeParams({ from: daysAgo(6), to: businessDate() })}`
+      ),
+    staleTime: 5 * 60_000,
   });
 
   /*
@@ -96,6 +132,22 @@ export default function OwnerDashboardPage() {
   }
 
   const receivable = data?.totalReceivable ?? 0;
+  const money = data?.money;
+  const health = data?.health;
+
+  /*
+   * Anything quietly broken. A dead SMS gateway stops registrations, a product
+   * out of stock stops a form from taking an order, and a dead-lettered message
+   * is a notification nobody will ever receive. All three were invisible: the
+   * only way to learn about any of them was for somebody to complain.
+   */
+  const problems =
+    (health?.lowStock ?? 0) + (health?.deadLetters ?? 0) + (health?.smsEnabled === false ? 1 : 0);
+
+  const points: TrendPoint[] = (trend.data?.days ?? []).map((day) => ({
+    date: day.date,
+    value: day.customerTotal,
+  }));
 
   /*
    * Everyone in the red, deepest first. The balance is the reseller's net
@@ -121,12 +173,26 @@ export default function OwnerDashboardPage() {
        * hero has moved into the rail, because on a wide screen a single number
        * stretched across twelve hundred pixels is mostly empty space.
        */}
+      {/*
+       * Money leads, then work.
+       *
+       * This row used to be four counts and no taka figure at all, which meant
+       * the screen could say forty orders came in and never what they were
+       * worth. The owner's revenue is the wallet debit — goods at cost plus
+       * delivery — and deliberately not the customer total, which carries the
+       * resellers' margin and is therefore not the owner's money.
+       */}
       <div className="mb-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Stat
           icon={ShoppingBag}
           tone="primary"
           label={t('owner.ordersToday')}
           value={formatNumber(data?.ordersToday ?? 0)}
+          hint={
+            (data?.closedToday.cancelled ?? 0) > 0
+              ? `${t('order.cancelled')} ${formatNumber(data?.closedToday.cancelled ?? 0)}`
+              : undefined
+          }
           href="/owner/orders"
         />
         <Stat
@@ -136,6 +202,19 @@ export default function OwnerDashboardPage() {
           tone={(data?.awaitingAcceptance ?? 0) > 0 ? 'warning' : 'neutral'}
           href="/owner/orders"
         />
+        {/*
+         * Cash the couriers are carrying. The credit only posts when an order
+         * is marked delivered, so until then this is the owner's money out in
+         * the world, and it appeared on no screen in the app.
+         */}
+        <Stat
+          icon={Truck}
+          label={t('owner.codInFlight')}
+          value={formatMoney(data?.codInFlight.amount ?? 0)}
+          hint={`${formatNumber(data?.codInFlight.orders ?? 0)} ${t('nav.orders')}`}
+          tone={(data?.codInFlight.amount ?? 0) > 0 ? 'warning' : 'neutral'}
+          href="/owner/orders"
+        />
         <Stat
           icon={Clock}
           label={t('owner.agingOrders')}
@@ -143,13 +222,6 @@ export default function OwnerDashboardPage() {
           hint={t('dash.agingHint').replace('{n}', formatNumber(data?.agingThresholdHours ?? 24))}
           tone={(data?.agingOrders ?? 0) > 0 ? 'danger' : 'neutral'}
           href="/owner/orders"
-        />
-        <Stat
-          icon={Wallet}
-          label={t('owner.pendingDeposits')}
-          value={formatNumber(data?.pendingDeposits ?? 0)}
-          tone={(data?.pendingDeposits ?? 0) > 0 ? 'warning' : 'neutral'}
-          href="/owner/finance"
         />
       </div>
 
@@ -188,7 +260,7 @@ export default function OwnerDashboardPage() {
           <ActionCard
             icon={ChartColumn}
             tone="warning"
-            label={t('nav.reports')}
+            label={t('report.reports')}
             hint={t('dash.actionReports')}
             href="/owner/reports"
           />
@@ -210,6 +282,26 @@ export default function OwnerDashboardPage() {
               hrefLabel={t('nav.orders')}
             />
             <PipelineBar byStatus={data?.byStatus ?? {}} />
+          </Card>
+
+          {/*
+           * Seven days of trade. Placed under the pipeline, because the
+           * pipeline says what is happening now and this says whether now is
+           * normal — which is the question a single day's figure always raises
+           * and never answers.
+           */}
+          <Card>
+            <CardHeader
+              title={t('owner.trend')}
+              subtitle={t('owner.customerValue')}
+              href="/owner/reports"
+              hrefLabel={t('report.reports')}
+            />
+            {trend.isLoading && <Skeleton className="h-32 w-full" />}
+            {trend.isSuccess && points.length > 0 && <TrendChart points={points} />}
+            {trend.isSuccess && points.length === 0 && (
+              <EmptyState icon={ChartColumn} title={t('app.none')} />
+            )}
           </Card>
 
           <Card>
@@ -274,8 +366,63 @@ export default function OwnerDashboardPage() {
             tone="alert"
             label={t('owner.receivable')}
             value={<CountUp value={receivable} format={formatMoney} />}
-            caption={`${t('owner.ordersToday')} ${formatNumber(data?.ordersToday ?? 0)}`}
+            caption={
+              money && money.orders > 0
+                ? `${t('owner.salesToday')} ${formatMoney(money.ownerRevenue)}`
+                : t('owner.noMoneyToday')
+            }
           />
+
+          {/*
+           * What to collect, at the top of the rail, because it is the first
+           * thing done and the only panel here that sends somebody out of the
+           * building. The sheet beside it is the one they take with them.
+           */}
+          <Panel
+            title={t('owner.pickToday')}
+            href="/owner/orders"
+            hrefLabel={t('nav.orders')}
+          >
+            {pick.isLoading && <Skeleton className="h-20 w-full" />}
+
+            {pick.isSuccess && pick.data.products.length === 0 && (
+              <p className="py-4 text-center text-sm text-muted-foreground">{t('app.none')}</p>
+            )}
+
+            {pick.isSuccess && pick.data.products.length > 0 && (
+              <>
+                <RailList>
+                  {pick.data.products.slice(0, 5).map((product) => (
+                    <RailRow
+                      key={product.product}
+                      name={product.name}
+                      caption={
+                        // The orchard, once one is decided. A confirmed order
+                        // has none: it is chosen at accept. See docs/adr/0006.
+                        product.sources
+                          .map((source) => source.sourceName ?? t('owner.pickUndecided'))
+                          .join(', ')
+                      }
+                      trailing={
+                        <Badge tone="primary">
+                          {formatNumber(product.quantity)} {tUnit(product.unit)}
+                        </Badge>
+                      }
+                    />
+                  ))}
+                </RailList>
+
+                <div className="mt-3">
+                  <ReportButton
+                    kind="pick-list"
+                    range={null}
+                    label={t('report.pickList')}
+                    className="block [&>button]:w-full"
+                  />
+                </div>
+              </>
+            )}
+          </Panel>
 
           <Panel title={t('dash.topDebtors')} href="/owner/resellers" hrefLabel={t('nav.resellers')}>
             {resellers.isLoading && (
@@ -350,7 +497,54 @@ export default function OwnerDashboardPage() {
               count={formatNumber(data?.agingOrders ?? 0)}
               href="/owner/orders"
             />
+            {/*
+             * A reseller stuck in KYC cannot trade at all, and nothing on this
+             * screen counted them: the only way to find out was to open the KYC
+             * page on the off chance.
+             */}
+            <QueueTile
+              icon={BadgeCheck}
+              label={t('owner.pendingKyc')}
+              count={formatNumber(data?.pendingKyc ?? 0)}
+              href="/owner/kyc"
+            />
           </QueuePanel>
+
+          {/*
+           * Things that are quietly broken, as one panel that is silent when
+           * there is nothing to say. Each of these used to surface only as a
+           * complaint: a customer who never got their SMS, a form that refused
+           * an order because a product had run out.
+           */}
+          <Panel title={t('owner.health')} href="/owner/settings" hrefLabel={t('nav.settings')}>
+            {problems === 0 ? (
+              <p className="py-4 text-center text-sm text-success">{t('owner.healthOk')}</p>
+            ) : (
+              <RailList>
+                {(health?.lowStock ?? 0) > 0 && (
+                  <RailRow
+                    name={t('owner.lowStock')}
+                    href="/owner/products"
+                    trailing={<Badge tone="warning">{formatNumber(health?.lowStock ?? 0)}</Badge>}
+                  />
+                )}
+                {health?.smsEnabled === false && (
+                  <RailRow
+                    name={t('owner.smsOff')}
+                    href="/owner/sms"
+                    trailing={<TriangleAlert className="h-4 w-4 text-warning-ink" />}
+                  />
+                )}
+                {(health?.deadLetters ?? 0) > 0 && (
+                  <RailRow
+                    name={t('owner.deadLetters')}
+                    href="/owner/notifications"
+                    trailing={<Badge tone="danger">{formatNumber(health?.deadLetters ?? 0)}</Badge>}
+                  />
+                )}
+              </RailList>
+            )}
+          </Panel>
         </Rail>
       </DashboardGrid>
     </>

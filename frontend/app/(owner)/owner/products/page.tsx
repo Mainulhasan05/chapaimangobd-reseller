@@ -26,6 +26,8 @@ import {
   useSort,
   type ColumnDef,
 } from '@/components/ui/layout';
+import { rangeOf } from '@/components/ui/date-range';
+import { DownloadMenu } from '@/components/report/download-menu';
 import { SearchInput, SortSelect, Toolbar, ToolbarSpacer } from '@/components/ui/toolbar';
 import { Button, Spinner } from '@/components/ui/button';
 import { Field, Input, MoneyInput, Select, Textarea } from '@/components/ui/form';
@@ -112,10 +114,14 @@ export default function OwnerProductsPage() {
         title={t('nav.products')}
         subtitle={`${all.length} ${t('nav.products')}`}
         action={
-          <Button onClick={() => setCreating(true)}>
-            <Plus className="h-4 w-4" />
-            {t('nav.products')}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Stock against what has been leaving it, over the last thirty days. */}
+            <DownloadMenu range={rangeOf('last30')} only={['products', 'pick-list', 'sales']} />
+            <Button onClick={() => setCreating(true)}>
+              <Plus className="h-4 w-4" />
+              {t('nav.products')}
+            </Button>
+          </div>
         }
       />
 

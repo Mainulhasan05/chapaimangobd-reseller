@@ -11,7 +11,7 @@ import { useDebounced } from '@/lib/use-debounced';
 import { t, tStatus } from '@/lib/i18n/bn';
 import { formatMoney, formatAge, formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import type { Order, OwnerDashboard, Paged } from '@/lib/types';
+import type { Order, OrdersSummary, Paged } from '@/lib/types';
 import { primeOrder } from '@/components/order-page';
 import {
   Alert,
@@ -38,6 +38,14 @@ import {
   type MenuItem,
 } from '@/components/ui/layout';
 import { Segmented, SearchInput, SortSelect, Toolbar, ToolbarSpacer } from '@/components/ui/toolbar';
+import {
+  DateRangeFilter,
+  formatRange,
+  rangeQuery,
+  type DateRange,
+  type PresetKey,
+} from '@/components/ui/date-range';
+import { DownloadMenu } from '@/components/report/download-menu';
 import { Button } from '@/components/ui/button';
 import { ListSkeleton, TableSkeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
@@ -54,6 +62,18 @@ import {
 } from '@/components/orders-panel';
 
 const PAGE_SIZE = 20;
+
+/** One figure in the strip under the date filter. */
+function MoneyCell({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="bg-surface px-3 py-2">
+      <p className="text-[0.6875rem] font-medium uppercase tracking-wide text-muted-foreground">
+        {label}
+      </p>
+      <p className="tabular mt-0.5 text-base font-bold leading-tight">{value}</p>
+    </div>
+  );
+}
 
 const FILTERS = [
   { value: '', label: t('app.all') },
@@ -97,6 +117,16 @@ export default function OwnerOrdersPage() {
   const [status, setStatus] = useState<string>('confirmed');
   const [aging, setAging] = useState(false);
   const [term, setTerm] = useState('');
+  /*
+   * The list opens on every date, not on today.
+   *
+   * The screen's first job is the fulfilment queue, and an order confirmed
+   * yesterday evening is still waiting this morning: opening on today would
+   * hide exactly the orders that have been waiting longest. Today is one tap
+   * away, and it is what the download button offers by default.
+   */
+  const [preset, setPreset] = useState<PresetKey | 'custom'>('all');
+  const [range, setRange] = useState<DateRange>(null);
   const [accepting, setAccepting] = useState<Order | null>(null);
   const [cancelling, setCancelling] = useState<Order | null>(null);
   const [shipping, setShipping] = useState<Order | null>(null);
@@ -104,14 +134,18 @@ export default function OwnerOrdersPage() {
 
   const search = useDebounced(term);
 
+  /** Everything narrowing the list, as the API spells it. */
+  const filters =
+    `${status ? `&status=${status}` : ''}` +
+    `${aging ? '&aging=true' : ''}` +
+    `${search ? `&q=${encodeURIComponent(search)}` : ''}` +
+    rangeQuery(range);
+
   const orders = useInfiniteQuery({
-    queryKey: ['owner', 'orders', status, aging, search],
+    queryKey: ['owner', 'orders', status, aging, search, range],
     queryFn: ({ pageParam }) =>
       api.get<Paged<'orders', Order>>(
-        `/owner/orders?limit=${PAGE_SIZE}&page=${pageParam}` +
-          `${status ? `&status=${status}` : ''}` +
-          `${aging ? '&aging=true' : ''}` +
-          `${search ? `&q=${encodeURIComponent(search)}` : ''}`
+        `/owner/orders?limit=${PAGE_SIZE}&page=${pageParam}${filters}`
       ),
     initialPageParam: 1,
     getNextPageParam: (last, pages) => {
@@ -122,19 +156,26 @@ export default function OwnerOrdersPage() {
   });
 
   /*
-   * Counts for the tiles and the filter chips.
+   * Counts and money for the tiles and the filter chips.
    *
-   * The dashboard report already groups every order by status, so this needs no
-   * endpoint of its own. It shares that query's cache key, which means opening
-   * this page after the dashboard costs nothing at all.
+   * These used to come from the dashboard report, which groups the whole
+   * collection with no filter on it at all. That was survivable while status
+   * was the only filter and became wrong the moment a date range existed: the
+   * chip read "delivered 4,312" above a list of nine. A tab that promises a
+   * number has to promise the number you get when you press it, so the counts
+   * now carry every filter except the status they are counting.
    */
   const summary = useQuery({
-    queryKey: ['owner', 'dashboard'],
-    queryFn: () => api.get<OwnerDashboard>('/owner/reports/dashboard'),
-    staleTime: 60_000,
+    queryKey: ['owner', 'orders', 'summary', aging, search, range],
+    queryFn: () =>
+      api.get<OrdersSummary>(
+        `/owner/orders/summary?${filters.replace(/^&/, '').replace(/(^|&)status=[^&]*/, '')}`
+      ),
+    staleTime: 30_000,
   });
 
   const counts = summary.data?.byStatus ?? {};
+  const money = summary.data?.money;
 
   const loaded = orders.data?.pages.flatMap((page) => page.orders) ?? [];
   const total = orders.data?.pages[0]?.total ?? 0;
@@ -283,8 +324,54 @@ export default function OwnerOrdersPage() {
     <>
       <PageHeader
         title={t('nav.orders')}
-        subtitle={`${formatNumber(total)} ${t('nav.orders')}`}
+        subtitle={`${formatNumber(total)} ${t('nav.orders')} · ${formatRange(range)}`}
+        action={
+          /*
+           * The download sits here rather than at the bottom of the list: it
+           * carries the filters above it, so it has to be read as part of them.
+           * The sheet it opens is the one the packing table actually works from.
+           */
+          <DownloadMenu
+            range={range}
+            extra={{ status: status || undefined }}
+            only={['orders', 'pick-list', 'sales']}
+          />
+        }
       />
+
+      {/*
+       * The date filter, above the status tiles.
+       *
+       * Presets rather than a pair of date fields, because "what came in today"
+       * is the question this screen is opened for and two fields plus a keyboard
+       * is a long way to go to ask it. The custom pair is still one tap away.
+       */}
+      <DateRangeFilter
+        className="mb-4"
+        preset={preset}
+        range={range}
+        onChange={(nextPreset, nextRange) => {
+          setPreset(nextPreset);
+          setRange(nextRange);
+          // Aging is a wall-clock age, not a calendar day; the two filters
+          // answer different questions and holding both means neither.
+          setAging(false);
+        }}
+      />
+
+      {/*
+       * What the visible orders are worth. Only shown once a range narrows the
+       * list: summed over all time it is a number nobody asked for, and summed
+       * over a day it is the first thing anybody asks.
+       */}
+      {range && money && money.orders > 0 && (
+        <div className="mb-4 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-4">
+          <MoneyCell label={t('owner.ownerRevenue')} value={formatMoney(money.ownerRevenue)} />
+          <MoneyCell label={t('owner.goodsValue')} value={formatMoney(money.goods)} />
+          <MoneyCell label={t('owner.deliveryCollected')} value={formatMoney(money.delivery)} />
+          <MoneyCell label={t('owner.customerValue')} value={formatMoney(money.customerTotal)} />
+        </div>
+      )}
 
       {/*
        * The four numbers worth looking at before touching anything, each one a
@@ -293,7 +380,7 @@ export default function OwnerOrdersPage() {
        */}
       <OrderTiles
         counts={counts}
-        aging={summary.data?.agingOrders ?? 0}
+        aging={summary.data?.aging ?? 0}
         active={status}
         agingActive={aging}
         onPick={(next) => {
@@ -370,6 +457,9 @@ export default function OwnerOrdersPage() {
         <EmptyState
           icon={ClipboardList}
           title={search ? t('app.noResults') : t('order.noOrders')}
+          // A range that found nothing is not the same as having no orders, and
+          // the way out of it is to widen the dates rather than to wait.
+          description={range ? formatRange(range) : undefined}
         />
       )}
 

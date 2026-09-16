@@ -1,7 +1,7 @@
 'use strict';
 
 const Order = require('../../models/Order');
-const { orderSearchFilter } = require('../../utils/orderSearch');
+const { buildOrderFilter } = require('../../utils/orderFilter');
 const orderService = require('../../services/orderService');
 const customerSms = require('../../services/customerSms');
 const { getSettings } = require('../../services/settings');
@@ -9,35 +9,23 @@ const audit = require('../../services/audit');
 const { editCustomer } = require('../shared/orderCustomer.controller');
 const { ok } = require('../../middleware/error');
 const { notFound } = require('../../utils/errors');
-const { toPoisha } = require('../../utils/money');
-const { startOfBusinessDay, endOfBusinessDay, agingCutoff } = require('../../utils/dhakaTime');
+const { toPoisha, toTaka } = require('../../utils/money');
 const present = require('../../utils/present');
 const { availableActions, assertDeliveryChargeEditable } = require('../../domain/orderStateMachine');
 const { ROLES, ORDER_STATUS } = require('../../domain/constants');
 
+/**
+ * The filter for this request. Aging is the only one that has to ask the
+ * database anything, so the settings read is skipped unless it is on.
+ */
+async function filterFor(query) {
+  const agingHours = query.aging ? (await getSettings()).orderAgingHours : undefined;
+  return buildOrderFilter(query, { agingHours });
+}
+
 async function listOrders(req, res) {
-  const { status, reseller, q, from, to, aging, page, limit } = req.query;
-  const filter = {};
-
-  if (status) filter.status = { $in: status.split(',') };
-  if (reseller) filter.reseller = reseller;
-
-  // Date boundaries are Dhaka calendar days, resolved to UTC instants. Using the
-  // server clock here would put the first six hours of every day on the wrong side.
-  if (from || to) {
-    filter.createdAt = {};
-    if (from) filter.createdAt.$gte = startOfBusinessDay(from);
-    if (to) filter.createdAt.$lt = endOfBusinessDay(to);
-  }
-
-  if (aging) {
-    const settings = await getSettings();
-    filter.status = ORDER_STATUS.CONFIRMED;
-    filter.confirmedAt = { $lt: agingCutoff(settings.orderAgingHours) };
-  }
-
-  const search = orderSearchFilter(q);
-  if (search) Object.assign(filter, search);
+  const { page, limit } = req.query;
+  const filter = await filterFor(req.query);
 
   const [orders, total] = await Promise.all([
     Order.find(filter)
@@ -56,6 +44,73 @@ async function listOrders(req, res) {
     page,
     limit,
     total,
+  });
+}
+
+/**
+ * The counts and the money for exactly the orders the list is showing.
+ *
+ * These used to be read off the dashboard report, which groups the whole
+ * collection with no date filter at all. That was defensible while the only
+ * filter was a status, and became wrong the moment a date range existed: the
+ * chip said "delivered 4,312" above a list of nine. A tab that promises a
+ * number has to promise the number you get when you press it.
+ *
+ * Cancelled and returned orders are counted but kept out of the money, because
+ * the owner never billed for them; `byStatus` is where they are accounted for.
+ */
+async function ordersSummary(req, res) {
+  // Status is what the tabs choose between, so the counts must span all of them.
+  const { status, aging, ...rest } = req.query;
+  const filter = await filterFor(rest);
+
+  const [counts, money, agingCount] = await Promise.all([
+    Order.aggregate([{ $match: filter }, { $group: { _id: '$status', count: { $sum: 1 } } }]),
+    Order.aggregate([
+      {
+        $match: {
+          ...filter,
+          status: { $nin: [ORDER_STATUS.PENDING, ORDER_STATUS.CANCELLED, ORDER_STATUS.RETURNED] },
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          orders: { $sum: 1 },
+          // What the owner billed: goods at cost price plus the delivery charge.
+          ownerRevenuePoisha: { $sum: '$totals.walletDebitPoisha' },
+          goodsPoisha: { $sum: '$totals.costSubtotalPoisha' },
+          deliveryPoisha: { $sum: '$deliveryChargePoisha' },
+          // What the customers pay, which is the other number in every
+          // conversation about a day's trading.
+          customerPoisha: { $sum: '$totals.customerTotalPoisha' },
+          resellerMarginPoisha: { $sum: '$totals.resellerMarginPoisha' },
+        },
+      },
+    ]),
+    /*
+     * The aging tile counts stale confirmed orders within the same dates. It is
+     * its own query rather than a slice of `byStatus` because aging is a
+     * wall-clock age and the statuses are a calendar filter: one cannot be read
+     * off the other, and the tile beside them has to mean what it says.
+     */
+    Order.countDocuments(await filterFor({ ...rest, aging: true })),
+  ]);
+
+  const totals = money[0] || {};
+
+  return ok(res, {
+    byStatus: Object.fromEntries(counts.map((row) => [row._id, row.count])),
+    total: counts.reduce((sum, row) => sum + row.count, 0),
+    aging: agingCount,
+    money: {
+      orders: totals.orders || 0,
+      ownerRevenue: toTaka(totals.ownerRevenuePoisha || 0),
+      goods: toTaka(totals.goodsPoisha || 0),
+      delivery: toTaka(totals.deliveryPoisha || 0),
+      customerTotal: toTaka(totals.customerPoisha || 0),
+      resellerMargin: toTaka(totals.resellerMarginPoisha || 0),
+    },
   });
 }
 
@@ -196,6 +251,7 @@ async function overrideDeliveryCharge(req, res) {
 
 module.exports = {
   listOrders,
+  ordersSummary,
   getOrder,
   customerSmsPreview,
   overrideDeliveryCharge,

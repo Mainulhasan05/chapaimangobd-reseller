@@ -106,6 +106,42 @@ adjustment, and they are kept or reversed together. See docs/adr/0010.
 **SMS credit** — a separate integer counter, bought with wallet balance, spent on sending.
 Not money and not stored in poisha.
 
+**Owner revenue** — what the owner billed: the order's **wallet debit**, which is goods at
+cost price plus the delivery charge. Never the customer total, which additionally carries
+the reseller's margin and is therefore not the owner's money. Every report says
+`ownerRevenue` for this and `customerTotal` for the other; calling either one "revenue"
+without saying whose is how a figure ends up overstated by the resellers' earnings.
+
+**COD in flight** — the customer total of every order that is `shipped` and `cod`. The
+collection credit only posts at deliver, so until then this is the owner's cash out with
+couriers, and it appears on no balance in the app.
+
+## Reports
+
+**Report** — a screen that prints. There is no PDF renderer: the whole app is in Bengali,
+which needs real text shaping, and the browser already does that correctly for every other
+screen. A report page is styled for paper under `@media print` in `globals.css`, and a PDF
+comes out of the browser's own print dialog under "Save as PDF". `print-hide` drops a
+control from the sheet, `print-block` keeps a block from being torn across two pages.
+
+**Order sheet** — every order in a range, printed unpaged, with the full address and the
+amount to collect. The document the packing table works from. Never paged: a dispatch sheet
+missing page two is worse than no sheet, so `max` caps it and the response says when it hit
+the cap rather than handing back a short sheet that looks complete.
+
+**Pick list** — what to collect and from which source, for orders that are confirmed,
+accepted or packed. A confirmed order has no source yet (docs/adr/0006), so it is reported
+under a null source rather than folded into an orchard's total.
+
+**Due report** — who owes what, now. Takes no date range, because a balance is where a
+wallet stands at the moment it is printed and not a property of a period. Same for the
+customer report, which reads the standing `Customer` projection.
+
+**Order filter** — `utils/orderFilter.js`, the only place a query becomes a Mongo filter
+over orders. The list, the counts beside it, the order sheet and the CSV export all build
+from it, so they cannot disagree about which orders a screen is showing. Dates match the
+indexed `businessDate` string, never `createdAt`.
+
 ## Notifications
 
 **Event type** — what happened, e.g. `order.pending`, `deposit.approved`. Channels are
@@ -152,10 +188,13 @@ phone and purpose; three sends per phone per hour, one a minute. Owner-paid. See
 docs/adr/0014.
 
 **Trusted device** — a browser the owner has proved with an OTP, remembered for thirty
-days by a random cookie whose hash is stored in `TrustedDevice`. A password alone opens the
-owner account only from a trusted device; a new one takes a code and raises a new-device
-alert. `OWNER_DEVICE_OTP` turns this off for local development and tests, and cannot be
-false in production. Resellers have no trusted devices.
+days by a random cookie whose hash is stored in `TrustedDevice`. Governed by
+`OWNER_DEVICE_OTP`, which is **off by default**: the owner signs in with a password alone,
+from any browser. Switched on, a password alone opens the owner account only from a trusted
+device, and a new one takes a code and raises a new-device alert. Off is the right default
+for a business one person runs from one phone, where the SMS gateway failing would otherwise
+lock the owner out of their own orders; turn it on wherever more than one person holds the
+owner password. Resellers have no trusted devices.
 
 ## Coordination
 
