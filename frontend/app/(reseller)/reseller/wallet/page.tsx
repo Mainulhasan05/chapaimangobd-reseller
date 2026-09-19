@@ -546,18 +546,42 @@ function WithdrawModal({
   const queryClient = useQueryClient();
   const toast = useToast();
   const [form, setForm] = useState({ amount: '', method: 'bkash', destinationNumber: '', note: '' });
+  /*
+   * Kept beside the form rather than inside it, because it is a different shape
+   * of answer: a bank is paid on an account, a wallet on a number, and only one
+   * of the two is ever sent. See docs/adr/0018.
+   */
+  const [bank, setBank] = useState({
+    accountName: '',
+    bankName: '',
+    branchName: '',
+    accountNumber: '',
+    routingNumber: '',
+  });
+  const toBank = form.method === 'bank';
 
   const submit = useMutation({
     mutationFn: (amount: number) =>
       api.post('/reseller/withdrawals', {
         amount,
         method: form.method,
-        destinationNumber: form.destinationNumber,
+        ...(toBank
+          ? {
+              bank: {
+                accountName: bank.accountName,
+                bankName: bank.bankName,
+                branchName: bank.branchName,
+                accountNumber: bank.accountNumber,
+                ...(bank.routingNumber ? { routingNumber: bank.routingNumber } : {}),
+              },
+            }
+          : { destinationNumber: form.destinationNumber }),
         ...(form.note ? { note: form.note } : {}),
       }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['withdrawals'] });
       setForm({ amount: '', method: 'bkash', destinationNumber: '', note: '' });
+      setBank({ accountName: '', bankName: '', branchName: '', accountNumber: '', routingNumber: '' });
       onClose();
       toast(t('wallet.withdrawSubmitted'));
     },
@@ -570,13 +594,23 @@ function WithdrawModal({
     (key: keyof typeof form) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
       setForm((prev) => ({ ...prev, [key]: e.target.value }));
+  const setBankField = (key: keyof typeof bank) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setBank((prev) => ({ ...prev, [key]: e.target.value }));
+
+  // A bank transfer needs every line but the routing number: an account number
+  // with no bank against it is not something the owner can pay.
+  const destinationReady = toBank
+    ? Boolean(bank.accountName && bank.bankName && bank.branchName && bank.accountNumber)
+    : Boolean(form.destinationNumber);
 
   return (
     <Modal
       open={open}
       onClose={onClose}
       title={t('wallet.withdrawRequest')}
-      dirty={Boolean(form.amount || form.destinationNumber || form.note)}
+      dirty={Boolean(
+        form.amount || form.destinationNumber || form.note || Object.values(bank).some(Boolean)
+      )}
       footer={
         <>
           <Button variant="outline" onClick={onClose}>
@@ -584,7 +618,7 @@ function WithdrawModal({
           </Button>
           <Button
             loading={submit.isPending}
-            disabled={!withdrawCheck.ok}
+            disabled={!withdrawCheck.ok || !destinationReady}
             onClick={() => withdrawCheck.ok && submit.mutate(withdrawCheck.value)}
           >
             {t('app.save')}
@@ -616,16 +650,92 @@ function WithdrawModal({
         </Select>
       </Field>
 
-      <PhoneField
-        id="destinationNumber"
-        label={t('wallet.destinationNumber')}
-        value={form.destinationNumber}
-        onChange={(destinationNumber) => setForm((prev) => ({ ...prev, destinationNumber }))}
-        error={errors.destinationNumber}
-        autoComplete="off"
-        required
-        className="mb-0"
-      />
+      {/*
+       * The bank's four lines, or the wallet's one number. Shown by method
+       * rather than always, because a reseller paying out to bKash should not
+       * scroll past four empty bank fields to reach the button.
+       */}
+      {toBank ? (
+        <>
+          <p className="mb-3 text-xs text-muted-foreground">{t('wallet.bankDetailsHelp')}</p>
+
+          <Field
+            label={t('wallet.bankName')}
+            htmlFor="bankName"
+            error={errors['bank.bankName']}
+            required
+          >
+            <Input id="bankName" value={bank.bankName} onChange={setBankField('bankName')} />
+          </Field>
+
+          <Field
+            label={t('wallet.branchName')}
+            htmlFor="branchName"
+            error={errors['bank.branchName']}
+            required
+          >
+            <Input id="branchName" value={bank.branchName} onChange={setBankField('branchName')} />
+          </Field>
+
+          <Field
+            label={t('wallet.accountName')}
+            htmlFor="accountName"
+            hint={t('wallet.accountNameHint')}
+            error={errors['bank.accountName']}
+            required
+          >
+            <Input
+              id="accountName"
+              value={bank.accountName}
+              onChange={setBankField('accountName')}
+            />
+          </Field>
+
+          <Field
+            label={t('wallet.accountNumber')}
+            htmlFor="accountNumber"
+            error={errors['bank.accountNumber']}
+            required
+          >
+            <Input
+              id="accountNumber"
+              className="tabular"
+              inputMode="numeric"
+              autoComplete="off"
+              value={bank.accountNumber}
+              onChange={setBankField('accountNumber')}
+            />
+          </Field>
+
+          <Field
+            label={t('wallet.routingNumber')}
+            htmlFor="routingNumber"
+            hint={t('wallet.routingNumberHint')}
+            error={errors['bank.routingNumber']}
+            className="mb-0"
+          >
+            <Input
+              id="routingNumber"
+              className="tabular"
+              inputMode="numeric"
+              autoComplete="off"
+              value={bank.routingNumber}
+              onChange={setBankField('routingNumber')}
+            />
+          </Field>
+        </>
+      ) : (
+        <PhoneField
+          id="destinationNumber"
+          label={t('wallet.destinationNumber')}
+          value={form.destinationNumber}
+          onChange={(destinationNumber) => setForm((prev) => ({ ...prev, destinationNumber }))}
+          error={errors.destinationNumber}
+          autoComplete="off"
+          required
+          className="mb-0"
+        />
+      )}
     </Modal>
   );
 }

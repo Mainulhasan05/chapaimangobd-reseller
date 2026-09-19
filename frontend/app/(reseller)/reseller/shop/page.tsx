@@ -6,6 +6,7 @@ import { ExternalLink, ShieldAlert } from 'lucide-react';
 import { api, errorMessage, fieldErrors } from '@/lib/api';
 import { useReadOnlyAccount, useSession, sessionKey } from '@/lib/session';
 import { t } from '@/lib/i18n/bn';
+import { kycBlocks } from '@/lib/kyc';
 import { LANDING_TEMPLATES } from '@/lib/landing';
 import { cn } from '@/lib/utils';
 import type { LandingTemplate, ResellerProfile } from '@/lib/types';
@@ -92,14 +93,19 @@ function ShopSettings({ profile }: { profile: ResellerProfile }) {
     },
   });
 
-  const approved = profile.kycStatus === 'approved';
+  /*
+   * Not "is KYC approved" but "is anything held shut by KYC". For the reseller
+   * the owner never asked, which is the default, nothing here is gated and the
+   * screen says nothing about verification at all. See docs/adr/0017.
+   */
+  const blocked = kycBlocks(profile);
   const errors = fieldErrors(save.error);
 
   return (
     <>
       <PageHeader title={t('nav.myShop')} subtitle={t('shop.shareHelp')} />
 
-      {!approved && (
+      {blocked && (
         <Alert tone="warning" title={t('kyc.pending')} icon={ShieldAlert}>
           {t('kyc.gateHelp')}
         </Alert>
@@ -118,10 +124,10 @@ function ShopSettings({ profile }: { profile: ResellerProfile }) {
          */}
         <Switch
           checked={profile.formActive}
-          disabled={readOnly || !approved || save.isPending}
+          disabled={readOnly || blocked || save.isPending}
           onChange={(checked) => save.mutate({ formActive: checked })}
           label={profile.formActive ? t('shop.open') : t('shop.closed')}
-          hint={approved ? undefined : t('kyc.gateHelp')}
+          hint={blocked ? t('kyc.gateHelp') : undefined}
         />
       </Card>
 
@@ -169,12 +175,12 @@ function ShopSettings({ profile }: { profile: ResellerProfile }) {
           label={t('shop.yourLink')}
           htmlFor="slug"
           error={errors.slug}
-          hint={approved ? t('shop.slugHint') : t('kyc.gateHelp')}
+          hint={blocked ? t('kyc.gateHelp') : t('shop.slugHint')}
         >
           <Input
             id="slug"
             value={form.slug}
-            disabled={!approved}
+            disabled={blocked}
             onChange={field('slug')}
           />
         </Field>
@@ -236,12 +242,16 @@ function ShopSettings({ profile }: { profile: ResellerProfile }) {
         <Field
           label={t('shop.facebook')}
           htmlFor="facebookUrl"
-          hint="https://facebook.com/..."
+          hint={t('shop.facebookHint')}
           error={errors.facebookUrl}
         >
+          {/*
+           * `type="text"`, not `type="url"`: the browser's own constraint
+           * checking refuses anything without a scheme, which would put back
+           * exactly the rejection the field no longer does. docs/adr/0020.
+           */}
           <Input
             id="facebookUrl"
-            type="url"
             inputMode="url"
             value={form.facebookUrl}
             onChange={field('facebookUrl')}
@@ -291,7 +301,7 @@ function ShopSettings({ profile }: { profile: ResellerProfile }) {
               facebookUrl: form.facebookUrl,
               bkashNumber: form.bkashNumber,
               nagadNumber: form.nagadNumber,
-              ...(approved && form.slug !== profile.slug ? { slug: form.slug } : {}),
+              ...(!blocked && form.slug !== profile.slug ? { slug: form.slug } : {}),
             })
           }
         >

@@ -6,6 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import { BadgeCheck, Check, ChevronRight, Store, Tag, TriangleAlert } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
+import { kycRequired } from '@/lib/kyc';
 import { t } from '@/lib/i18n/bn';
 import { formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -152,24 +153,34 @@ export function ResellerOnboarding() {
 /**
  * The steps, in the order they have to happen.
  *
- * KYC comes first because it gates the rest: the shop cannot open and orders
- * cannot be confirmed until it passes. Sharing the link is last, and it is the
- * only step that cannot be detected - nothing observes a message being sent -
- * so it is treated as done once the shop is open and has something to sell.
+ * KYC comes first where it applies, because it gates the rest: the shop cannot
+ * open and orders cannot be confirmed until it passes. It is not a step at all
+ * for a reseller the owner never asked to verify, which is every reseller by
+ * default - a checklist item nobody can act on is worse than no checklist
+ * (docs/adr/0017). Sharing the link is last, and it is the only step that
+ * cannot be detected - nothing observes a message being sent - so it is treated
+ * as done once the shop is open and has something to sell.
  */
 function buildSteps(profile: ResellerProfile, priced: number): Step[] {
   const approved = profile.kycStatus === 'approved';
 
+  const kycStep: Step[] = kycRequired(profile)
+    ? [
+        {
+          key: 'kyc',
+          title:
+            approved || profile.kycStatus !== 'pending' ? t('setup.kyc') : t('setup.kycWaiting'),
+          help: t('setup.kycHelp'),
+          href: '/reseller/kyc',
+          icon: BadgeCheck,
+          done: approved,
+          waiting: profile.kycStatus === 'pending',
+        },
+      ]
+    : [];
+
   return [
-    {
-      key: 'kyc',
-      title: approved || profile.kycStatus !== 'pending' ? t('setup.kyc') : t('setup.kycWaiting'),
-      help: t('setup.kycHelp'),
-      href: '/reseller/kyc',
-      icon: BadgeCheck,
-      done: approved,
-      waiting: profile.kycStatus === 'pending',
-    },
+    ...kycStep,
     {
       key: 'shop',
       title: t('setup.shop'),

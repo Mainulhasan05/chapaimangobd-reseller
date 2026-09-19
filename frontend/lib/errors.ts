@@ -146,6 +146,8 @@ const COPY: Record<string, ErrorCopy> = {
     message: 'আপনার আগের কাগজপত্র এখনো যাচাই হচ্ছে। সিদ্ধান্ত না আসা পর্যন্ত নতুন করে জমা দেওয়া যাবে না।',
   },
   ALREADY_APPROVED: { message: 'এটি আগেই অনুমোদন করা হয়েছে।' },
+  // The owner has not asked this reseller to verify, so there is nothing to upload.
+  KYC_NOT_REQUIRED: { message: 'আপনার অ্যাকাউন্টের জন্য এখন কোনো কাগজপত্র চাওয়া হয়নি।' },
   NO_DOCUMENTS: { message: 'অন্তত একটি কাগজ আপলোড করুন।' },
   BAD_DOC_TYPE: { message: 'কাগজের ধরনটি সঠিক নয়।' },
   BAD_FILE_TYPE: { message: 'শুধু ছবি বা পিডিএফ ফাইল দিন।' },

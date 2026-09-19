@@ -1,3 +1,4 @@
+import { externalHref } from '@/lib/url';
 import type { DictKey } from '@/lib/i18n/bn';
 import type { LandingIcon, LandingTemplate } from '@/lib/types';
 
@@ -67,9 +68,12 @@ export const LANDING_LIMITS = {
  * because an iframe of an arbitrary page is not a video.
  */
 export function videoEmbed(url: string): { kind: 'youtube'; src: string } | { kind: 'file'; src: string } | null {
-  if (!url) return null;
+  // The field takes any text (docs/adr/0020), so `youtu.be/abc` arrives without
+  // a scheme and `new URL` would throw on the thing the owner actually pasted.
+  const href = externalHref(url);
+  if (!href) return null;
   try {
-    const parsed = new URL(url);
+    const parsed = new URL(href);
     const host = parsed.hostname.replace(/^www\.|^m\./, '');
     let id: string | null = null;
     if (host === 'youtu.be') id = parsed.pathname.slice(1);
@@ -82,7 +86,7 @@ export function videoEmbed(url: string): { kind: 'youtube'; src: string } | { ki
     if (id && /^[\w-]{6,20}$/.test(id)) {
       return { kind: 'youtube', src: `https://www.youtube-nocookie.com/embed/${id}` };
     }
-    if (/\.(mp4|webm)$/i.test(parsed.pathname)) return { kind: 'file', src: url };
+    if (/\.(mp4|webm)$/i.test(parsed.pathname)) return { kind: 'file', src: href };
   } catch {
     // Not a URL at all.
   }

@@ -3,6 +3,7 @@
 const { toTaka } = require('./money');
 const { availableActions } = require('../domain/orderStateMachine');
 const { fromMilli } = require('./quantity');
+const { variantLabel } = require('../domain/variants');
 const storage = require('../config/storage');
 const imageService = require('../services/images');
 
@@ -30,6 +31,17 @@ const line = (l) => ({
   product: l.product,
   productName: l.productNameBn,
   unit: l.unit,
+  /*
+   * Which box and how many. Read from the line's own snapshot, never from the
+   * live product, for the same reason the price beside it is a snapshot. A line
+   * written before boxes existed carries none of these, so they answer null and
+   * `quantity` below is the only thing it ever had. See docs/adr/0021.
+   */
+  variant: l.variant || null,
+  variantLabel: l.variantLabelBn || null,
+  variantContent: l.variantContentMilli == null ? null : fromMilli(l.variantContentMilli),
+  boxes: l.qty ?? null,
+  // What is in those boxes together, in the product's unit.
   quantity: fromMilli(l.qtyMilli),
   costPrice: toTaka(l.costPricePoisha),
   sellPrice: toTaka(l.sellPricePoisha),
@@ -94,6 +106,9 @@ const publicOrder = (o) => ({
   items: (o.items || []).map((l) => ({
     productName: l.productNameBn,
     unit: l.unit,
+    // What the customer chose: this box, this many. `unitPrice` is per box.
+    variantLabel: l.variantLabelBn || null,
+    boxes: l.qty ?? null,
     quantity: fromMilli(l.qtyMilli),
     unitPrice: toTaka(l.sellPricePoisha),
     lineTotal: toTaka(l.lineSellPoisha),
@@ -117,18 +132,35 @@ const ledgerEntry = (e) => ({
   createdAt: e.createdAt,
 });
 
+/**
+ * One box a product is sold in. `label` is resolved here, so no screen has to
+ * know that a blank one means "the content and the unit". Stock is a count of
+ * boxes and is null when the product is not counted at all, the same way a
+ * product's stock used to be. See domain/variants.js.
+ */
+const variant = (v, { unit, trackStock }) => ({
+  id: v._id,
+  label: variantLabel(v, unit),
+  content: fromMilli(v.contentMilli),
+  costPrice: toTaka(v.costPricePoisha),
+  maxSellPrice: v.maxSellPricePoisha == null ? null : toTaka(v.maxSellPricePoisha),
+  stockQty: trackStock ? v.stockQty : null,
+  isAvailable: v.isAvailable,
+  sortOrder: v.sortOrder,
+});
+
 const product = (p) => ({
   id: p._id,
   name: p.nameBn,
   description: p.description,
   images: images(p.images),
   unit: p.unit,
-  step: fromMilli(p.qtyStepMilli),
-  minOrderQty: fromMilli(p.minOrderQtyMilli),
-  costPrice: toTaka(p.costPricePoisha),
-  maxSellPrice: p.maxSellPricePoisha == null ? null : toTaka(p.maxSellPricePoisha),
+  // A product has no price and no quantity rules: a box has both. docs/adr/0021.
+  variants: (p.variants || [])
+    .slice()
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.contentMilli - b.contentMilli)
+    .map((v) => variant(v, p)),
   trackStock: p.trackStock,
-  stockQty: p.trackStock ? fromMilli(p.stockQtyMilli) : null,
   isAvailable: p.isAvailable,
   sortOrder: p.sortOrder,
 });

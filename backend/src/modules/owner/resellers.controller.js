@@ -42,6 +42,7 @@ async function listResellers(req, res) {
       user: p.user,
       shopName: p.shopName,
       slug: p.slug,
+      kycRequired: Boolean(p.kycRequired),
       kycStatus: p.kycStatus,
       formActive: p.formActive,
       ...present.wallet(p),
@@ -72,6 +73,7 @@ async function getReseller(req, res) {
       shopName: profile.shopName,
       slug: profile.slug,
       address: profile.address,
+      kycRequired: Boolean(profile.kycRequired),
       kycStatus: profile.kycStatus,
       formActive: profile.formActive,
       channelPrefs: profile.channelPrefs,
@@ -106,6 +108,22 @@ async function updateReseller(req, res) {
   }
   const smsBefore = profile.channelPrefs.sms;
   if (req.body.smsEnabled !== undefined) profile.channelPrefs.sms = req.body.smsEnabled;
+
+  /*
+   * Asking a reseller to verify their identity, or withdrawing the ask. This is
+   * the only switch that reveals the KYC module to them, and while it is off
+   * nothing about their shop is gated on it (docs/adr/0017).
+   *
+   * Turning it on for a reseller who has not been approved closes their public
+   * form there and then, because shopAvailability reads the same rule the
+   * moment a customer loads the page. The owner is told so before they tap it;
+   * the alternative, a grace period, is a second piece of state that has to be
+   * right and would let an unverified shop keep selling for exactly as long as
+   * the owner did not need it to.
+   */
+  const kycRequiredBefore = Boolean(profile.kycRequired);
+  if (req.body.kycRequired !== undefined) profile.kycRequired = req.body.kycRequired;
+
   await profile.save();
 
   /*
@@ -132,6 +150,20 @@ async function updateReseller(req, res) {
       targetId: profile._id,
       before,
       after: { creditLimitPoisha: profile.creditLimitPoisha },
+      ip: req.ip,
+    });
+  }
+
+  // Asking someone for their national ID is a decision with a date on it, and
+  // so is deciding to stop asking.
+  if (kycRequiredBefore !== Boolean(profile.kycRequired)) {
+    await audit.record({
+      actor: req.user._id,
+      action: 'reseller.kyc_required',
+      targetType: 'ResellerProfile',
+      targetId: profile._id,
+      before: { kycRequired: kycRequiredBefore },
+      after: { kycRequired: Boolean(profile.kycRequired) },
       ip: req.ip,
     });
   }
@@ -163,6 +195,8 @@ async function updateReseller(req, res) {
       deactivatedAt: account ? account.deactivatedAt : null,
       formActive: fresh.formActive,
       smsEnabled: fresh.channelPrefs.sms,
+      kycRequired: Boolean(fresh.kycRequired),
+      kycStatus: fresh.kycStatus,
     },
     // Order codes of the pending orders this request cancelled, if any.
     cancelledOrders: (lifecycle && lifecycle.cancelledOrders) || [],

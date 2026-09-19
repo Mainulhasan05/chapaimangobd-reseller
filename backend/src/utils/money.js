@@ -46,6 +46,21 @@ function lineTotalPoisha(unitPricePoisha, qtyMilli) {
   return Math.round((unitPricePoisha * qtyMilli) / 1000);
 }
 
+/**
+ * A line total for whole boxes at a price per box.
+ *
+ * There is nothing to round: a box count is an integer and so is the price, so
+ * this exists to say that out loud and to keep the poisha check, rather than
+ * having call sites multiply two numbers and hope. See docs/adr/0021.
+ */
+function boxTotalPoisha(boxPricePoisha, boxes) {
+  assertPoisha(boxPricePoisha, 'boxPrice');
+  if (!Number.isInteger(boxes) || boxes < 1) {
+    throw badRequest('INVALID_QUANTITY', 'quantity must be a whole number of boxes');
+  }
+  return boxPricePoisha * boxes;
+}
+
 /** Format poisha for display with Latin digits. Never used for values parsed back. */
 function formatTakaPlain(poisha) {
   return (poisha / POISHA_PER_TAKA).toFixed(2);
@@ -59,6 +74,7 @@ module.exports = {
   toTaka,
   assertPoisha,
   lineTotalPoisha,
+  boxTotalPoisha,
   formatTakaPlain,
   isSafeMoney,
 };

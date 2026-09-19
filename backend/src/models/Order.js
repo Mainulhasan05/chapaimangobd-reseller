@@ -21,12 +21,33 @@ const lineItemSchema = new mongoose.Schema(
     product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true },
     productNameBn: { type: String, required: true },
     unit: { type: String, enum: UNITS, required: true },
+
+    /*
+     * Which box, and how many of them.
+     *
+     * `variant` is the `_id` of a box on the Product, and the two fields beside
+     * it are its snapshot, for the same reason the price below is one: renaming
+     * a box or resizing it must not rewrite an order already packed. A line
+     * written before boxes existed has none of the three, so they are optional
+     * and every reader falls back; see docs/adr/0021.
+     */
+    variant: { type: mongoose.Schema.Types.ObjectId, default: null },
+    variantLabelBn: { type: String, default: null },
+    variantContentMilli: { type: Number, default: null },
+    // Whole boxes. This is what is packed and what the customer chose.
+    qty: { type: Number, min: 1 },
+
+    /*
+     * What is in those boxes together: `qty * variantContentMilli`. Denormalised
+     * rather than derived at read time because it is what every report that asks
+     * "how much do we collect" adds up, across lines whose boxes are different
+     * sizes, and because an order placed before boxes has this and nothing else.
+     */
     qtyMilli: { type: Number, required: true, min: 1 },
 
-    // Snapshots taken at confirm.
+    // Snapshots taken at confirm. Per box, not per unit.
     costPricePoisha: money({ required: true, min: 0 }),
     sellPricePoisha: money({ required: true, min: 0 }),
-    minOrderQtyMilli: { type: Number, required: true },
 
     lineCostPoisha: money({ required: true, min: 0 }),
     lineSellPoisha: money({ required: true, min: 0 }),

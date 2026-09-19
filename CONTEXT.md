@@ -6,10 +6,12 @@ appears in code, it uses the name in the heading. Full design in `docs/PLAN.md`.
 ## Actors
 
 **Owner** — the mango business. One account, created by seed. Holds the catalog, ships
-every parcel, approves KYC, deposits and withdrawals. Never called "admin" in code.
+every parcel, decides who is asked for KYC and approves it, approves deposits and
+withdrawals. Never called "admin" in code.
 
-**Reseller** — a sales channel. Registers with name, phone and password, submits KYC,
-prices products, shares a public form, confirms orders. Holds a wallet.
+**Reseller** — a sales channel. Registers with name, phone and password, prices products,
+shares a public form, confirms orders. Holds a wallet. Submits KYC only where the owner has
+asked them to: see **KYC requirement**.
 
 **Deactivated reseller** — a reseller the owner has switched off (`isActive: false`). Their
 public shop answers "not taking orders", their pending orders are cancelled by the system,
@@ -26,24 +28,43 @@ name, phone and address.
 is attached to a **line item** when the owner accepts an order, never to a Product: the
 product is fixed, and which orchard today's crate comes from is not.
 
-**Product** — something the owner sells. Carries a cost price, a unit, a minimum order
-quantity, an optional maximum sell price, and optional stock tracking. Owned by the owner.
-Has no source; see **Source**.
+**Product** — something the owner sells. Carries a name, a unit, whether it is stock-tracked,
+and the **variants** it is sold in. It has no price and no quantity rules of its own: a variant
+has both. Owned by the owner. Has no source; see **Source**.
 
-**Reseller product** — one reseller's activation of one product: their sell price, whether
-the price is hidden on their form, and whether it is listed. A product reaches a public
-form only through this. Never embedded in Product.
+**Variant** — one box a product is sold in: a six-kilo box, an eleven-kilo box. Holds how much
+is in it, the cost price and the ceiling **per box**, and a stock count in **whole boxes**. Its
+id is stable and is what an order line and a reseller's price row point at; a box that has been
+ordered is switched off, never deleted. Never called a "size" or an "option" in code. See
+docs/adr/0021 and `domain/variants.js`.
+
+**Box** — what a variant is, in the interface and in conversation. A quantity is a count of
+boxes; there is no loose-quantity ordering anywhere.
+
+**Reseller product** — one reseller's activation of one product: a sell price **per box**,
+whether the price is hidden on their form, and whether it is listed. A box with no price row is
+one this shop does not sell. A product reaches a public form only through this. Never embedded
+in Product.
 
 **Delivery zone** — a named group of districts with a delivery charge.
+
+**District** — one of the sixty-four districts of Bangladesh, listed once in
+`frontend/lib/districts.ts`. The stored value is the English name and never changes: zones,
+orders and the delivery-zone lookup all match on it exactly. `districtLabel(value)` is what a
+reader sees, always Bengali. Every district field picks from the sixty-four, with search;
+nothing types a district name by hand. See docs/adr/0019.
 
 ## Orders
 
 **Order** — one customer submission. Belongs to one reseller, carries one payment mode,
 and holds one or more line items.
 
-**Line item** — one product within an order, with quantity, sell price, and snapshots of
-the cost price, unit and minimum quantity taken at confirm. From accept onwards it also
-carries the **source** it is collected from, and a snapshot of that source's name.
+**Line item** — one **variant** within an order: which box, and how many. Carries the box count,
+the sell price per box, and snapshots of the box's label, its contents, the cost price and the
+unit taken at confirm. Two box sizes of one product are two lines, which is the point. It also
+carries `qtyMilli`, everything in those boxes together, so a report can add up lines whose boxes
+are different sizes. From accept onwards it carries the **source** it is collected from, and a
+snapshot of that source's name.
 
 **Snapshot** — a value copied onto an order so that later catalog edits cannot change
 history. Prices, names, units and minimums are taken at confirm; the source name is taken
@@ -125,6 +146,13 @@ A correction is a new entry referencing the original.
 **Withdrawal** — the owner paying a reseller out. Debits the wallet on approval. Exists
 because cash on delivery accumulates positive balances. Never more than the balance: the
 credit limit is never drawn on to pay one out (docs/adr/0009).
+
+**Payout destination** — where a withdrawal is actually paid, and it is shaped by the
+method. A mobile wallet (`bkash`, `nagad`, `rocket`) and cash are paid on a
+`destinationNumber`, a normalised Bangladeshi phone number. A bank is paid on a `bank` block:
+account holder name, bank name, branch name and account number, all required, plus an optional
+routing number. Exactly one of the two is ever set on one withdrawal. Declared once in
+`domain/payout.js`; never ask a bank for a phone number. See docs/adr/0018.
 
 **Delivery adjustment** — a `DELIVERY_ADJUSTMENT` ledger entry for the difference when the
 owner changes an order's delivery charge after the delivery debit has posted. Negative for a
@@ -208,6 +236,21 @@ configured gateway (docs/adr/0013). Enforced twice, on purpose: once when the me
 be queued, and again, read fresh, at the moment of sending.
 
 ## Identity
+
+**KYC requirement** — the owner's per-reseller `kycRequired` flag. Off for every reseller
+until the owner turns it on, and while it is off the KYC module is not on that reseller's
+screens at all and nothing about their shop is gated by verification. Never a platform-wide
+setting: the owner asks one reseller, for a reason, and the ask is audited. Read through
+`domain/kyc.js` and never directly, so that a reseller who was never asked cannot be refused
+for not having answered. **Required** is the gate; **visible** is the screen, and they differ
+for a reseller who submitted documents before the requirement was lifted. See docs/adr/0017.
+
+**Link field** — a field someone types a web address into: the reseller's `facebookUrl` and
+the owner's landing `videoUrl`. No format is demanded of either; they hold whatever was typed.
+`externalHref()` in `frontend/lib/url.ts` is the only thing that turns one into an `href`, and
+the only thing allowed to assume a scheme. Never add a URL check to one of these. See
+docs/adr/0020. Not to be confused with an env var URL or a push endpoint, which are not typed
+by anyone and stay validated.
 
 **OTP** — a six-digit one-time code sent by SMS. Required to register (the phone is proved
 before the account exists), to reset a forgotten password, to change a phone number, and

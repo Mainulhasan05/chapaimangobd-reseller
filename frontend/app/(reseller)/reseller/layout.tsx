@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
+import { kycVisible } from '@/lib/kyc';
 import { AppShell, type NavItem } from '@/components/app-shell';
 import type { Order, Paged } from '@/lib/types';
 
@@ -83,7 +84,15 @@ export default function ResellerLayout({ children }: { children: React.ReactNode
     refetchInterval: 60_000,
   });
 
-  const nav = NAV.map((item) =>
+  /*
+   * KYC is not on the tab list unless it is this reseller's business: the owner
+   * asked them to verify, or they already submitted something. Dropped rather
+   * than disabled, because a permanently greyed tab is a question a reseller
+   * cannot answer. The page behind it says the same thing. See docs/adr/0017.
+   */
+  const nav = NAV.filter(
+    (item) => item.href !== '/reseller/kyc' || kycVisible(session?.profile)
+  ).map((item) =>
     item.href === '/reseller/orders' ? { ...item, badge: pending.data?.total ?? 0 } : item
   );
 

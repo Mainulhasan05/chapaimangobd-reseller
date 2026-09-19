@@ -17,6 +17,7 @@ const { toPoisha, toTaka } = require('../../utils/money');
 const { normalizeBdPhone } = require('../../utils/phone');
 const present = require('../../utils/present');
 const { REVIEW_STATUS, LEDGER_KIND } = require('../../domain/constants');
+const { isBankMethod } = require('../../domain/payout');
 
 const getWallet = async (req, res) => ok(res, { wallet: present.wallet(req.reseller) });
 
@@ -108,7 +109,9 @@ const presentWithdrawal = (w) => ({
   id: w._id,
   amount: toTaka(w.amountPoisha),
   method: w.method,
-  destinationNumber: w.destinationNumber,
+  // Null on a bank transfer, which is paid on the account below instead.
+  destinationNumber: w.destinationNumber || null,
+  bank: w.bank ? (w.bank.toObject ? w.bank.toObject() : w.bank) : null,
   status: w.status,
   note: w.note,
   rejectionReason: w.rejectionReason,
@@ -140,11 +143,21 @@ async function createWithdrawal(req, res) {
     throw badRequest('WITHDRAWAL_PENDING', 'You already have a withdrawal request waiting');
   }
 
+  /*
+   * A mobile wallet is paid on a number and a bank on an account, so only one of
+   * these is ever set. Normalising an account number as a phone is what the old
+   * single field did, and it refused every bank transfer outright.
+   * See domain/payout.js and docs/adr/0018.
+   */
+  const destination = isBankMethod(req.body.method)
+    ? { bank: req.body.bank }
+    : { destinationNumber: normalizeBdPhone(req.body.destinationNumber, 'destinationNumber') };
+
   const withdrawal = await Withdrawal.create({
     reseller: req.reseller._id,
     amountPoisha,
     method: req.body.method,
-    destinationNumber: normalizeBdPhone(req.body.destinationNumber, 'destinationNumber'),
+    ...destination,
     note: req.body.note,
   });
 

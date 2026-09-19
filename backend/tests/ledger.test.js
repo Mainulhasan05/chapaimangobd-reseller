@@ -58,7 +58,7 @@ async function placeOrder({ profile, product, quantity = 10, paymentMode = PAYME
       address: '12 Test Road',
       district: 'Dhaka',
     },
-    items: [{ product: product._id, qtyMilli: toMilli(quantity) }],
+    items: [{ product: product._id, variant: product.variants[0]._id, qty: quantity }],
   });
   return order;
 }
@@ -75,7 +75,7 @@ test('confirm debits the owner cost plus delivery, never the selling price', asy
     orderId: order._id,
     resellerProfile: profile,
     actorUser: user,
-    itemOverrides: [{ product: product._id, sellPricePoisha: toPoisha(62) }],
+    itemOverrides: [{ product: product._id, variant: product.variants[0]._id, sellPricePoisha: toPoisha(62) }],
   });
 
   // 10 kg at cost 55 is 550, plus 80 delivery. The 620 selling value never appears.
@@ -202,7 +202,7 @@ test('a confirm past the credit limit leaves no entry and no stock change', asyn
   assert.equal(entries, 0, 'a rejected confirm still wrote to the ledger');
 
   const afterProduct = await Product.findById(product._id);
-  assert.equal(afterProduct.stockQtyMilli, toMilli(100), 'stock moved despite the confirm failing');
+  assert.equal(afterProduct.variants[0].stockQty, 100, 'stock moved despite the confirm failing');
 
   const afterProfile = await ResellerProfile.findById(profile._id);
   assert.equal(afterProfile.balancePoisha, 0);
@@ -345,7 +345,7 @@ test('a returned order reverses the goods but keeps the courier fee by default',
 
   // Without the "put back in stock" box, a return leaves stock where it is.
   const afterProduct = await Product.findById(product._id);
-  assert.equal(afterProduct.stockQtyMilli, toMilli(90));
+  assert.equal(afterProduct.variants[0].stockQty, 90);
 });
 
 test('the owner can choose to refund the delivery charge on a return', async () => {
@@ -396,7 +396,7 @@ test('cancelling a pending order posts nothing, because nothing was debited', as
 
   // Stock was never taken, so it must not be handed back either.
   const afterProduct = await Product.findById(product._id);
-  assert.equal(afterProduct.stockQtyMilli, toMilli(100));
+  assert.equal(afterProduct.variants[0].stockQty, 100);
 });
 
 test('cancelling a confirmed order reverses the debits and restores stock', async () => {
@@ -425,7 +425,7 @@ test('cancelling a confirmed order reverses the debits and restores stock', asyn
   reversals.forEach((r) => assert.ok(r.reversalOf, 'a reversal does not reference its original'));
 
   const afterProduct = await Product.findById(product._id);
-  assert.equal(afterProduct.stockQtyMilli, toMilli(100));
+  assert.equal(afterProduct.variants[0].stockQty, 100);
 });
 
 test('repricing a product does not move an existing order or its ledger entry', async () => {

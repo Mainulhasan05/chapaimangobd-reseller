@@ -129,7 +129,7 @@ async function confirmedOrder({ customerName = 'Rahim Uddin', shopName = 'Mango 
       address: '12 Test Road',
       district: 'Dhaka',
     },
-    items: [{ product: product._id, qtyMilli: toMilli(10) }],
+    items: [{ product: product._id, variant: product.variants[0]._id, qty: 10 }],
   });
   const order = await orderService.confirmOrder({
     orderId: pending._id,

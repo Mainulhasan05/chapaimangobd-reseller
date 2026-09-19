@@ -15,6 +15,7 @@ const {
   TEXT_LIMITS: LANDING_TEXT,
 } = require('../../domain/landing');
 
+const { MAX_VARIANTS } = require('../../domain/variants');
 const { businessDate, startOfBusinessDay } = require('../../utils/dhakaTime');
 
 const objectId = z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid identifier');
@@ -91,16 +92,51 @@ const createSource = z.object({
 const updateSource = createSource.partial().extend({ isArchived: z.boolean().optional() });
 
 /* products */
+
+/**
+ * The boxes a product is sold in, as one JSON field inside the multipart body.
+ *
+ * The product form uploads photographs, so the whole thing is multipart, and a
+ * multipart body has no way to express a list of objects: it repeats field
+ * names, which collapses `variants[0].costPrice` and `variants[1].costPrice`
+ * into two values with no idea which box each belongs to. One JSON string is the
+ * honest encoding. A JSON caller may send the array itself.
+ */
+const variantInput = z.object({
+  // Present when this box already exists, so editing keeps its `_id` and the
+  // orders and price rows that point at it. Absent for a new box.
+  id: objectId.optional(),
+  label: z.string().trim().max(60).optional(),
+  // How much is in the box, in the product's unit: 6 for a six-kilo box.
+  content: qty,
+  // Per box, both.
+  costPrice: money,
+  maxSellPrice: money.nullable().optional(),
+  // Whole boxes.
+  stockQty: z.coerce.number().int().nonnegative().max(1000000).optional(),
+  isAvailable: boolish.optional(),
+  sortOrder: z.coerce.number().int().optional(),
+});
+
+const variants = z.preprocess((value) => {
+  if (typeof value !== 'string') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    // Left as the string, so the array check below reports it as this field
+    // rather than throwing out of the schema.
+    return value;
+  }
+}, z.array(variantInput).min(1, 'A product needs at least one box').max(MAX_VARIANTS));
+
 const createProduct = z.object({
   name: z.string().trim().min(2, 'Name is required').max(160),
   description: z.string().max(2000).optional(),
+  // The unit a box's contents are measured in. The product itself has no price
+  // and no quantity rules any more; both belong to a box. See docs/adr/0021.
   unit: z.enum(UNITS),
-  step: qty.optional(),
-  minOrderQty: qty,
-  costPrice: money,
-  maxSellPrice: money.nullable().optional(),
+  variants,
   trackStock: boolish.optional(),
-  stockQty: z.coerce.number().nonnegative().max(10000000).optional(),
   isAvailable: boolish.optional(),
   sortOrder: z.coerce.number().int().optional(),
 });
@@ -134,6 +170,9 @@ const updateReseller = z.object({
   creditLimit: money.optional(),
   isActive: z.boolean().optional(),
   smsEnabled: z.boolean().optional(),
+  // Asks this one reseller to verify their identity, which is what puts the KYC
+  // module on their screens at all. Off for everyone by default. docs/adr/0017.
+  kycRequired: z.boolean().optional(),
 });
 
 const reviewDecision = z.object({
@@ -362,9 +401,9 @@ const updateLanding = z
   .object({
     headline: landingText(lt.headline).optional(),
     subtitle: landingText(lt.subtitle).optional(),
-    videoUrl: z
-      .union([z.literal(''), z.string().trim().url('Enter a full link').max(lt.videoUrl)])
-      .optional(),
+    // Any text. `videoEmbed` in the frontend decides what can actually be
+    // played and shows nothing when the answer is nothing. See docs/adr/0020.
+    videoUrl: landingText(lt.videoUrl).optional(),
     rating: z.number().min(0).max(5).nullable().optional(),
     customerCount: landingText(lt.customerCount).optional(),
     deliveryNote: landingText(lt.deliveryNote).optional(),

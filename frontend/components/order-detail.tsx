@@ -2,7 +2,8 @@
 import { MapPin, PackageCheck, Pencil, UserPen } from 'lucide-react';
 
 import { t, tStatus, type DictKey } from '@/lib/i18n/bn';
-import { formatMoney, formatQuantity, formatDateTime } from '@/lib/format';
+import { districtLabel } from '@/lib/districts';
+import { formatMoney, formatNumber, formatQuantity, formatDateTime } from '@/lib/format';
 import type { Order, PaymentMode, StatusHistoryEntry } from '@/lib/types';
 import { Badge, statusTone } from '@/components/ui/layout';
 
@@ -54,7 +55,7 @@ export function OrderDetailBody({
         <p>{order.customer.name}</p>
         <p className="tabular text-muted-foreground">{order.customer.phoneE164}</p>
         <p className="text-muted-foreground">
-          {order.customer.address}, {order.customer.district}
+          {order.customer.address}, {districtLabel(order.customer.district)}
         </p>
         {order.customer.note && <p className="mt-1 italic text-muted-foreground">{order.customer.note}</p>}
       </section>
@@ -67,10 +68,23 @@ export function OrderDetailBody({
               {order.items.map((item) => (
                 <tr key={item.id} className="border-b border-border last:border-0">
                   <td className="py-2">
-                    <div>{item.productName}</div>
+                    <div>
+                      {item.productName}
+                      {item.variantLabel && (
+                        <span className="text-muted-foreground"> · {item.variantLabel}</span>
+                      )}
+                    </div>
+                    {/*
+                     * Boxes at a price per box, with the weight in brackets so
+                     * the packing table still knows what it is carrying. A line
+                     * from before boxes existed has no count and reads as it
+                     * always did. See docs/adr/0021.
+                     */}
                     <div className="text-xs text-muted-foreground">
-                      {formatQuantity(item.quantity, item.unit)} ×{' '}
-                      {formatMoney(item.sellPrice)}
+                      {item.boxes == null
+                        ? formatQuantity(item.quantity, item.unit)
+                        : `${t('catalog.boxCount').replace('{n}', formatNumber(item.boxes))} (${formatQuantity(item.quantity, item.unit)})`}{' '}
+                      × {formatMoney(item.sellPrice)}
                       {showCost && ` · ${t('catalog.costPrice')} ${formatMoney(item.costPrice)}`}
                     </div>
                     {/*

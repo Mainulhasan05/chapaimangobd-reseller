@@ -67,7 +67,7 @@ async function placeOrder(profile, product, { phone = '+8801912345678', name = '
     paymentMode: PAYMENT_MODE.PREPAID,
     submissionId: crypto.randomUUID(),
     customer: { name, phoneE164: phone, address: '12 Test Road', district: 'Dhaka' },
-    items: [{ product: product._id, qtyMilli: toMilli(10) }],
+    items: [{ product: product._id, variant: product.variants[0]._id, qty: 10 }],
   });
   return order;
 }
@@ -169,7 +169,7 @@ test("a deactivated reseller's shop says it is not taking orders and refuses sub
     .send({
       paymentMode: PAYMENT_MODE.COD,
       customer: f.customer(),
-      items: [{ product: String(product._id), quantity: 10 }],
+      items: [{ product: String(product._id), variant: String(product.variants[0]._id), quantity: 10 }],
     });
   assert.equal(submit.status, 409, JSON.stringify(submit.body));
   assert.equal(submit.body.error.code, 'SHOP_NOT_ACCEPTING');
@@ -206,7 +206,7 @@ test('a deactivated reseller can read and request a withdrawal, and nothing else
 
   const refused = [
     await me.post(`/api/reseller/orders/${pending._id}/confirm`).send({}),
-    await me.put(`/api/reseller/catalog/${product._id}`).send({ sellPrice: 80 }),
+    await me.put(`/api/reseller/catalog/${product._id}`).send({ variants: [{ variant: String(product.variants[0]._id), sellPrice: 80 }] }),
     await me.post('/api/reseller/deposits').send({ amount: 100, method: 'bkash' }),
     await me.patch('/api/reseller/profile').send({ formActive: true }),
     await me.patch(`/api/reseller/orders/${pending._id}/customer`).send({ name: 'Someone Else' }),
@@ -239,7 +239,7 @@ test('reactivating restores the form flag as it was and does not un-cancel order
 
   // Writes are open again.
   const me = as(await User.findById(reseller.user._id));
-  assert.equal((await me.put(`/api/reseller/catalog/${product._id}`).send({ sellPrice: 80 })).status, 200);
+  assert.equal((await me.put(`/api/reseller/catalog/${product._id}`).send({ variants: [{ variant: String(product.variants[0]._id), sellPrice: 80 }] })).status, 200);
 });
 
 test('a shop the reseller had closed stays closed after reactivation', async () => {
@@ -255,8 +255,109 @@ test('a shop the reseller had closed stays closed after reactivation', async () 
 
 /* ----------------------------------------------------------------------- kyc */
 
+/*
+ * KYC is off until the owner asks for it (docs/adr/0017). These four say what
+ * "off" means: no gate, no upload, and a switch that turns both on.
+ */
+
+test('a reseller the owner never asked to verify is gated by nothing', async () => {
+  const reseller = await f.makeReseller({
+    kycRequired: false,
+    kycStatus: KYC_STATUS.NOT_SUBMITTED,
+    formActive: false,
+  });
+  const api = as(reseller.user);
+
+  const opened = await api.patch('/api/reseller/profile').send({ formActive: true });
+  assert.equal(opened.status, 200, JSON.stringify(opened.body));
+
+  // And the public form is live, with no documents anywhere in sight.
+  const shop = await request(app).get(`/api/public/shop/${reseller.profile.slug}`);
+  assert.equal(shop.status, 200, JSON.stringify(shop.body));
+});
+
+test('the KYC module is hidden, and an upload refused, until the owner asks', async () => {
+  const reseller = await f.makeReseller({
+    kycRequired: false,
+    kycStatus: KYC_STATUS.NOT_SUBMITTED,
+  });
+  const api = as(reseller.user);
+
+  const state = await api.get('/api/reseller/kyc');
+  assert.equal(state.status, 200);
+  assert.equal(state.body.data.required, false);
+  assert.equal(state.body.data.visible, false);
+  assert.equal(state.body.data.canSubmit, false);
+
+  // Hiding a screen is not a control: the upload is refused at the API too, so
+  // no scan reaches the bucket.
+  const upload = await api
+    .post('/api/reseller/kyc')
+    .attach('nid_front', Buffer.from('fake image'), { filename: 'nid.jpg', contentType: 'image/jpeg' });
+  assert.equal(upload.status, 403, JSON.stringify(upload.body));
+  assert.equal(upload.body.error.code, 'KYC_NOT_REQUIRED');
+  assert.equal(await KycSubmission.countDocuments({ reseller: reseller.profile._id }), 0);
+});
+
+test('the owner switch reveals the module, closes the shop and is audited', async () => {
+  const owner = await f.makeOwner();
+  const reseller = await f.makeReseller({
+    kycRequired: false,
+    kycStatus: KYC_STATUS.NOT_SUBMITTED,
+    formActive: true,
+  });
+
+  const res = await as(owner.user)
+    .patch(`/api/owner/resellers/${reseller.profile._id}`)
+    .send({ kycRequired: true });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(res.body.data.reseller.kycRequired, true);
+
+  const state = await as(reseller.user).get('/api/reseller/kyc');
+  assert.equal(state.body.data.required, true);
+  assert.equal(state.body.data.visible, true);
+  assert.equal(state.body.data.canSubmit, true);
+
+  // The gate closed with it: the form flag is untouched but the shop is shut.
+  assert.equal((await ResellerProfile.findById(reseller.profile._id)).formActive, true);
+  const shop = await request(app).get(`/api/public/shop/${reseller.profile.slug}`);
+  assert.equal(shop.status, 404);
+
+  assert.equal(await AuditLog.countDocuments({ action: 'reseller.kyc_required' }), 1);
+  // Setting it to what it already is writes no second entry.
+  await as(owner.user)
+    .patch(`/api/owner/resellers/${reseller.profile._id}`)
+    .send({ kycRequired: true });
+  assert.equal(await AuditLog.countDocuments({ action: 'reseller.kyc_required' }), 1);
+});
+
+test('documents already submitted stay visible after the requirement is lifted', async () => {
+  const owner = await f.makeOwner();
+  const reseller = await f.makeReseller({ kycRequired: true, kycStatus: KYC_STATUS.PENDING });
+  await KycSubmission.create({
+    reseller: reseller.profile._id,
+    documents: [{ type: 'nid_front', storageKey: 'kyc/a.jpg' }],
+    status: REVIEW_STATUS.PENDING,
+  });
+
+  await as(owner.user)
+    .patch(`/api/owner/resellers/${reseller.profile._id}`)
+    .send({ kycRequired: false });
+
+  const state = await as(reseller.user).get('/api/reseller/kyc');
+  assert.equal(state.body.data.required, false);
+  // Still on their screens: hiding it would look like the scans had vanished.
+  assert.equal(state.body.data.visible, true);
+  assert.equal(state.body.data.canSubmit, false);
+  assert.ok(state.body.data.submission);
+});
+
 test('a second KYC submission is refused while one is pending', async () => {
-  const reseller = await f.makeReseller({ kycStatus: KYC_STATUS.PENDING, formActive: false });
+  const reseller = await f.makeReseller({
+    kycRequired: true,
+    kycStatus: KYC_STATUS.PENDING,
+    formActive: false,
+  });
   await KycSubmission.create({
     reseller: reseller.profile._id,
     documents: [{ type: 'nid_front', storageKey: 'kyc/a.jpg' }],
@@ -386,11 +487,18 @@ test('reseller price changes, reseller cancels, toggles, settings and archives a
   const me = as(reseller.user);
   const ownerApi = as(owner.user);
 
-  // Reseller listing: a price change records only what moved.
-  await me.put(`/api/reseller/catalog/${product._id}`).send({ sellPrice: 75 });
+  /*
+   * Reseller listing: a price change records every box's price, because which
+   * box moved is exactly the question asked of the log later. docs/adr/0021.
+   */
+  const box = String(product.variants[0]._id);
+  await me
+    .put(`/api/reseller/catalog/${product._id}`)
+    .send({ variants: [{ variant: box, sellPrice: 75 }] });
   const price = await AuditLog.findOne({ action: 'reseller.listing_update' });
-  assert.deepEqual(price.before, { sellPricePoisha: toPoisha(70) });
-  assert.equal(price.after.sellPricePoisha, toPoisha(75));
+  assert.equal(price.before.variants[0].sellPricePoisha, toPoisha(70));
+  assert.equal(price.after.variants[0].sellPricePoisha, toPoisha(75));
+  assert.equal(price.after.variants[0].variant, box);
   assert.equal(String(price.actor), String(reseller.user._id));
 
   // Reseller cancel.

@@ -20,7 +20,8 @@ import {
   Tr,
 } from '@/components/ui/layout';
 import { Button, Spinner } from '@/components/ui/button';
-import { Field, Input, MoneyInput, Textarea } from '@/components/ui/form';
+import { Field, Input, MoneyInput } from '@/components/ui/form';
+import { DistrictMultiSelect } from '@/components/ui/district-field';
 import { Switch } from '@/components/ui/switch';
 import { Modal } from '@/components/ui/modal';
 
@@ -109,8 +110,14 @@ export default function OwnerZonesPage() {
 function ZoneModal({ zone, onClose }: { zone: DeliveryZone | null; onClose: () => void }) {
   const queryClient = useQueryClient();
   const [name, setName] = useState(zone?.name ?? '');
-  // One district per line is easier to paste in than a comma-separated string.
-  const [districts, setDistricts] = useState((zone?.districts ?? []).join('\n'));
+  /*
+   * Ticked off a searchable list of the sixty-four, not typed. It used to be a
+   * textarea of one name per line, and a misspelling there took a district out
+   * of delivery with nothing on any screen to say why: the customer form only
+   * ever offered what had been typed here, and the API matches the stored
+   * string exactly. See lib/districts.ts.
+   */
+  const [districts, setDistricts] = useState<string[]>(zone?.districts ?? []);
   const [charge, setCharge] = useState(zone ? formatMoneyPlain(zone.charge) : '');
   const [isActive, setIsActive] = useState(zone?.isActive ?? true);
 
@@ -118,10 +125,7 @@ function ZoneModal({ zone, onClose }: { zone: DeliveryZone | null; onClose: () =
     mutationFn: () => {
       const body = {
         name,
-        districts: districts
-          .split('\n')
-          .map((d) => d.trim())
-          .filter(Boolean),
+        districts,
         charge: Number(charge),
         isActive,
       };
@@ -168,12 +172,7 @@ function ZoneModal({ zone, onClose }: { zone: DeliveryZone | null; onClose: () =
         error={errors.districts}
         required
       >
-        <Textarea
-          id="districts"
-          rows={5}
-          value={districts}
-          onChange={(e) => setDistricts(e.target.value)}
-        />
+        <DistrictMultiSelect id="districts" value={districts} onChange={setDistricts} />
       </Field>
 
       <Field label={t('order.deliveryCharge')} htmlFor="charge" error={errors.charge} required>

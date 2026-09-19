@@ -24,7 +24,6 @@ const {
   LEDGER_KIND,
   ROLES,
   EVENT_TYPE,
-  KYC_STATUS,
   SYSTEM_ACTOR,
   RESELLER_DEACTIVATED_REASON,
 } = require('../domain/constants');
@@ -37,6 +36,7 @@ const {
   wasCommitted,
 } = require('../domain/orderStateMachine');
 const { shopAvailability } = require('../domain/shop');
+const { kycBlocks } = require('../domain/kyc');
 const { generateOrderCode } = require('../utils/orderCode');
 const { businessDate } = require('../utils/dhakaTime');
 const { toTaka } = require('../utils/money');
@@ -166,12 +166,18 @@ async function confirmOrder({ orderId, resellerProfile, actorUser, itemOverrides
 
     // Re-price from live catalog data. The owner may have raised the cost price
     // since the customer submitted, and the floor must hold against today's cost.
-    const overrideByProduct = new Map(itemOverrides.map((o) => [String(o.product), o]));
+    /*
+     * Keyed by box, not by product: an order carrying two box sizes of one
+     * mango has two lines, and a correction to the eleven-kilo line must not
+     * land on the six. See docs/adr/0021.
+     */
+    const overrideByVariant = new Map(itemOverrides.map((o) => [String(o.variant), o]));
     const items = claimed.items.map((line) => {
-      const override = overrideByProduct.get(String(line.product));
+      const override = overrideByVariant.get(String(line.variant));
       return {
         product: line.product,
-        qtyMilli: override && override.qtyMilli != null ? override.qtyMilli : line.qtyMilli,
+        variant: line.variant,
+        qty: override && override.qty != null ? override.qty : line.qty,
         sellPricePoisha:
           override && override.sellPricePoisha != null
             ? override.sellPricePoisha
@@ -261,7 +267,7 @@ async function postConfirmationEntries(session, order, actorUser) {
  * skips pending because the reseller already has the customer on the line.
  */
 async function createManualOrder({ resellerProfile, actorUser, paymentMode, customer, items }) {
-  if (resellerProfile.kycStatus !== KYC_STATUS.APPROVED) {
+  if (kycBlocks(resellerProfile)) {
     throw forbidden('Your KYC verification must be approved before you can take orders');
   }
 

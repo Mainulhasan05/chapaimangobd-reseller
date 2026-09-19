@@ -16,6 +16,7 @@ const { normalizeOrderCode } = require('../../utils/orderCode');
 const { toMilli, fromMilli } = require('../../utils/quantity');
 const { toTaka } = require('../../utils/money');
 const present = require('../../utils/present');
+const { variantLabel } = require('../../domain/variants');
 const { SHOP_CLOSED_REASON } = require('../../domain/constants');
 const { shopAvailability } = require('../../domain/shop');
 const { DEFAULT_TEMPLATE } = require('../../domain/landing');
@@ -57,25 +58,55 @@ async function getShop(req, res) {
       const product = productById.get(String(listing.product));
       if (!product) return null;
 
+      /*
+       * The boxes this shop sells this product in. Driven by the reseller's
+       * price rows, not by the owner's list: a box the reseller never priced,
+       * or has unlisted, is not on this form at all. A product whose every box
+       * is unavailable drops out entirely below. See docs/adr/0021.
+       */
+      const byVariant = new Map(
+        (product.variants || []).map((v) => [String(v._id), v])
+      );
+
+      const boxes = (listing.variants || [])
+        .filter((priced) => priced.isListed)
+        .map((priced) => {
+          const variant = byVariant.get(String(priced.variant));
+          if (!variant || !variant.isAvailable) return null;
+
+          return {
+            id: variant._id,
+            label: variantLabel(variant, product.unit),
+            content: fromMilli(variant.contentMilli),
+            // Boxes are counted, so one box left is still a shop that can sell.
+            inStock: !product.trackStock || variant.stockQty > 0,
+            // Hidden prices are omitted from the body, not merely hidden in the
+            // UI. A price present in the JSON is public, whatever the front end
+            // does with it.
+            ...(listing.hidePrice ? {} : { price: toTaka(priced.sellPricePoisha) }),
+            // The struck-through price, only beside a visible price it is above.
+            ...(!listing.hidePrice &&
+            priced.regularPricePoisha != null &&
+            priced.regularPricePoisha > priced.sellPricePoisha
+              ? { regularPrice: toTaka(priced.regularPricePoisha) }
+              : {}),
+          };
+        })
+        .filter(Boolean)
+        .sort((a, b) => a.content - b.content);
+
+      if (boxes.length === 0) return null;
+
       return {
         id: product._id,
         name: product.nameBn,
         description: product.description,
         images: present.images(product.images),
         unit: product.unit,
-        step: fromMilli(product.qtyStepMilli),
-        minOrderQty: fromMilli(product.minOrderQtyMilli),
-        inStock: !product.trackStock || product.stockQtyMilli >= product.minOrderQtyMilli,
-        // Hidden prices are omitted from the body, not merely hidden in the UI.
-        // A price present in the JSON is public, whatever the front end does.
         priceHidden: listing.hidePrice,
-        ...(listing.hidePrice ? {} : { price: toTaka(listing.sellPricePoisha) }),
-        // The struck-through price, only beside a visible price it is above.
-        ...(!listing.hidePrice &&
-        listing.regularPricePoisha != null &&
-        listing.regularPricePoisha > listing.sellPricePoisha
-          ? { regularPrice: toTaka(listing.regularPricePoisha) }
-          : {}),
+        variants: boxes,
+        // True when any box can still be ordered, for the "sold out" ribbon.
+        inStock: boxes.some((b) => b.inStock),
       };
     })
     .filter(Boolean);
@@ -154,7 +185,8 @@ async function createOrder(req, res) {
       district: customer.district,
       note: customer.note,
     },
-    items: items.map((i) => ({ product: i.product, qtyMilli: toMilli(i.quantity) })),
+    // A line is a box and a count of them, never a weight. docs/adr/0021.
+    items: items.map((i) => ({ product: i.product, variant: i.variant, qty: i.quantity })),
   });
 
   // A duplicate submission returns the original order rather than a second one.

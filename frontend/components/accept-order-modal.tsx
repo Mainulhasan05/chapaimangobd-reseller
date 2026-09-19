@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { MapPin } from 'lucide-react';
 import { api, errorMessage } from '@/lib/api';
 import { t } from '@/lib/i18n/bn';
-import { formatQuantity } from '@/lib/format';
+import { formatNumber, formatQuantity } from '@/lib/format';
 import type { Order, Source } from '@/lib/types';
 import { Alert, EmptyState } from '@/components/ui/layout';
 import { Button } from '@/components/ui/button';
@@ -152,7 +152,9 @@ export function AcceptOrderModal({ order, onClose }: { order: Order | null; onCl
               <div key={item.id} className="rounded-xl bg-muted/60 p-3.5">
                 <p className="text-sm font-semibold">{item.productName}</p>
                 <p className="tabular mb-2.5 text-xs text-muted-foreground">
-                  {formatQuantity(item.quantity, item.unit)}
+                  {item.variantLabel
+                    ? `${item.variantLabel} × ${formatNumber(item.boxes ?? 0)}`
+                    : formatQuantity(item.quantity, item.unit)}
                 </p>
                 <Select
                   aria-label={`${t('order.chooseSource')} · ${item.productName}`}

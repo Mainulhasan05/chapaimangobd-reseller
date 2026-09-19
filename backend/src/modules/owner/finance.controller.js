@@ -19,6 +19,7 @@ const { notFound, badRequest } = require('../../utils/errors');
 const { toPoisha, toTaka } = require('../../utils/money');
 const present = require('../../utils/present');
 const { REVIEW_STATUS, LEDGER_KIND, EVENT_TYPE } = require('../../domain/constants');
+const { describeDestination } = require('../../domain/payout');
 
 /* ------------------------------------------------------------------ deposits */
 
@@ -121,7 +122,10 @@ async function listWithdrawals(req, res) {
       reseller: w.reseller,
       amount: toTaka(w.amountPoisha),
       method: w.method,
-      destinationNumber: w.destinationNumber,
+      // One of these is set, never both: a wallet is paid on a number and a
+      // bank on an account. See domain/payout.js and docs/adr/0018.
+      destinationNumber: w.destinationNumber || null,
+      bank: w.bank ? (w.bank.toObject ? w.bank.toObject() : w.bank) : null,
       status: w.status,
       note: w.note,
       createdAt: w.createdAt,
@@ -161,7 +165,7 @@ async function decideWithdrawal(req, res) {
     eventType: approve ? EVENT_TYPE.WITHDRAWAL_APPROVED : EVENT_TYPE.WITHDRAWAL_REJECTED,
     data: {
       amountPoisha: withdrawal.amountPoisha,
-      destination: withdrawal.destinationNumber,
+      destination: describeDestination(withdrawal),
       reason: req.body.reason || undefined,
     },
   });

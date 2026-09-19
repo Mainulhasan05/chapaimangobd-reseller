@@ -13,6 +13,7 @@ import {
 import { api } from '@/lib/api';
 import { useReadOnlyAccount, useSession } from '@/lib/session';
 import { t } from '@/lib/i18n/bn';
+import { kycBlocks } from '@/lib/kyc';
 import { formatMoney, formatNumber, formatAge } from '@/lib/format';
 import type { Order, Wallet, Paged } from '@/lib/types';
 import {
@@ -311,7 +312,7 @@ export default function ResellerDashboard() {
           )}
 
           {/* Sharing the link is the growth loop, so it is a button, not a page. */}
-          {!readOnly && profile?.slug && profile.kycStatus === 'approved' && (
+          {!readOnly && profile?.slug && !kycBlocks(profile) && (
             <Card>
               <CardHeader
                 title={t('shop.yourLink')}

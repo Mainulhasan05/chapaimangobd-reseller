@@ -12,6 +12,7 @@ const app = require('../src/app');
 const ResellerProfile = require('../src/models/ResellerProfile');
 const Order = require('../src/models/Order');
 const Deposit = require('../src/models/Deposit');
+const ResellerProduct = require('../src/models/ResellerProduct');
 const LedgerEntry = require('../src/models/LedgerEntry');
 const otp = require('../src/services/otp');
 
@@ -117,6 +118,7 @@ test('an unauthenticated request to a reseller route is refused', async () => {
 
 test('an unapproved reseller may price products but not open a shop', async () => {
   const { phone, password, profile } = await f.makeReseller({
+    kycRequired: true,
     kycStatus: KYC_STATUS.PENDING,
     formActive: false,
   });
@@ -124,7 +126,7 @@ test('an unapproved reseller may price products but not open a shop', async () =
   const agent = await signIn({ phone, password });
 
   // Setup work is allowed during the wait.
-  const priced = await agent.put(`/api/reseller/catalog/${product._id}`).send({ sellPrice: 60 });
+  const priced = await agent.put(`/api/reseller/catalog/${product._id}`).send({ variants: [{ variant: String(product.variants[0]._id), sellPrice: 60 }] });
   assert.equal(priced.status, 200);
 
   // Opening the shop is not.
@@ -137,7 +139,10 @@ test('an unapproved reseller may price products but not open a shop', async () =
 });
 
 test('confirming an order is blocked until KYC is approved', async () => {
-  const { phone, password, profile } = await f.makeReseller({ kycStatus: KYC_STATUS.PENDING });
+  const { phone, password, profile } = await f.makeReseller({
+    kycRequired: true,
+    kycStatus: KYC_STATUS.PENDING,
+  });
   const agent = await signIn({ phone, password });
 
   const res = await agent.post(`/api/reseller/orders/${profile._id}/confirm`).send({});
@@ -158,10 +163,79 @@ test('the public shop omits hidden prices from the response body', async () => {
   assert.equal(res.status, 200);
 
   const byName = Object.fromEntries(res.body.data.products.map((p) => [p.name, p]));
-  assert.equal(byName['হিমসাগর'].price, 70);
+  // A price is per box, so it is the box that carries it. docs/adr/0021.
+  assert.equal(byName['হিমসাগর'].variants[0].price, 70);
   assert.equal(byName['ল্যাংড়া'].priceHidden, true);
   // Not merely hidden in the UI: the number is absent from the payload.
-  assert.equal('price' in byName['ল্যাংড়া'], false);
+  assert.equal('price' in byName['ল্যাংড়া'].variants[0], false);
+});
+
+test('the public shop lists every box a reseller has priced, cheapest first', async () => {
+  const { profile } = await f.makeReseller();
+  const product = await f.makeProduct({
+    name: 'হিমসাগর',
+    boxes: [
+      { content: 11, cost: 600 },
+      { content: 6, cost: 330 },
+    ],
+  });
+  // A price per box, each a hundred taka over what the owner charges.
+  await f.listProduct(profile, product, (variant) => variant.costPricePoisha / 100 + 100);
+
+  const res = await request(app).get(`/api/public/shop/${profile.slug}`);
+  assert.equal(res.status, 200);
+
+  const [box] = res.body.data.products;
+  assert.equal(box.variants.length, 2);
+  // Smallest box first: it is the one a first-time customer reaches for.
+  assert.deepEqual(
+    box.variants.map((v) => [v.label, v.content, v.price]),
+    [
+      ['6 kg', 6, 430],
+      ['11 kg', 11, 700],
+    ]
+  );
+});
+
+test('a box the reseller never priced is not on their form', async () => {
+  const { profile } = await f.makeReseller();
+  const product = await f.makeProduct({
+    name: 'হিমসাগর',
+    boxes: [
+      { content: 6, cost: 330 },
+      { content: 11, cost: 600 },
+    ],
+  });
+
+  // Only the six-kilo box: this shop does not carry the big one.
+  await ResellerProduct.create({
+    reseller: profile._id,
+    product: product._id,
+    variants: [
+      { variant: product.variants[0]._id, sellPricePoisha: 43000, isListed: true },
+    ],
+    isListed: true,
+  });
+
+  const res = await request(app).get(`/api/public/shop/${profile.slug}`);
+  assert.deepEqual(
+    res.body.data.products[0].variants.map((v) => v.label),
+    ['6 kg']
+  );
+
+  // And ordering the unpriced one is refused, not merely absent from the page.
+  await f.makeZone({ districts: ['Dhaka'], charge: 80 });
+  const attempt = await request(app)
+    .post(`/api/public/shop/${profile.slug}/orders`)
+    .send({
+      paymentMode: PAYMENT_MODE.PREPAID,
+      customer: f.customer(),
+      items: [
+        { product: String(product._id), variant: String(product.variants[1]._id), quantity: 1 },
+      ],
+    });
+  assert.equal(attempt.status, 400);
+  assert.equal(attempt.body.error.code, 'NOT_LISTED');
 });
 
 test('a customer order lands as pending and moves no money', async () => {
@@ -175,7 +249,7 @@ test('a customer order lands as pending and moves no money', async () => {
     .send({
       paymentMode: PAYMENT_MODE.PREPAID,
       customer: f.customer(),
-      items: [{ product: String(product._id), quantity: 10 }],
+      items: [{ product: String(product._id), variant: String(product.variants[0]._id), quantity: 10 }],
     });
 
   assert.equal(res.status, 201);
@@ -198,7 +272,7 @@ test('a repeated submission id returns the first order rather than a second one'
     submissionId: crypto.randomUUID(),
     paymentMode: PAYMENT_MODE.PREPAID,
     customer: f.customer(),
-    items: [{ product: String(product._id), quantity: 10 }],
+    items: [{ product: String(product._id), variant: String(product.variants[0]._id), quantity: 10 }],
   };
 
   const first = await request(app).post(`/api/public/shop/${profile.slug}/orders`).send(body);
@@ -212,23 +286,99 @@ test('a repeated submission id returns the first order rather than a second one'
   assert.equal(await Order.countDocuments({ reseller: profile._id }), 1);
 });
 
-test('an order below the product minimum is refused with a usable message', async () => {
+/*
+ * There is no minimum order any more: the box is the minimum, and a customer
+ * either takes one or does not. What is left to refuse is a quantity that is not
+ * a whole count of boxes. See docs/adr/0021.
+ */
+test('an order for a fraction of a box is refused', async () => {
   const { profile } = await f.makeReseller();
   await f.makeZone({ districts: ['Dhaka'], charge: 80 });
-  const product = await f.makeProduct({ cost: 55, minOrderQty: 5 });
-  await f.listProduct(profile, product, 62);
+  const product = await f.makeProduct({ boxes: [{ content: 6, cost: 330 }] });
+  await f.listProduct(profile, product, 430);
+
+  const order = (quantity) =>
+    request(app)
+      .post(`/api/public/shop/${profile.slug}/orders`)
+      .send({
+        paymentMode: PAYMENT_MODE.PREPAID,
+        customer: f.customer(),
+        items: [
+          { product: String(product._id), variant: String(product.variants[0]._id), quantity },
+        ],
+      });
+
+  for (const bad of [0, 1.5, -2]) {
+    // eslint-disable-next-line no-await-in-loop
+    const res = await order(bad);
+    assert.equal(res.status, 400, `quantity ${bad} was accepted`);
+  }
+
+  const good = await order(2);
+  assert.equal(good.status, 201, JSON.stringify(good.body));
+  assert.equal(await Order.countDocuments({ reseller: profile._id }), 1);
+});
+
+test('one order carries two box sizes of the same product', async () => {
+  const { profile } = await f.makeReseller();
+  await f.makeZone({ districts: ['Dhaka'], charge: 80 });
+  const product = await f.makeProduct({
+    boxes: [
+      { content: 6, cost: 330 },
+      { content: 11, cost: 600 },
+    ],
+  });
+  await f.listProduct(profile, product, (variant) => variant.costPricePoisha / 100 + 100);
+
+  // Two elevens and three sixes, which is the whole point of boxes.
+  const res = await request(app)
+    .post(`/api/public/shop/${profile.slug}/orders`)
+    .send({
+      paymentMode: PAYMENT_MODE.PREPAID,
+      customer: f.customer(),
+      items: [
+        { product: String(product._id), variant: String(product.variants[1]._id), quantity: 2 },
+        { product: String(product._id), variant: String(product.variants[0]._id), quantity: 3 },
+      ],
+    });
+  assert.equal(res.status, 201, JSON.stringify(res.body));
+
+  const order = await Order.findOne({ orderCode: res.body.data.orderCode });
+  assert.equal(order.items.length, 2, 'two boxes of one product must be two lines');
+
+  const bySize = Object.fromEntries(order.items.map((i) => [i.variantContentMilli, i]));
+  assert.equal(bySize[11000].qty, 2);
+  assert.equal(bySize[6000].qty, 3);
+  // The content is carried too, so a pick list can add unlike boxes together.
+  assert.equal(bySize[11000].qtyMilli, 22000);
+  assert.equal(bySize[6000].qtyMilli, 18000);
+  assert.equal(bySize[11000].variantLabelBn, '11 kg');
+
+  // Priced per box: 2 x 700 + 3 x 430 = 2690, plus 80 delivery.
+  assert.equal(order.totals.sellSubtotalPoisha, toPoisha(2690));
+  assert.equal(order.totals.costSubtotalPoisha, toPoisha(2 * 600 + 3 * 330));
+  assert.equal(order.totals.customerTotalPoisha, toPoisha(2770));
+});
+
+test('the same box twice in one order is refused', async () => {
+  const { profile } = await f.makeReseller();
+  await f.makeZone({ districts: ['Dhaka'], charge: 80 });
+  const product = await f.makeProduct({ boxes: [{ content: 6, cost: 330 }] });
+  await f.listProduct(profile, product, 430);
 
   const res = await request(app)
     .post(`/api/public/shop/${profile.slug}/orders`)
     .send({
       paymentMode: PAYMENT_MODE.PREPAID,
       customer: f.customer(),
-      items: [{ product: String(product._id), quantity: 2 }],
+      items: [
+        { product: String(product._id), variant: String(product.variants[0]._id), quantity: 1 },
+        { product: String(product._id), variant: String(product.variants[0]._id), quantity: 2 },
+      ],
     });
 
   assert.equal(res.status, 400);
-  assert.equal(res.body.error.code, 'BELOW_MINIMUM');
-  assert.match(res.body.error.message, /Minimum order is 5 kg/);
+  assert.equal(res.body.error.code, 'DUPLICATE_LINE');
 });
 
 test('an undeliverable district is refused before an order is created', async () => {
@@ -242,7 +392,7 @@ test('an undeliverable district is refused before an order is created', async ()
     .send({
       paymentMode: PAYMENT_MODE.PREPAID,
       customer: f.customer({ district: 'Atlantis' }),
-      items: [{ product: String(product._id), quantity: 10 }],
+      items: [{ product: String(product._id), variant: String(product.variants[0]._id), quantity: 10 }],
     });
 
   assert.equal(res.status, 400);
@@ -261,7 +411,7 @@ test('tracking needs the order code and the phone number together', async () => 
     .send({
       paymentMode: PAYMENT_MODE.PREPAID,
       customer: f.customer({ phone: '01912345678' }),
-      items: [{ product: String(product._id), quantity: 10 }],
+      items: [{ product: String(product._id), variant: String(product.variants[0]._id), quantity: 10 }],
     });
 
   const { orderCode } = created.body.data;
@@ -290,17 +440,61 @@ test('a reseller cannot price below the owner cost or above the ceiling', async 
   const product = await f.makeProduct({ cost: 55, maxSellPrice: 90 });
   const agent = await signIn({ phone, password });
 
-  const tooLow = await agent.put(`/api/reseller/catalog/${product._id}`).send({ sellPrice: 50 });
+  const tooLow = await agent.put(`/api/reseller/catalog/${product._id}`).send({ variants: [{ variant: String(product.variants[0]._id), sellPrice: 50 }] });
   assert.equal(tooLow.status, 400);
   assert.equal(tooLow.body.error.code, 'BELOW_COST');
 
-  const tooHigh = await agent.put(`/api/reseller/catalog/${product._id}`).send({ sellPrice: 120 });
+  const tooHigh = await agent.put(`/api/reseller/catalog/${product._id}`).send({ variants: [{ variant: String(product.variants[0]._id), sellPrice: 120 }] });
   assert.equal(tooHigh.status, 400);
   assert.equal(tooHigh.body.error.code, 'ABOVE_MAX');
 
-  const fine = await agent.put(`/api/reseller/catalog/${product._id}`).send({ sellPrice: 62 });
+  const fine = await agent.put(`/api/reseller/catalog/${product._id}`).send({ variants: [{ variant: String(product.variants[0]._id), sellPrice: 62 }] });
   assert.equal(fine.status, 200);
-  assert.equal(fine.body.data.listing.sellPrice, 62);
+  assert.equal(fine.body.data.product.variants[0].sellPrice, 62);
+});
+
+/*
+ * The floor and the ceiling belong to the box, not to the product: a six-kilo
+ * box and an eleven-kilo box have nothing to say about each other's price.
+ * See docs/adr/0021.
+ */
+test('each box carries its own floor and ceiling', async () => {
+  const { phone, password } = await f.makeReseller();
+  const product = await f.makeProduct({
+    boxes: [
+      { content: 6, cost: 330, maxSellPrice: 540 },
+      { content: 11, cost: 600, maxSellPrice: 990 },
+    ],
+  });
+  const agent = await signIn({ phone, password });
+  const url = `/api/reseller/catalog/${product._id}`;
+  const box = (i) => String(product.variants[i]._id);
+
+  // Legal for the six-kilo box, below cost for the eleven.
+  const mixed = await agent.put(url).send({
+    variants: [
+      { variant: box(0), sellPrice: 430 },
+      { variant: box(1), sellPrice: 430 },
+    ],
+  });
+  assert.equal(mixed.status, 400);
+  assert.equal(mixed.body.error.code, 'BELOW_COST');
+  assert.ok(mixed.body.error.fields['variants.1.sellPrice']);
+
+  const fine = await agent.put(url).send({
+    variants: [
+      { variant: box(0), sellPrice: 430 },
+      { variant: box(1), sellPrice: 800 },
+    ],
+  });
+  assert.equal(fine.status, 200, JSON.stringify(fine.body));
+  assert.deepEqual(
+    fine.body.data.product.variants.map((v) => [v.label, v.sellPrice, v.activated]),
+    [
+      ['6 kg', 430, true],
+      ['11 kg', 800, true],
+    ]
+  );
 });
 
 test('the price floor is re-checked at confirm against the current cost', async () => {
@@ -315,12 +509,15 @@ test('the price floor is re-checked at confirm against the current cost', async 
     .send({
       paymentMode: PAYMENT_MODE.PREPAID,
       customer: f.customer(),
-      items: [{ product: String(product._id), quantity: 10 }],
+      items: [{ product: String(product._id), variant: String(product.variants[0]._id), quantity: 10 }],
     });
   const order = await Order.findOne({ orderCode: created.body.data.orderCode });
 
-  // The owner raises the cost after the customer submitted.
-  await Product.updateOne({ _id: product._id }, { $set: { costPricePoisha: toPoisha(70) } });
+  // The owner raises the cost of that box after the customer submitted.
+  await Product.updateOne(
+    { _id: product._id, 'variants._id': product.variants[0]._id },
+    { $set: { 'variants.$.costPricePoisha': toPoisha(70) } }
+  );
 
   const agent = await signIn({ phone, password });
   const res = await agent.post(`/api/reseller/orders/${order._id}/confirm`).send({});
@@ -348,14 +545,14 @@ test('an owner walks an order from confirmed to delivered', async () => {
     .send({
       paymentMode: PAYMENT_MODE.COD,
       customer: f.customer(),
-      items: [{ product: String(product._id), quantity: 10 }],
+      items: [{ product: String(product._id), variant: String(product.variants[0]._id), quantity: 10 }],
     });
   const order = await Order.findOne({ orderCode: created.body.data.orderCode });
 
   const resellerAgent = await signIn({ phone, password });
   const confirmed = await resellerAgent
     .post(`/api/reseller/orders/${order._id}/confirm`)
-    .send({ items: [{ product: String(product._id), sellPrice: 62 }] });
+    .send({ items: [{ product: String(product._id), variant: String(product.variants[0]._id), sellPrice: 62 }] });
   assert.equal(confirmed.status, 200);
   assert.equal(confirmed.body.data.order.totals.walletDebit, 630);
 
@@ -406,7 +603,7 @@ test('an out of order transition is refused', async () => {
     .send({
       paymentMode: PAYMENT_MODE.PREPAID,
       customer: f.customer(),
-      items: [{ product: String(product._id), quantity: 10 }],
+      items: [{ product: String(product._id), variant: String(product.variants[0]._id), quantity: 10 }],
     });
   const order = await Order.findOne({ orderCode: created.body.data.orderCode });
 
@@ -491,7 +688,7 @@ test('the owner dashboard reports receivables and aging', async () => {
     .send({
       paymentMode: PAYMENT_MODE.PREPAID,
       customer: f.customer(),
-      items: [{ product: String(product._id), quantity: 10 }],
+      items: [{ product: String(product._id), variant: String(product.variants[0]._id), quantity: 10 }],
     });
   const order = await Order.findOne({ orderCode: created.body.data.orderCode });
 

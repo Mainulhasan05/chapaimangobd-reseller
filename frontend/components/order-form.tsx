@@ -5,17 +5,24 @@ import Link from 'next/link';
 import { useMutation } from '@tanstack/react-query';
 import { CircleCheck } from 'lucide-react';
 import { api, ApiError, errorMessage, fieldErrors } from '@/lib/api';
-import { t, tUnit } from '@/lib/i18n/bn';
+import { t } from '@/lib/i18n/bn';
 import { formatMoney, formatNumber } from '@/lib/format';
 import type { DeliveryZone, PaymentMode, PublicShop } from '@/lib/types';
 import { Alert, Badge, Card, StickyBar } from '@/components/ui/layout';
 import { Button } from '@/components/ui/button';
 import { QuantityStepper } from '@/components/ui/stepper';
 import { Field, Input, Select, Textarea } from '@/components/ui/form';
+import { DistrictSelect } from '@/components/ui/district-field';
 import { PhoneField } from '@/components/ui/phone-field';
 import { ProductThumb } from '@/components/ui/product-image';
 
-type Line = { product: string; quantity: number };
+/**
+ * One line of the order: a box, and how many of them.
+ *
+ * Keyed by the box rather than the product, because two elevens and three sixes
+ * of the same mango is two lines and is the whole point. See docs/adr/0021.
+ */
+type Line = { product: string; variant: string; quantity: number };
 
 /** The submit button lives outside the form, in the bar pinned to the viewport. */
 const FORM_ID = 'shop-order-form';
@@ -53,22 +60,43 @@ export function OrderForm({
     () => zones.flatMap((zone) => zone.districts.map((d) => ({ district: d, charge: zone.charge }))),
     [zones]
   );
+  /** The districts this shop actually delivers to, as the picker marks them. */
+  const deliverableDistricts = useMemo(() => districts.map((d) => d.district), [districts]);
 
   const deliveryCharge = districts.find((d) => d.district === customer.district)?.charge ?? 0;
 
-  const selected: Line[] = Object.entries(lines)
-    .filter(([, quantity]) => quantity > 0)
-    .map(([product, quantity]) => ({ product, quantity }));
-
-  // Only priced products can be totalled. A hidden-price line shows no figure,
-  // which is the point of hiding it.
-  const anyHidden = selected.some(
-    (line) => shop.products.find((p) => p.id === line.product)?.priceHidden
+  /*
+   * Every box on offer, flattened once, so a line can find its product and its
+   * price without two nested searches at every call site.
+   */
+  const boxes = useMemo(
+    () =>
+      shop.products.flatMap((product) =>
+        product.variants.map((variant) => ({ product, variant }))
+      ),
+    [shop.products]
+  );
+  const boxById = useMemo(
+    () => new Map(boxes.map((box) => [box.variant.id, box])),
+    [boxes]
   );
 
+  const selected: Line[] = Object.entries(lines)
+    .filter(([, quantity]) => quantity > 0)
+    .map(([variant, quantity]) => ({
+      product: boxById.get(variant)?.product.id ?? '',
+      variant,
+      quantity,
+    }))
+    .filter((line) => line.product);
+
+  // Only priced boxes can be totalled. A hidden-price line shows no figure,
+  // which is the point of hiding it.
+  const anyHidden = selected.some((line) => boxById.get(line.variant)?.product.priceHidden);
+
   const itemsTotal = selected.reduce((sum, line) => {
-    const product = shop.products.find((p) => p.id === line.product);
-    return sum + (product?.price ?? 0) * line.quantity;
+    const box = boxById.get(line.variant);
+    return sum + (box?.variant.price ?? 0) * line.quantity;
   }, 0);
 
   const submit = useMutation({
@@ -132,12 +160,16 @@ export function OrderForm({
 
         <div id={PRODUCTS_ID} className="mb-6 scroll-mt-24 space-y-3">
           {shop.products.map((product) => {
-            const quantity = lines[product.id] ?? 0;
+            // Any box of this product chosen lights the whole card.
+            const chosen = product.variants.reduce(
+              (sum, variant) => sum + (lines[variant.id] ?? 0),
+              0
+            );
 
             return (
               <Card
                 key={product.id}
-                className={quantity > 0 ? 'ring-2 ring-primary' : undefined}
+                className={chosen > 0 ? 'ring-2 ring-primary' : undefined}
               >
                 <div className="flex items-start gap-3">
                   {/*
@@ -158,44 +190,82 @@ export function OrderForm({
                     <p className="mt-0.5 font-semibold text-[var(--lp-price,oklch(0.45_0.14_70))]">
                       {product.priceHidden
                         ? t('shop.priceOnCall')
-                        : `${formatMoney(product.price ?? 0)} / ${tUnit(product.unit)}`}
-                    </p>
-                    {product.regularPrice != null && product.price != null && (
-                      <p className="flex flex-wrap items-center gap-x-2 text-xs">
-                        <s className="tabular text-muted-foreground">
-                          {formatMoney(product.regularPrice)}
-                        </s>
-                        <span className="font-semibold text-red-700">
-                          {formatMoney(product.regularPrice - product.price)} {t('landing.save')}
-                        </span>
-                      </p>
-                    )}
-                    <p className="text-xs text-muted-foreground">
-                      {t('catalog.minOrderQty')} {formatNumber(product.minOrderQty)} {tUnit(product.unit)}
+                        : t('catalog.fromPrice').replace(
+                            '{amount}',
+                            formatMoney(
+                              Math.min(...product.variants.map((v) => v.price ?? 0))
+                            )
+                          )}
                     </p>
                   </div>
                 </div>
 
-                {product.inStock && (
-                  <div className="mt-3 flex items-center justify-between gap-3">
-                    <QuantityStepper
-                      id={`qty-${product.id}`}
-                      value={quantity}
-                      step={product.step}
-                      min={product.minOrderQty}
-                      unit={product.unit}
-                      onChange={(value) =>
-                        setLines((prev) => ({ ...prev, [product.id]: value }))
-                      }
-                    />
+                {/*
+                 * A row per box: the size, its price, and how many. This is the
+                 * whole change - a customer takes two elevens and three sixes in
+                 * one order, and each is its own line. See docs/adr/0021.
+                 */}
+                <ul className="mt-3 space-y-2">
+                  {product.variants.map((variant) => {
+                    const quantity = lines[variant.id] ?? 0;
+                    const saving =
+                      variant.regularPrice != null && variant.price != null
+                        ? variant.regularPrice - variant.price
+                        : 0;
 
-                    {quantity > 0 && !product.priceHidden && (
-                      <span className="tabular text-sm font-medium">
-                        {formatMoney((product.price ?? 0) * quantity)}
-                      </span>
-                    )}
-                  </div>
-                )}
+                    return (
+                      <li
+                        key={variant.id}
+                        className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border px-3 py-2"
+                      >
+                        <div className="min-w-0">
+                          <p className="font-medium">{variant.label}</p>
+                          {product.priceHidden ? (
+                            <p className="text-xs text-muted-foreground">
+                              {t('shop.priceOnCall')}
+                            </p>
+                          ) : (
+                            <p className="flex flex-wrap items-center gap-x-2 text-xs">
+                              <span className="tabular font-semibold">
+                                {formatMoney(variant.price ?? 0)}
+                              </span>
+                              {saving > 0 && (
+                                <>
+                                  <s className="tabular text-muted-foreground">
+                                    {formatMoney(variant.regularPrice ?? 0)}
+                                  </s>
+                                  <span className="font-semibold text-red-700">
+                                    {formatMoney(saving)} {t('landing.save')}
+                                  </span>
+                                </>
+                              )}
+                            </p>
+                          )}
+                        </div>
+
+                        {variant.inStock ? (
+                          <div className="flex items-center gap-3">
+                            <QuantityStepper
+                              id={`qty-${variant.id}`}
+                              value={quantity}
+                              suffix={t('order.boxes')}
+                              onChange={(value) =>
+                                setLines((prev) => ({ ...prev, [variant.id]: value }))
+                              }
+                            />
+                            {quantity > 0 && !product.priceHidden && (
+                              <span className="tabular text-sm font-medium">
+                                {formatMoney((variant.price ?? 0) * quantity)}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <Badge tone="danger">{t('catalog.outOfStock')}</Badge>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
               </Card>
             );
           })}
@@ -223,15 +293,30 @@ export function OrderForm({
             required
           />
 
-          <Field label={t('order.district')} htmlFor="district" error={errors.district} required>
-            <Select id="district" value={customer.district} onChange={set('district')} required>
-              <option value="">{t('app.search')}</option>
-              {districts.map((d) => (
-                <option key={d.district} value={d.district}>
-                  {d.district} · {formatMoney(d.charge)}
-                </option>
-              ))}
-            </Select>
+          {/*
+           * All sixty-four, searchable, with the ones this shop delivers to
+           * first. A customer whose district is simply missing from a dropdown
+           * learns nothing; one who sees it marked undeliverable learns exactly
+           * what happened. See components/ui/district-field.tsx.
+           */}
+          <Field
+            label={t('order.district')}
+            htmlFor="district"
+            error={errors.district}
+            hint={
+              deliveryCharge > 0
+                ? `${t('order.deliveryCharge')} ${formatMoney(deliveryCharge)}`
+                : undefined
+            }
+            required
+          >
+            <DistrictSelect
+              id="district"
+              value={customer.district}
+              onChange={(district) => setCustomer((prev) => ({ ...prev, district }))}
+              deliverable={deliverableDistricts}
+              invalid={Boolean(errors.district)}
+            />
           </Field>
 
           <Field

@@ -4,7 +4,8 @@ import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError, fieldErrors } from '@/lib/api';
 import { t, tUnit } from '@/lib/i18n/bn';
-import { formatMoney, formatMoneyPlain, formatNumber } from '@/lib/format';
+import { districtLabel } from '@/lib/districts';
+import { formatMoney, formatMoneyPlain } from '@/lib/format';
 import type { Order, PaymentMode } from '@/lib/types';
 import { primeOrder } from '@/components/order-page';
 import { Modal } from '@/components/ui/modal';
@@ -13,7 +14,8 @@ import { Button } from '@/components/ui/button';
 import { Field, MoneyInput, Input, Select } from '@/components/ui/form';
 import { Alert } from '@/components/ui/layout';
 
-type Draft = { product: string; quantity: string; sellPrice: string };
+/** One line being corrected: which box, how many, and at what price. */
+type Draft = { product: string; variant: string | null; quantity: string; sellPrice: string };
 
 /**
  * Confirming is the moment money moves, so the screen shows the three numbers
@@ -37,7 +39,10 @@ function ConfirmForm({ order, onClose }: { order: Order; onClose: () => void }) 
   const [drafts, setDrafts] = useState<Draft[]>(() =>
     order.items.map((item) => ({
       product: item.product,
-      quantity: String(item.quantity),
+      // Which box this correction is for. A line is a box. docs/adr/0021.
+      variant: item.variant,
+      // A count of boxes, not a weight.
+      quantity: String(item.boxes ?? item.quantity),
       // Latin digits: this value is parsed back on submit.
       sellPrice: formatMoneyPlain(item.sellPrice),
     }))
@@ -50,6 +55,7 @@ function ConfirmForm({ order, onClose }: { order: Order; onClose: () => void }) 
         paymentMode,
         items: drafts.map((d) => ({
           product: d.product,
+          variant: d.variant,
           quantity: Number(d.quantity),
           sellPrice: Number(d.sellPrice),
         })),
@@ -70,8 +76,8 @@ function ConfirmForm({ order, onClose }: { order: Order; onClose: () => void }) 
 
   // Cost prices are snapshots on the order, so this preview matches the server.
   const costSubtotal = order.items.reduce((sum, item, index) => {
-    const qty = Number(drafts[index]?.quantity ?? item.quantity) || 0;
-    return sum + item.costPrice * qty;
+    const boxes = Number(drafts[index]?.quantity ?? item.boxes ?? item.quantity) || 0;
+    return sum + item.costPrice * boxes;
   }, 0);
 
   const sellSubtotal = drafts.reduce((sum, draft) => {
@@ -120,7 +126,7 @@ function ConfirmForm({ order, onClose }: { order: Order; onClose: () => void }) 
         <p className="font-medium">{order.customer.name}</p>
         <p className="tabular text-muted-foreground">{order.customer.phoneE164}</p>
         <p className="text-muted-foreground">
-          {order.customer.address}, {order.customer.district}
+          {order.customer.address}, {districtLabel(order.customer.district)}
         </p>
         {order.customer.note && <p className="mt-1 text-muted-foreground">{order.customer.note}</p>}
       </div>
@@ -155,7 +161,7 @@ function ConfirmForm({ order, onClose }: { order: Order; onClose: () => void }) 
               <Field
                 label={`${t('order.quantity')} (${tUnit(item.unit)})`}
                 htmlFor={`qty-${index}`}
-                hint={`${t('catalog.minOrderQty')} ${formatNumber(item.quantity)}`}
+                hint={item.variantLabel ?? undefined}
                 error={errors[`items.${index}.quantity`]}
                 className="mb-0"
               >

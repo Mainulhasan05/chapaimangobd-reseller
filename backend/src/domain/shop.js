@@ -1,6 +1,7 @@
 'use strict';
 
-const { KYC_STATUS, SHOP_CLOSED_REASON } = require('./constants');
+const { SHOP_CLOSED_REASON } = require('./constants');
+const { kycBlocks } = require('./kyc');
 
 /**
  * Whether a shop takes orders, and if not, why.
@@ -10,7 +11,11 @@ const { KYC_STATUS, SHOP_CLOSED_REASON } = require('./constants');
  * checked first: a deactivated reseller's shop is closed whatever the profile
  * says, and the reason is the one a customer is shown. See docs/adr/0011.
  *
- * @param {{ kycStatus: string, formActive: boolean }} profile
+ * KYC closes a shop only where the owner asked that reseller for it: a
+ * reseller who was never asked has nothing pending and nothing to prove, so
+ * the question does not arise. See docs/adr/0017.
+ *
+ * @param {{ kycRequired: boolean, kycStatus: string, formActive: boolean }} profile
  * @param {{ isActive: boolean } | null} user the reseller's account
  * @returns {{ acceptingOrders: boolean, reason: string | null }}
  */
@@ -18,7 +23,7 @@ function shopAvailability(profile, user) {
   if (!user || !user.isActive) {
     return { acceptingOrders: false, reason: SHOP_CLOSED_REASON.INACTIVE };
   }
-  if (profile.kycStatus !== KYC_STATUS.APPROVED) {
+  if (kycBlocks(profile)) {
     return { acceptingOrders: false, reason: SHOP_CLOSED_REASON.KYC };
   }
   if (!profile.formActive) {

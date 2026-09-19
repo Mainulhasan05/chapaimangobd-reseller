@@ -10,7 +10,8 @@ const audit = require('../../services/audit');
 const { ok } = require('../../middleware/error');
 const { notFound, badRequest } = require('../../utils/errors');
 const { toPoisha, toTaka } = require('../../utils/money');
-const { toMilli, defaultStepMilli } = require('../../utils/quantity');
+const { toMilli } = require('../../utils/quantity');
+const { assertDistinctContents } = require('../../domain/variants');
 const { normalizeBdPhone } = require('../../utils/phone');
 const present = require('../../utils/present');
 
@@ -90,21 +91,53 @@ async function listProducts(req, res) {
   return ok(res, { products: products.map(present.product) });
 }
 
+/**
+ * The boxes, as the owner sent them, converted to what is stored.
+ *
+ * The whole list every time, not a patch per box: a reorder, an added box and a
+ * removed one are all simply the new list, which is the same rule the landing
+ * content follows and it means no index arithmetic anywhere. A box that carries
+ * an `id` keeps it, so the order lines and the reseller price rows pointing at
+ * it stay pointed at it. See domain/variants.js and docs/adr/0021.
+ */
+function buildVariants(input, { index = 0 } = {}) {
+  const variants = input.map((variant, i) => {
+    const costPricePoisha = toPoisha(variant.costPrice, `variants.${i}.costPrice`);
+    const maxSellPricePoisha =
+      variant.maxSellPrice == null
+        ? null
+        : toPoisha(variant.maxSellPrice, `variants.${i}.maxSellPrice`);
+
+    if (maxSellPricePoisha != null && maxSellPricePoisha < costPricePoisha) {
+      throw badRequest('BAD_MAX', 'Maximum selling price cannot be below the cost price', {
+        [`variants.${i}.maxSellPrice`]: 'Must be at least the cost price',
+      });
+    }
+
+    return {
+      ...(variant.id ? { _id: variant.id } : {}),
+      label: variant.label || '',
+      contentMilli: toMilli(variant.content, `variants.${i}.content`),
+      costPricePoisha,
+      maxSellPricePoisha,
+      stockQty: variant.stockQty ?? 0,
+      isAvailable: variant.isAvailable ?? true,
+      sortOrder: variant.sortOrder ?? index + i,
+    };
+  });
+
+  assertDistinctContents(variants);
+  return variants;
+}
+
 function buildProductPatch(body) {
   const patch = {};
 
   if (body.name !== undefined) patch.nameBn = body.name;
   if (body.description !== undefined) patch.description = body.description;
   if (body.unit !== undefined) patch.unit = body.unit;
-  if (body.minOrderQty !== undefined) patch.minOrderQtyMilli = toMilli(body.minOrderQty, 'minOrderQty');
-  if (body.step !== undefined) patch.qtyStepMilli = toMilli(body.step, 'step');
-  if (body.costPrice !== undefined) patch.costPricePoisha = toPoisha(body.costPrice, 'costPrice');
-  if (body.maxSellPrice !== undefined) {
-    patch.maxSellPricePoisha =
-      body.maxSellPrice === null ? null : toPoisha(body.maxSellPrice, 'maxSellPrice');
-  }
+  if (body.variants !== undefined) patch.variants = buildVariants(body.variants);
   if (body.trackStock !== undefined) patch.trackStock = body.trackStock;
-  if (body.stockQty !== undefined) patch.stockQtyMilli = toMilli(body.stockQty, 'stockQty');
   if (body.isAvailable !== undefined) patch.isAvailable = body.isAvailable;
   if (body.sortOrder !== undefined) patch.sortOrder = body.sortOrder;
   if (body.isArchived !== undefined) patch.isArchived = body.isArchived;
@@ -112,15 +145,16 @@ function buildProductPatch(body) {
   return patch;
 }
 
+/** Every box's cost, for the audit log. A product has no single price any more. */
+const variantCosts = (product) =>
+  (product.variants || []).map((v) => ({
+    variant: String(v._id),
+    contentMilli: v.contentMilli,
+    costPricePoisha: v.costPricePoisha,
+  }));
+
 async function createProduct(req, res) {
   const patch = buildProductPatch(req.body);
-  if (!patch.qtyStepMilli) patch.qtyStepMilli = defaultStepMilli(patch.unit);
-
-  if (patch.maxSellPricePoisha != null && patch.maxSellPricePoisha < patch.costPricePoisha) {
-    throw badRequest('BAD_MAX', 'Maximum selling price cannot be below the cost price', {
-      maxSellPrice: 'Must be at least the cost price',
-    });
-  }
 
   const images = await uploadImages(req.files);
   const product = await Product.create({ ...patch, images });
@@ -130,7 +164,7 @@ async function createProduct(req, res) {
     action: 'product.create',
     targetType: 'Product',
     targetId: product._id,
-    after: { costPricePoisha: product.costPricePoisha },
+    after: { variants: variantCosts(product) },
     ip: req.ip,
   });
 
@@ -158,11 +192,23 @@ async function updateProduct(req, res) {
 
   if (images.length > 0 || removed.length > 0) patch.images = [...kept, ...images];
 
-  const nextCost = patch.costPricePoisha ?? existing.costPricePoisha;
-  const nextMax = patch.maxSellPricePoisha ?? existing.maxSellPricePoisha;
-  if (nextMax != null && nextMax < nextCost) {
-    throw badRequest('BAD_MAX', 'Maximum selling price cannot be below the cost price', {
-      maxSellPrice: 'Must be at least the cost price',
+  /*
+   * A box that has ever been ordered is switched off, never dropped.
+   *
+   * The same rule as archiving a product or a source, and for the same reason:
+   * the pick list groups by box, a pending order is repriced from the live one
+   * at confirm, and a deleted box turns both into a dead end. The owner's intent
+   * is honoured either way - the box leaves every form - but the row stays.
+   */
+  if (patch.variants) {
+    const kept = new Set(patch.variants.filter((v) => v._id).map((v) => String(v._id)));
+    const dropped = existing.variants.filter((v) => !kept.has(String(v._id)));
+    const ordered = await Promise.all(
+      dropped.map((v) => Order.exists({ 'items.variant': v._id }))
+    );
+    dropped.forEach((variant, i) => {
+      if (!ordered[i]) return;
+      patch.variants.push({ ...variant.toObject(), isAvailable: false });
     });
   }
 
@@ -184,15 +230,18 @@ async function updateProduct(req, res) {
     await auditArchive(req, 'Product', product, existing.isArchived, product.isArchived);
   }
 
-  // A cost price change is the kind of thing that gets argued about later.
-  if (patch.costPricePoisha !== undefined && patch.costPricePoisha !== existing.costPricePoisha) {
+  // A cost price change is the kind of thing that gets argued about later. The
+  // whole set of boxes is recorded, because which box moved is the question.
+  const before = variantCosts(existing);
+  const after = variantCosts(product);
+  if (patch.variants !== undefined && JSON.stringify(before) !== JSON.stringify(after)) {
     await audit.record({
       actor: req.user._id,
       action: 'product.reprice',
       targetType: 'Product',
       targetId: product._id,
-      before: { costPricePoisha: existing.costPricePoisha },
-      after: { costPricePoisha: product.costPricePoisha },
+      before: { variants: before },
+      after: { variants: after },
       ip: req.ip,
     });
   }

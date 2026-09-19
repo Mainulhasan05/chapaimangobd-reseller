@@ -78,6 +78,8 @@ export type ResellerProfile = {
   payment?: { bkash?: string; nagad?: string };
   /** The public page design. The content itself is the owner's. */
   landingTemplate?: LandingTemplate;
+  /** Whether the owner has asked this reseller to verify. See lib/kyc.ts. */
+  kycRequired: boolean;
   kycStatus: KycStatus;
   balancePoisha: number;
   creditLimitPoisha: number;
@@ -130,6 +132,16 @@ export type OrderItem = {
   product: string;
   productName: string;
   unit: string;
+  /*
+   * Which box and how many of them, read from the line's own snapshot. Null on
+   * an order placed before boxes existed, where `quantity` is all there is.
+   * See docs/adr/0021.
+   */
+  variant: string | null;
+  variantLabel: string | null;
+  variantContent: number | null;
+  boxes: number | null;
+  /** What is in those boxes together, in the product's unit. */
   quantity: number;
   costPrice: number;
   sellPrice: number;
@@ -237,25 +249,57 @@ export type StatusHistoryEntry = {
   event?: string;
 };
 
+/**
+ * One box a product is sold in, as the reseller's catalog screen sees it: what
+ * the owner charges for it and what this reseller charges. See docs/adr/0021.
+ */
+export type CatalogVariant = {
+  id: string;
+  /** "6 kg", or whatever the owner named it. Already resolved by the API. */
+  label: string;
+  /** How much is in the box, in the product's unit. */
+  content: number;
+  /** Per box, both of these. */
+  costPrice: number;
+  maxSellPrice: number | null;
+  /** A count of boxes, or null when the product is not counted. */
+  stockQty: number | null;
+  inStock: boolean;
+  isAvailable: boolean;
+  /** This reseller has priced it, and can therefore sell it. */
+  activated: boolean;
+  sellPrice: number | null;
+  /** The struck-through "was" price on the public page, if any. */
+  regularPrice: number | null;
+  isListed: boolean;
+};
+
 export type CatalogItem = {
   id: string;
   name: string;
   description?: string;
   images: ProductImage[];
   unit: string;
-  step: number;
-  minOrderQty: number;
-  costPrice: number;
-  maxSellPrice: number | null;
-  inStock: boolean;
-  stockQty: number | null;
+  /** A product has no price of its own: a box has one. docs/adr/0021. */
+  variants: CatalogVariant[];
   isAvailable: boolean;
+  trackStock: boolean;
   activated: boolean;
-  sellPrice: number | null;
-  /** The struck-through "was" price on the public page, if any. */
-  regularPrice: number | null;
   hidePrice: boolean;
   isListed: boolean;
+};
+
+/** One box the owner sells a product in. See docs/adr/0021. */
+export type ProductVariant = {
+  id: string;
+  label: string;
+  content: number;
+  costPrice: number;
+  maxSellPrice: number | null;
+  /** A count of boxes, null when the product is not counted. */
+  stockQty: number | null;
+  isAvailable: boolean;
+  sortOrder: number;
 };
 
 export type OwnerProduct = {
@@ -263,13 +307,10 @@ export type OwnerProduct = {
   name: string;
   description?: string;
   images: ProductImage[];
+  /** The unit a box's contents are measured in. The price is on the box. */
   unit: string;
-  step: number;
-  minOrderQty: number;
-  costPrice: number;
-  maxSellPrice: number | null;
+  variants: ProductVariant[];
   trackStock: boolean;
-  stockQty: number | null;
   isAvailable: boolean;
   sortOrder: number;
 };
@@ -411,11 +452,25 @@ export type Deposit = {
   createdAt: string;
 };
 
+/**
+ * Where a bank withdrawal is paid. A wallet is paid on a number and a bank on an
+ * account, so exactly one of `destinationNumber` and `bank` is set on any one
+ * withdrawal. See docs/adr/0018.
+ */
+export type BankAccount = {
+  accountName: string;
+  bankName: string;
+  branchName: string;
+  accountNumber: string;
+  routingNumber?: string;
+};
+
 export type Withdrawal = {
   id: string;
   amount: number;
   method: DepositMethod;
-  destinationNumber: string;
+  destinationNumber: string | null;
+  bank: BankAccount | null;
   status: ReviewStatus;
   rejectionReason?: string;
   payoutReference?: string;
@@ -485,13 +540,22 @@ export type PublicShop = {
     description?: string;
     images: ProductImage[];
     unit: string;
-    step: number;
-    minOrderQty: number;
     inStock: boolean;
     priceHidden: boolean;
-    price?: number;
-    /** The struck-through price. Only present when above `price`. */
-    regularPrice?: number;
+    /*
+     * The boxes this shop sells it in, cheapest first. Only boxes the reseller
+     * priced and listed reach here at all, and a price is absent from the
+     * payload entirely when `priceHidden`. See docs/adr/0021.
+     */
+    variants: {
+      id: string;
+      label: string;
+      content: number;
+      inStock: boolean;
+      price?: number;
+      /** The struck-through price. Only present when above `price`. */
+      regularPrice?: number;
+    }[];
   }[];
 };
 
@@ -503,7 +567,11 @@ export type PublicOrder = {
   items: {
     productName: string;
     unit: string;
+    /** The box the customer chose, and how many. Null on a pre-boxes order. */
+    variantLabel: string | null;
+    boxes: number | null;
     quantity: number;
+    /** Per box. */
     unitPrice: number;
     lineTotal: number;
   }[];
@@ -608,9 +676,25 @@ export type PickList = {
     product: string;
     name: string;
     unit: string;
+    /** Everything in every box together, in the product's unit. */
     quantity: number;
+    /** How many boxes in total, across sizes. */
+    boxes: number;
+    /*
+     * How many of each box size, biggest first. This is what the packing table
+     * actually reads: a total in kilos does not say whether to fill sixes or
+     * elevens. `label` is null for an order placed before boxes existed.
+     * See docs/adr/0021.
+     */
+    variants: { label: string | null; boxes: number; quantity: number }[];
     orders: number;
-    sources: { sourceName: string | null; quantity: number; orders: number }[];
+    sources: {
+      sourceName: string | null;
+      variantLabel: string | null;
+      quantity: number;
+      boxes: number;
+      orders: number;
+    }[];
   }[];
 };
 
@@ -673,6 +757,7 @@ export type ResellerSummary = {
   user: User;
   shopName: string;
   slug: string;
+  kycRequired: boolean;
   kycStatus: KycStatus;
   formActive: boolean;
   balance: number;

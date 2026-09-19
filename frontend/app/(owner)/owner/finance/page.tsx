@@ -28,7 +28,7 @@ import { Field, Input, Textarea } from '@/components/ui/form';
 import { Modal } from '@/components/ui/modal';
 import { useToast } from '@/components/ui/toast';
 import { LoadMore } from '@/components/ui/load-more';
-import type { Paged } from '@/lib/types';
+import type { BankAccount, Paged } from '@/lib/types';
 
 const PAGE_SIZE = 30;
 
@@ -52,10 +52,36 @@ type WithdrawalRow = {
   reseller: ResellerRef;
   amount: number;
   method: string;
-  destinationNumber: string;
+  /** Exactly one of these is set, by method. See docs/adr/0018. */
+  destinationNumber: string | null;
+  bank: BankAccount | null;
   status: string;
   createdAt: string;
 };
+
+/**
+ * Where the money goes, as the owner reads it off the screen to make the
+ * payment. A bank transfer is four lines, not a number: the whole point of
+ * asking for them is that the owner can act on them without ringing back.
+ */
+function PayoutDestination({ row, align = 'right' }: { row: WithdrawalRow; align?: 'left' | 'right' }) {
+  if (row.bank) {
+    return (
+      <div className={align === 'right' ? 'text-right' : ''}>
+        <p className="font-medium text-foreground">{row.bank.bankName}</p>
+        <p>{row.bank.branchName}</p>
+        <p className="tabular font-medium text-foreground">{row.bank.accountNumber}</p>
+        <p>{row.bank.accountName}</p>
+        {row.bank.routingNumber && (
+          <p className="tabular">
+            {t('wallet.routingNumber')} {row.bank.routingNumber}
+          </p>
+        )}
+      </div>
+    );
+  }
+  return <p className="tabular">{row.destinationNumber}</p>;
+}
 
 const KINDS = [
   { value: 'deposits' as const, label: t('nav.deposits') },
@@ -428,7 +454,7 @@ function Withdrawals({ status }: { status: string }) {
                 <p className="tabular text-xl font-semibold">{formatMoney(row.amount)}</p>
                 <div className="text-right text-xs text-muted-foreground">
                   <p className="uppercase">{row.method}</p>
-                  <p className="tabular">{row.destinationNumber}</p>
+                  <PayoutDestination row={row} />
                 </div>
               </div>
 
@@ -451,7 +477,7 @@ function Withdrawals({ status }: { status: string }) {
         <thead>
           <tr>
             <Th>{t('nav.resellers')}</Th>
-            <Th>{t('wallet.destinationNumber')}</Th>
+            <Th>{t('wallet.payoutDestination')}</Th>
             <Th className="text-right">{t('wallet.amount')}</Th>
             <Th>{t('app.status')}</Th>
             <Th className="text-right">{t('app.actions')}</Th>
@@ -468,7 +494,9 @@ function Withdrawals({ status }: { status: string }) {
                 />
               </Td>
               <Td>
-                <div className="tabular">{row.destinationNumber}</div>
+                <div className="text-xs text-muted-foreground">
+                  <PayoutDestination row={row} align="left" />
+                </div>
                 <div className="text-xs uppercase text-muted-foreground">{row.method}</div>
               </Td>
               <Td className="tabular text-right font-medium">{formatMoney(row.amount)}</Td>
@@ -543,7 +571,12 @@ function Withdrawals({ status }: { status: string }) {
           <Alert tone="danger">{withdrawalError(decide.error)}</Alert>
         )}
         <p className="mb-4 text-sm text-muted-foreground">
-          {approving && `${formatMoney(approving.amount)} → ${approving.destinationNumber}`}
+          {approving &&
+            `${formatMoney(approving.amount)} → ${
+              approving.bank
+                ? `${approving.bank.bankName} · ${approving.bank.accountNumber}`
+                : approving.destinationNumber
+            }`}
         </p>
         <Field label={t('wallet.transactionId')} htmlFor="payoutReference" hint={t('app.optional')}>
           <Input

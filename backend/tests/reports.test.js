@@ -58,7 +58,7 @@ async function confirmedOrder(setup, { quantity = 10 } = {}) {
     .send({
       paymentMode: PAYMENT_MODE.COD,
       customer: f.customer(),
-      items: [{ product: String(setup.product._id), quantity }],
+      items: [{ product: String(setup.product._id), variant: String(setup.product.variants[0]._id), quantity }],
     });
   assert.equal(placed.status, 201, JSON.stringify(placed.body));
 

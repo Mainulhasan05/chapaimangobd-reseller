@@ -431,7 +431,7 @@ function Offer({ slug, shop, zones }: Props) {
                       className="object-cover"
                       loading="lazy"
                     />
-                    {product.regularPrice != null && (
+                    {product.variants.some((v) => v.regularPrice != null) && (
                       <span className="absolute top-3 left-3 rounded-full bg-red-600 px-3 py-1 text-xs font-bold text-white shadow">
                         {t('landing.offerPrice')}
                       </span>
@@ -442,16 +442,23 @@ function Offer({ slug, shop, zones }: Props) {
                   <h2 className="font-(family-name:--lp-heading) text-2xl font-bold text-(--lp-ink)">
                     {product.name}
                   </h2>
-                  <div className="mt-2">
-                    {product.price != null ? (
-                      <PriceTag
-                        price={product.price}
-                        regularPrice={product.regularPrice}
-                        unit={product.unit}
-                        size="lg"
-                      />
-                    ) : (
+                  {/*
+                   * A price per box, one line each: the mango is the same, the
+                   * six-kilo box and the eleven-kilo box are not. docs/adr/0021.
+                   */}
+                  <div className="mt-2 space-y-1">
+                    {product.priceHidden ? (
                       <p className="text-lg font-bold text-(--lp-price)">{t('shop.priceOnCall')}</p>
+                    ) : (
+                      product.variants.map((variant) => (
+                        <PriceTag
+                          key={variant.id}
+                          price={variant.price ?? 0}
+                          regularPrice={variant.regularPrice}
+                          label={variant.label}
+                          size={product.variants.length > 1 ? 'md' : 'lg'}
+                        />
+                      ))
                     )}
                   </div>
                   {product.description && (

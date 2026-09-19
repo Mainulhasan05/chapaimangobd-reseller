@@ -28,6 +28,7 @@ const present = require('../../utils/present');
 const { streamCsv, trustedFormula } = require('../../utils/csv');
 const { buildOrderFilter } = require('../../utils/orderFilter');
 const { ORDER_STATUS, REVIEW_STATUS, PAYMENT_MODE, ROLES } = require('../../domain/constants');
+const { variantLabel } = require('../../domain/variants');
 const { OUTBOX_STATUS } = require('../../models/OutboxMessage');
 
 /** Statuses an order passes through while it is still the owner's problem. */
@@ -146,7 +147,17 @@ async function dashboard(_req, res) {
     Withdrawal.countDocuments({ status: REVIEW_STATUS.PENDING }),
     // A reseller stuck here cannot trade at all, and nothing counted them.
     KycSubmission.countDocuments({ status: REVIEW_STATUS.PENDING }),
-    Product.countDocuments({ isArchived: false, trackStock: true, stockQtyMilli: { $lte: 0 } }),
+    /*
+     * Products with nothing left to sell: every box they offer is at zero. A
+     * product with elevens in the godown and no sixes is not out of stock, it is
+     * short of one box, and counting it here would send the owner looking for a
+     * problem that is not one. docs/adr/0021.
+     */
+    Product.countDocuments({
+      isArchived: false,
+      trackStock: true,
+      variants: { $not: { $elemMatch: { isAvailable: true, stockQty: { $gt: 0 } } } },
+    }),
     // Notifications that gave up. A dead gateway is otherwise silent.
     OutboxMessage.countDocuments({ status: OUTBOX_STATUS.DEAD }),
     // `isActive` is a User field, not a profile one: a deactivated reseller is
@@ -461,9 +472,13 @@ async function pickList(req, res) {
           product: '$items.product',
           name: '$items.productNameBn',
           unit: '$items.unit',
+          // The box, because the packing table packs boxes and a total in kilos
+          // does not say whether to fill sixes or elevens. docs/adr/0021.
+          variantLabel: '$items.variantLabelBn',
           sourceName: '$items.sourceNameBn',
         },
         qtyMilli: { $sum: '$items.qtyMilli' },
+        boxes: { $sum: '$items.qty' },
         // Distinct orders, because one order may carry the same product twice.
         orders: { $addToSet: '$_id' },
       },
@@ -479,17 +494,35 @@ async function pickList(req, res) {
         name: row._id.name,
         unit: row._id.unit,
         qtyMilli: 0,
+        boxes: 0,
         orders: 0,
         sources: [],
+        variants: new Map(),
       });
     }
     const entry = products.get(key);
     entry.qtyMilli += row.qtyMilli;
+    entry.boxes += row.boxes || 0;
     entry.orders += row.orders.length;
+
+    /*
+     * How many of each box, across every orchard. What the packing table reads
+     * off the sheet: "eleven-kilo x 14, six-kilo x 9". Null on an order placed
+     * before boxes existed, which is grouped under its own heading rather than
+     * folded into a box nobody chose.
+     */
+    const label = row._id.variantLabel || null;
+    const box = entry.variants.get(label) || { label, qtyMilli: 0, boxes: 0 };
+    box.qtyMilli += row.qtyMilli;
+    box.boxes += row.boxes || 0;
+    entry.variants.set(label, box);
+
     entry.sources.push({
       // Null until the order is accepted and an orchard is chosen.
       sourceName: row._id.sourceName || null,
+      variantLabel: label,
       quantity: fromMilli(row.qtyMilli),
+      boxes: row.boxes || 0,
       orders: row.orders.length,
     });
   });
@@ -500,6 +533,11 @@ async function pickList(req, res) {
       name: p.name,
       unit: p.unit,
       quantity: fromMilli(p.qtyMilli),
+      boxes: p.boxes,
+      // Biggest box first: it is the one that takes the most fruit.
+      variants: [...p.variants.values()]
+        .map((v) => ({ label: v.label, boxes: v.boxes, quantity: fromMilli(v.qtyMilli) }))
+        .sort((a, b) => b.quantity - a.quantity),
       orders: p.orders,
       // Undecided last, then heaviest first: the decided ones are the ones
       // somebody is about to drive to.
@@ -558,7 +596,7 @@ async function productsReport(req, res) {
   const { from, to } = rangeOf(req.query);
 
   const [products, sold] = await Promise.all([
-    Product.find({ isArchived: false }, 'nameBn unit trackStock stockQtyMilli costPricePoisha isAvailable').sort({
+    Product.find({ isArchived: false }, 'nameBn unit trackStock variants isAvailable').sort({
       sortOrder: 1,
       nameBn: 1,
     }),
@@ -590,22 +628,41 @@ async function productsReport(req, res) {
     const quantity = fromMilli(stat ? stat.qtyMilli : 0);
     const perDay = quantity / days;
 
+    /*
+     * Stock is a count of boxes per box size, so "how much is left" is the boxes
+     * multiplied out: eight six-kilo boxes and two elevens is seventy kilos.
+     * That is the number `daysLeft` divides, because demand above is a quantity
+     * too. The per-box counts travel beside it for the screen. docs/adr/0021.
+     */
+    const boxes = (product.variants || []).map((v) => ({
+      variant: v._id,
+      label: variantLabel(v, product.unit),
+      stockQty: product.trackStock ? v.stockQty : null,
+      content: fromMilli(v.contentMilli),
+      costPrice: toTaka(v.costPricePoisha || 0),
+      isAvailable: v.isAvailable,
+    }));
+    const stockMilli = (product.variants || []).reduce(
+      (sum, v) => sum + v.stockQty * v.contentMilli,
+      0
+    );
+
     return {
       product: product._id,
       name: product.nameBn,
       unit: product.unit,
       isAvailable: product.isAvailable,
       trackStock: product.trackStock,
+      variants: boxes,
       // Only meaningful when stock is tracked; null says so rather than lying
       // with a zero, which reads as "out of stock".
-      stock: product.trackStock ? fromMilli(product.stockQtyMilli) : null,
-      costPrice: toTaka(product.costPricePoisha || 0),
+      stock: product.trackStock ? fromMilli(stockMilli) : null,
+      // The cheapest box, as the one figure a product-level column can carry.
+      costPrice: boxes.length > 0 ? Math.min(...boxes.map((b) => b.costPrice)) : 0,
       quantity,
       perDay: Math.round(perDay * 100) / 100,
       daysLeft:
-        product.trackStock && perDay > 0
-          ? Math.floor(fromMilli(product.stockQtyMilli) / perDay)
-          : null,
+        product.trackStock && perDay > 0 ? Math.floor(fromMilli(stockMilli) / perDay) : null,
       goods: toTaka(stat ? stat.goodsPoisha : 0),
       customerTotal: toTaka(stat ? stat.customerPoisha : 0),
       orders: stat ? stat.orders.length : 0,
@@ -732,8 +789,17 @@ async function exportOrders(req, res) {
     .cursor();
 
   const toRow = (order) => {
+    /*
+     * What was ordered, as boxes: "Himsagar 11 kg x 2". A line from before
+     * boxes existed has no box to name, so it falls back to the quantity it
+     * has always carried. docs/adr/0021.
+     */
     const items = order.items
-      .map((i) => `${i.productNameBn} x ${fromMilli(i.qtyMilli)}${i.unit}`)
+      .map((i) =>
+        i.qty
+          ? `${i.productNameBn} ${i.variantLabelBn} x ${i.qty}`
+          : `${i.productNameBn} x ${fromMilli(i.qtyMilli)}${i.unit}`
+      )
       .join(' | ');
 
     return [

@@ -294,7 +294,10 @@ async function runFlow() {
   const shop = await anon.get('/api/public/shop/demo-mango');
   if (shop.status !== 200) fail('shop api failed');
   const product = shop.body.data.products[0];
-  if (!product.price) fail('expected a visible price on the demo product');
+  // A price belongs to a box, and a product is sold in at least one. docs/adr/0021.
+  const box = (product.variants || [])[0];
+  if (!box || !box.price) fail('expected a visible price on the demo product box');
+  log(`the demo product is sold in ${product.variants.length} box size(s)`);
 
   const submissionId = crypto.randomUUID();
   const orderBody = {
@@ -306,7 +309,8 @@ async function runFlow() {
       address: '12 Test Road, Dhanmondi',
       district: 'Dhaka',
     },
-    items: [{ product: product.id, quantity: 10 }],
+    // One line is one box, and a quantity is a count of boxes.
+    items: [{ product: product.id, variant: box.id, quantity: 2 }],
   };
 
   const first = await anon.post('/api/public/shop/demo-mango/orders', orderBody);
@@ -351,7 +355,13 @@ async function runFlow() {
   const me = await signup.get('/api/auth/me');
   if (me.status !== 200) fail('the session from register did not work');
   if (me.body.data.profile.kycStatus !== 'not_submitted') fail('unexpected kyc status after register');
+  // Nobody is asked for a national ID to join: the owner asks, one reseller at
+  // a time, and until then the module does not exist for them. docs/adr/0017.
+  if (me.body.data.profile.kycRequired) fail('a new reseller must not be asked for KYC');
+  const kycState = await signup.get('/api/reseller/kyc');
+  if (kycState.body.data.visible) fail('the KYC module must be hidden for a new reseller');
   log('registration proves the phone by OTP, then signs the new reseller straight in');
+  log('and asks them for no documents: KYC is off until the owner turns it on');
 
   // A registered number is refused before any code is sent.
   const duplicate = await makeSession().post('/api/auth/register/otp', { phone: newPhone });
@@ -378,7 +388,7 @@ async function runFlow() {
   const delivery = pending.deliveryCharge;
 
   const confirmed = await reseller.post(`/api/reseller/orders/${pending.id}/confirm`, {
-    items: [{ product: product.id, quantity: 10, sellPrice: product.price + 5 }],
+    items: [{ product: product.id, variant: box.id, quantity: 2, sellPrice: box.price + 5 }],
   });
   if (confirmed.status !== 200) fail(`confirm failed: ${JSON.stringify(confirmed.body)}`);
   if (!Array.isArray(confirmed.body.data.order.actions)) {
@@ -475,12 +485,24 @@ async function runFlow() {
   //    parcel comes back from the courier and goes back on the shelf.
   const ownedProducts = async () => (await owner.get('/api/owner/products')).body.data.products;
   const owned = await ownedProducts();
+  /*
+   * Stock is a count of boxes, held per box size, so this picks a box that is
+   * actually counted rather than a product. See docs/adr/0021.
+   */
   const stocked = shop.body.data.products.find((p) =>
-    owned.some((o) => String(o.id) === String(p.id) && o.stockQty != null)
+    owned.some(
+      (o) =>
+        String(o.id) === String(p.id) &&
+        o.trackStock &&
+        (o.variants || []).some((v) => v.stockQty != null)
+    )
   );
   if (!stocked) fail('the demo shop has no stock-tracked product');
-  const stockOf = async () =>
-    (await ownedProducts()).find((p) => String(p.id) === String(stocked.id)).stockQty;
+  const stockedBox = stocked.variants[0];
+  const stockOf = async () => {
+    const row = (await ownedProducts()).find((p) => String(p.id) === String(stocked.id));
+    return row.variants.find((v) => String(v.id) === String(stockedBox.id)).stockQty;
+  };
 
   const secondPlaced = await anon.post('/api/public/shop/demo-mango/orders', {
     submissionId: crypto.randomUUID(),
@@ -491,7 +513,7 @@ async function runFlow() {
       address: '5 Lake Road, Gulshan',
       district: 'Dhaka',
     },
-    items: [{ product: stocked.id, quantity: 6 }],
+    items: [{ product: stocked.id, variant: stockedBox.id, quantity: 3 }],
   });
   if (secondPlaced.status !== 201) fail(`second order failed: ${JSON.stringify(secondPlaced.body)}`);
   const secondList = await reseller.get('/api/reseller/orders?status=pending&limit=10');
@@ -506,7 +528,7 @@ async function runFlow() {
   if (secondConfirmed.status !== 200) {
     fail(`second confirm failed: ${JSON.stringify(secondConfirmed.body)}`);
   }
-  if (!same(await stockOf(), stockBefore - 6)) fail('confirm did not take the stock');
+  if (!same(await stockOf(), stockBefore - 3)) fail('confirm did not take the boxes');
 
   const raisedTo = returning.deliveryCharge + 20;
   const adjusted = await owner.patch(`/api/owner/orders/${returning.id}/delivery-charge`, {

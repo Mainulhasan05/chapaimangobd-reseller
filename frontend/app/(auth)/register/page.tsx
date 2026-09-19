@@ -56,7 +56,12 @@ export default function RegisterPage() {
       // The register response omits the features block, so refetch rather than
       // seeding the cache with a partial session.
       await queryClient.invalidateQueries({ queryKey: sessionKey });
-      router.replace('/reseller/kyc');
+      /*
+       * The dashboard, not the KYC page. A new account is never asked to verify
+       * (docs/adr/0017), so that page would have nothing on it; the setup
+       * checklist on the dashboard is what a new reseller actually needs.
+       */
+      router.replace('/reseller');
     },
   });
 

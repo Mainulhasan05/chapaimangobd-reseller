@@ -43,6 +43,7 @@ export const bn = {
   'app.viewAll': 'সব দেখুন',
   'app.profile': 'প্রোফাইল',
   'app.clear': 'মুছে দিন',
+  'app.remove': 'সরান',
   'app.loadMore': 'আরও দেখুন',
   'app.allLoaded': 'সব দেখানো হয়েছে',
   'app.offline': 'ইন্টারনেট সংযোগ নেই',
@@ -312,6 +313,29 @@ export const bn = {
   'catalog.maxSellPrice': 'সর্বোচ্চ বিক্রয়মূল্য',
   'catalog.minOrderQty': 'সর্বনিম্ন অর্ডার',
   'catalog.unit': 'একক',
+  'catalog.unitHint': 'বক্সের ভেতরে কী পরিমাণ থাকবে তা এই এককে মাপা হবে',
+
+  /*
+   * Boxes. A mango leaves in a six-kilo box or an eleven-kilo box, and those
+   * are two things with two prices rather than one thing with a minimum and a
+   * step. See docs/adr/0021.
+   */
+  'catalog.boxes': 'বক্স',
+  'catalog.boxesHint': 'যে যে সাইজের বক্সে এই পণ্য বিক্রি হবে। দাম ও স্টক প্রতি বক্স হিসেবে।',
+  'catalog.addBox': 'নতুন বক্স',
+  'catalog.newBox': 'নতুন বক্স',
+  'catalog.boxContent': 'বক্সে কতটুকু',
+  'catalog.boxLabel': 'বক্সের নাম',
+  'catalog.perBox': 'প্রতি বক্স',
+  'catalog.boxCount': '{n} বক্স',
+  'catalog.boxAvailableHint': 'বন্ধ করলে এই সাইজের বক্স কেউ অর্ডার করতে পারবে না',
+  'catalog.stockHint': 'কয়টি বক্স আছে',
+  'catalog.fromPrice': '{amount} থেকে',
+  'catalog.chooseBox': 'বক্স বাছাই করুন',
+  'catalog.outOfStockBox': 'এই বক্স শেষ',
+  'catalog.noBoxes': 'এখনো কোনো বক্স যোগ করা হয়নি',
+  'catalog.pricedBoxes': '{done}/{total} বক্সের দাম দেওয়া আছে',
+  'order.boxes': 'বক্স সংখ্যা',
   'catalog.hidePrice': 'দাম লুকিয়ে রাখুন',
   'catalog.hidePriceHelp': 'ক্রেতা দাম দেখবে না, আপনি ফোনে জানাবেন',
   'catalog.listed': 'দোকানে দেখানো হচ্ছে',
@@ -346,6 +370,22 @@ export const bn = {
   'wallet.transactionId': 'ট্রানজেকশন আইডি',
   'wallet.senderNumber': 'যে নম্বর থেকে পাঠিয়েছেন',
   'wallet.destinationNumber': 'যে নম্বরে পাঠাতে হবে',
+
+  /*
+   * A bank transfer is paid on an account, not a number. Asked for only when
+   * the reseller picks Bank, because four more fields on every withdrawal would
+   * be four more things to skip past. See docs/adr/0018.
+   */
+  'wallet.payoutDestination': 'যেখানে টাকা পাঠাতে হবে',
+  'wallet.bankDetails': 'ব্যাংক অ্যাকাউন্টের তথ্য',
+  'wallet.bankDetailsHelp': 'ব্যাংকে টাকা পাঠাতে এই তথ্যগুলো লাগবে, পাসবই বা চেক বই দেখে লিখুন',
+  'wallet.bankName': 'ব্যাংকের নাম',
+  'wallet.branchName': 'শাখার নাম',
+  'wallet.accountName': 'অ্যাকাউন্টের নাম',
+  'wallet.accountNameHint': 'পাসবইয়ে যে নামে অ্যাকাউন্ট',
+  'wallet.accountNumber': 'অ্যাকাউন্ট নম্বর',
+  'wallet.routingNumber': 'রাউটিং নম্বর',
+  'wallet.routingNumberHint': 'জানা থাকলে দিন, ৯ সংখ্যা',
   'wallet.screenshot': 'স্ক্রিনশট',
   'wallet.negativeHelp': 'ব্যালেন্স ঋণাত্মক হলে সেটি আপনার বকেয়া',
   'wallet.depositSubmitted': 'জমার অনুরোধ পাঠানো হয়েছে',
@@ -369,6 +409,23 @@ export const bn = {
   'kyc.progress': '{done}/{total} কাগজ যোগ করা হয়েছে',
   'kyc.readyToSubmit': 'সব প্রয়োজনীয় কাগজ যোগ হয়েছে',
   'kyc.needRequired': 'তারকা চিহ্ন দেওয়া কাগজগুলো দিতেই হবে',
+
+  /*
+   * Why someone is being asked for their national ID, said before the upload
+   * buttons rather than in a policy page nobody opens. A reseller handing over
+   * a scan of their NID to a shop they joined last week is entitled to know
+   * what happens to it, and the answer here is the one the code actually gives:
+   * a private bucket, signed links for the owner alone, and the retention rule
+   * in docs/adr/0016.
+   */
+  'kyc.privacyTitle': 'আপনার কাগজপত্র ১০০% নিরাপদ',
+  'kyc.privacyNote':
+    'এই কাগজপত্র শুধুমাত্র আপনার পরিচয় যাচাইয়ের জন্য নেওয়া হচ্ছে। আপনার অ্যাকাউন্ট যতদিন থাকবে ততদিন এগুলো সুরক্ষিত ও গোপন সার্ভারে জমা থাকবে, শুধু যাচাইয়ের সময় মালিক দেখতে পাবেন। কারও সাথে শেয়ার করা হয় না, কোনো পাবলিক লিংকে যায় না, এবং অ্যাকাউন্ট বন্ধ হওয়ার পর নির্দিষ্ট সময়ে স্থায়ীভাবে মুছে ফেলা হয়।',
+
+  /* The module is off for this reseller and they reached the page anyway. */
+  'kyc.notRequired': 'এখন কেওয়াইসি লাগছে না',
+  'kyc.notRequiredHelp':
+    'আপনার অ্যাকাউন্টের জন্য এখন কোনো কাগজপত্র চাওয়া হয়নি। প্রয়োজন হলে মালিক এটি চালু করবেন, তখন এখানে জানানো হবে। ততক্ষণ পর্যন্ত আপনি স্বাভাবিকভাবে দোকান চালাতে পারবেন।',
 
   'file.camera': 'ক্যামেরা',
   'file.gallery': 'গ্যালারি',
@@ -420,6 +477,9 @@ export const bn = {
   'shop.publicPhone': 'যোগাযোগের মোবাইল নম্বর',
   'shop.whatsapp': 'হোয়াটসঅ্যাপ নম্বর',
   'shop.facebook': 'ফেসবুক পেজের লিংক',
+  // No format is demanded of a link any more (docs/adr/0020), so the hint shows
+  // the easiest thing to type rather than the strictest thing that was accepted.
+  'shop.facebookHint': 'যেমন facebook.com/amarshop — পুরো লিংক লেখার দরকার নেই',
   'shop.about': 'দোকান সম্পর্কে',
   'shop.aboutHint': 'দুই এক লাইনে আপনার দোকানের পরিচয়',
   'shop.payment': 'পেমেন্ট নম্বর',
@@ -738,6 +798,7 @@ export const bn = {
   'audit.action.reseller.listing_create': 'রিসেলারের পণ্য চালু',
   'audit.action.reseller.listing_update': 'রিসেলারের দাম পরিবর্তন',
   'audit.action.reseller.listing_remove': 'রিসেলারের পণ্য সরানো',
+  'audit.action.reseller.kyc_required': 'কেওয়াইসি চাওয়া হলো/বাতিল',
   'audit.action.kyc.approve': 'KYC অনুমোদন',
   'audit.action.kyc.reject': 'KYC বাতিল',
   'audit.action.kyc.view_documents': 'KYC কাগজ দেখা',
@@ -891,6 +952,16 @@ export const bn = {
   'reseller.deactivateTitle': 'রিসেলারকে নিষ্ক্রিয় করবেন?',
   'reseller.deactivateHelp':
     'নিষ্ক্রিয় করলে এই রিসেলারের দোকানে নতুন অর্ডার নেওয়া বন্ধ হবে। ব্যালেন্স ও লেনদেনের হিসাব যেমন আছে তেমনই থাকবে।',
+  /*
+   * The one switch that puts the KYC module on a reseller's screens. Off for
+   * everyone by default, so the warning matters: turning it on for a reseller
+   * who is not approved yet closes their public form the moment it is saved.
+   */
+  'reseller.kycRequired': 'কেওয়াইসি চাওয়া হবে',
+  'reseller.kycRequiredHint': 'চালু করলে এই রিসেলার কেওয়াইসি পাতা দেখতে ও কাগজ জমা দিতে পারবেন',
+  'reseller.kycRequiredOff': 'বন্ধ আছে — এই রিসেলারের কাছে কোনো কাগজপত্র চাওয়া হচ্ছে না',
+  'reseller.kycRequiredWarn':
+    'অনুমোদন না হওয়া পর্যন্ত এই রিসেলারের দোকান বন্ধ থাকবে এবং নতুন অর্ডার নিতে পারবেন না।',
   'reseller.smsEnabled': 'SMS পাঠানো চালু',
   'reseller.smsEnabledHint': 'এই রিসেলারের ক্রেডিট থেকে SMS যাবে। মূল SMS সুইচ বন্ধ থাকলে কিছুই যাবে না',
 
@@ -978,7 +1049,7 @@ export const bn = {
   'landingEdit.heroImagesHint': 'খালি থাকলে পণ্যের ছবি দেখানো হবে',
   'landingEdit.uploadImages': 'ছবি আপলোড করুন',
   'landingEdit.videoUrl': 'ভিডিও লিংক',
-  'landingEdit.videoUrlHint': 'ইউটিউব লিংক বা MP4 ফাইলের লিংক',
+  'landingEdit.videoUrlHint': 'ইউটিউব লিংক বা MP4 ফাইলের লিংক, যেভাবে খুশি লিখুন',
   'landingEdit.rating': 'রেটিং (০-৫)',
   'landingEdit.customerCount': 'ক্রেতার সংখ্যা',
   'landingEdit.trustHint': 'শুধু সত্য তথ্য দিন। খালি রাখলে দেখানো হবে না।',
@@ -1020,7 +1091,17 @@ export const bn = {
   'dash.agingHint': '{n}+ ঘণ্টা',
 
   'zone.help': 'ক্রেতা জেলা বাছাই করলে এই চার্জ যোগ হবে',
-  'zone.districtsHint': 'প্রতি লাইনে একটি জেলা',
+  'zone.districtsHint': 'এই জোনে যে জেলাগুলো থাকবে সেগুলো বেছে নিন',
+
+  /*
+   * The sixty-four districts. The list is too long to scroll on a phone, so
+   * every one of these screens is a search box first. See lib/districts.ts.
+   */
+  'district.choose': 'জেলা বাছাই করুন',
+  'district.search': 'জেলার নাম লিখে খুঁজুন',
+  'district.noMatch': 'এই নামে কোনো জেলা পাওয়া যায়নি',
+  'district.noDelivery': 'এই জেলায় এখনো ডেলিভারি নেই',
+  'district.selectedCount': '{n}টি জেলা বাছাই করা হয়েছে',
   'source.help': 'যেখান থেকে পণ্য সংগ্রহ করা হয়',
 
   /*

@@ -74,7 +74,7 @@ test('the owner writes the content once and every shop page shows it', async () 
   assert.equal(landing.subtitle, DEFAULT_CONTENT.subtitle);
 });
 
-test('landing content is validated: unknown icons, stray fields and bad links are refused', async () => {
+test('landing content is validated: unknown icons and stray fields are refused', async () => {
   const owner = await f.makeOwner();
   const agent = await signIn(owner);
 
@@ -84,13 +84,34 @@ test('landing content is validated: unknown icons, stray fields and bad links ar
   const stray = await agent.patch('/api/owner/landing').send({ template: 'offer' });
   assert.equal(stray.status, 400);
 
-  const video = await agent.patch('/api/owner/landing').send({ videoUrl: 'not a link' });
-  assert.equal(video.status, 400);
-
   const tooMany = await agent
     .patch('/api/owner/landing')
     .send({ badges: Array.from({ length: 5 }, () => ({ icon: 'star', label: 'x' })) });
   assert.equal(tooMany.status, 400);
+});
+
+/*
+ * A link field demands no format at all: the owner types what they have, and
+ * the page shows a player only when there is something playable behind it.
+ * See docs/adr/0020.
+ */
+test('the video link takes any text, and a bare host is kept as typed', async () => {
+  const owner = await f.makeOwner();
+  const agent = await signIn(owner);
+
+  const bare = await agent.patch('/api/owner/landing').send({ videoUrl: 'youtu.be/dQw4w9WgXcQ' });
+  assert.equal(bare.status, 200, JSON.stringify(bare.body));
+  assert.equal(bare.body.data.landing.videoUrl, 'youtu.be/dQw4w9WgXcQ');
+
+  // Not playable, and not refused either. The page simply shows no video.
+  const nonsense = await agent.patch('/api/owner/landing').send({ videoUrl: 'not a link' });
+  assert.equal(nonsense.status, 200, JSON.stringify(nonsense.body));
+  assert.equal(nonsense.body.data.landing.videoUrl, 'not a link');
+
+  // Clearing it still works, which is what the old union was there for.
+  const cleared = await agent.patch('/api/owner/landing').send({ videoUrl: '' });
+  assert.equal(cleared.status, 200);
+  assert.equal(cleared.body.data.landing.videoUrl, '');
 });
 
 test('a reseller cannot edit the landing content', async () => {
@@ -137,34 +158,63 @@ test('a reseller chooses a design, and only a known one', async () => {
   assert.equal(unknown.status, 400);
 });
 
+test('the shop Facebook link takes any text, including a bare host', async () => {
+  const { reseller } = await openShop();
+  const agent = await signIn(reseller);
+
+  // What a reseller actually types. No scheme, and no longer refused.
+  const bare = await agent
+    .patch('/api/reseller/profile')
+    .send({ facebookUrl: 'facebook.com/amarshop' });
+  assert.equal(bare.status, 200, JSON.stringify(bare.body));
+
+  const page = await request(app).get(`/api/public/shop/${reseller.profile.slug}`);
+  // Stored as typed; the frontend makes it followable at render (lib/url.ts).
+  assert.equal(page.body.data.shop.facebookUrl, 'facebook.com/amarshop');
+
+  // Clearing it still works, which is what the old union was there for.
+  const cleared = await agent.patch('/api/reseller/profile').send({ facebookUrl: '' });
+  assert.equal(cleared.status, 200);
+  const after = await request(app).get(`/api/public/shop/${reseller.profile.slug}`);
+  assert.equal(after.body.data.shop.facebookUrl, undefined);
+});
+
 test('a regular price must be above the sell price, and is public only beside a visible price', async () => {
   const { reseller, product } = await openShop();
   const agent = await signIn(reseller);
   const url = `/api/reseller/catalog/${product._id}`;
 
-  const low = await agent.put(url).send({ sellPrice: 80, regularPrice: 80 });
-  assert.equal(low.status, 400);
-  assert.ok(low.body.error.fields.regularPrice);
+  // A price, and its struck-through "was", belong to a box. docs/adr/0021.
+  const box = String(product.variants[0]._id);
+  const price = (sellPrice, extra = {}) => ({
+    variants: [{ variant: box, sellPrice, ...extra }],
+  });
 
-  const set = await agent.put(url).send({ sellPrice: 80, regularPrice: 100 });
+  const low = await agent.put(url).send(price(80, { regularPrice: 80 }));
+  assert.equal(low.status, 400);
+  assert.ok(low.body.error.fields['variants.0.regularPrice']);
+
+  const set = await agent.put(url).send(price(80, { regularPrice: 100 }));
   assert.equal(set.status, 200, JSON.stringify(set.body));
-  assert.equal(set.body.data.listing.regularPrice, 100);
+  assert.equal(set.body.data.product.variants[0].regularPrice, 100);
 
   const catalog = await agent.get('/api/reseller/catalog');
-  assert.equal(catalog.body.data.products[0].regularPrice, 100);
+  assert.equal(catalog.body.data.products[0].variants[0].regularPrice, 100);
 
   let page = await request(app).get(`/api/public/shop/${reseller.profile.slug}`);
-  assert.equal(page.body.data.products[0].regularPrice, 100);
+  assert.equal(page.body.data.products[0].variants[0].regularPrice, 100);
 
   // A hidden price takes its regular price with it.
-  await agent.put(url).send({ sellPrice: 80, hidePrice: true });
+  await agent.put(url).send({ ...price(80), hidePrice: true });
   page = await request(app).get(`/api/public/shop/${reseller.profile.slug}`);
-  assert.equal(page.body.data.products[0].regularPrice, undefined);
-  assert.equal(page.body.data.products[0].price, undefined);
+  assert.equal(page.body.data.products[0].variants[0].regularPrice, undefined);
+  assert.equal(page.body.data.products[0].variants[0].price, undefined);
 
   // Zero clears it.
-  const cleared = await agent.put(url).send({ sellPrice: 80, hidePrice: false, regularPrice: 0 });
-  assert.equal(cleared.body.data.listing.regularPrice, null);
+  const cleared = await agent
+    .put(url)
+    .send({ ...price(80, { regularPrice: 0 }), hidePrice: false });
+  assert.equal(cleared.body.data.product.variants[0].regularPrice, null);
   page = await request(app).get(`/api/public/shop/${reseller.profile.slug}`);
-  assert.equal(page.body.data.products[0].regularPrice, undefined);
+  assert.equal(page.body.data.products[0].variants[0].regularPrice, undefined);
 });

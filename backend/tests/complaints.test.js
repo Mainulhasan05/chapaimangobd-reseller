@@ -57,7 +57,7 @@ async function confirmedOrder(setup) {
     .send({
       paymentMode: PAYMENT_MODE.COD,
       customer: f.customer(),
-      items: [{ product: String(setup.product._id), quantity: 10 }],
+      items: [{ product: String(setup.product._id), variant: String(setup.product.variants[0]._id), quantity: 10 }],
     });
   assert.equal(placed.status, 201, JSON.stringify(placed.body));
 
@@ -185,7 +185,7 @@ test('an order nobody has confirmed cannot be complained about', async () => {
     .send({
       paymentMode: PAYMENT_MODE.COD,
       customer: f.customer(),
-      items: [{ product: String(setup.product._id), quantity: 10 }],
+      items: [{ product: String(setup.product._id), variant: String(setup.product.variants[0]._id), quantity: 10 }],
     });
   const order = await Order.findOne({ orderCode: placed.body.data.orderCode });
 

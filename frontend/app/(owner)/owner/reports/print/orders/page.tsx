@@ -17,6 +17,7 @@ import { useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { t, tStatus, tUnit } from '@/lib/i18n/bn';
+import { districtLabel } from '@/lib/districts';
 import { formatMoney, formatNumber, formatQuantity } from '@/lib/format';
 import type { OrderSheet, PickList } from '@/lib/types';
 import { formatRange, rangeParams, type DateRange } from '@/components/ui/date-range';
@@ -249,7 +250,7 @@ function OrderBlock({
           )}
           {/* Never truncated: somebody reads this standing in the lane. */}
           <p className="mt-0.5 text-sm leading-snug">{order.customer.address}</p>
-          <p className="text-sm text-muted-foreground">{order.customer.district}</p>
+          <p className="text-sm text-muted-foreground">{districtLabel(order.customer.district)}</p>
           {order.customer.note && (
             <p className="mt-1 text-xs italic text-muted-foreground">{order.customer.note}</p>
           )}

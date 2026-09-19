@@ -7,8 +7,8 @@ import Link from 'next/link';
 import { Lock } from 'lucide-react';
 import { api, ApiError, errorMessage, fieldErrors } from '@/lib/api';
 import { useReadOnlyAccount } from '@/lib/session';
-import { t, tUnit } from '@/lib/i18n/bn';
-import { formatMoney, formatMoneyPlain, formatNumber } from '@/lib/format';
+import { t } from '@/lib/i18n/bn';
+import { formatMoney, formatMoneyPlain } from '@/lib/format';
 import type { CatalogItem, DeliveryZone, PaymentMode } from '@/lib/types';
 import { Alert, Card, CardHeader, EmptyState, ErrorState, PageHeader, StickyBar } from '@/components/ui/layout';
 import { Button } from '@/components/ui/button';
@@ -16,6 +16,7 @@ import { CardGridSkeleton } from '@/components/ui/skeleton';
 import { QuantityStepper } from '@/components/ui/stepper';
 import { useToast } from '@/components/ui/toast';
 import { Field, Input, MoneyInput, Select, Textarea } from '@/components/ui/form';
+import { DistrictSelect } from '@/components/ui/district-field';
 import { PhoneField } from '@/components/ui/phone-field';
 
 type Line = { quantity: string; sellPrice: string };
@@ -52,7 +53,18 @@ export default function ManualOrderPage() {
     note: '',
   });
 
-  const listed = (catalog.data?.products ?? []).filter((p) => p.isListed && p.sellPrice != null);
+  /*
+   * Every box this shop actually sells, flattened: a line is a box, not a
+   * product, so two elevens and three sixes is two lines. See docs/adr/0021.
+   */
+  const boxes = (catalog.data?.products ?? [])
+    .filter((product) => product.isListed)
+    .flatMap((product) =>
+      product.variants
+        .filter((variant) => variant.activated && variant.isListed && variant.isAvailable)
+        .map((variant) => ({ product, variant }))
+    );
+  const boxById = new Map(boxes.map((box) => [box.variant.id, box]));
 
   const districts = (zones.data?.zones ?? []).flatMap((zone) =>
     zone.districts.map((district) => ({ district, charge: zone.charge }))
@@ -62,8 +74,8 @@ export default function ManualOrderPage() {
   const selected = Object.entries(lines).filter(([, line]) => Number(line.quantity) > 0);
 
   const costSubtotal = selected.reduce((sum, [id, line]) => {
-    const product = listed.find((p) => p.id === id);
-    return sum + (product?.costPrice ?? 0) * Number(line.quantity);
+    const box = boxById.get(id);
+    return sum + (box?.variant.costPrice ?? 0) * Number(line.quantity);
   }, 0);
 
   const sellSubtotal = selected.reduce(
@@ -82,8 +94,10 @@ export default function ManualOrderPage() {
           district: customer.district,
           ...(customer.note ? { note: customer.note } : {}),
         },
-        items: selected.map(([product, line]) => ({
-          product,
+        items: selected.map(([variant, line]) => ({
+          product: boxById.get(variant)?.product.id ?? '',
+          variant,
+          // Whole boxes.
           quantity: Number(line.quantity),
           sellPrice: Number(line.sellPrice),
         })),
@@ -167,45 +181,45 @@ export default function ManualOrderPage() {
       <Card className="mb-4">
         <CardHeader title={t('order.items')} />
 
-        {listed.length === 0 && (
+        {boxes.length === 0 && (
           <Alert tone="warning">{t('catalog.notActivated')}</Alert>
         )}
 
         <div className="space-y-3">
-          {listed.map((product) => {
-            const line = lines[product.id];
+          {boxes.map(({ product, variant }) => {
+            const line = lines[variant.id];
             const active = Number(line?.quantity) > 0;
 
             return (
               <div
-                key={product.id}
+                key={variant.id}
                 className={`rounded-lg border p-3 ${active ? 'border-primary' : 'border-border'}`}
               >
                 <div className="mb-2 flex items-baseline justify-between gap-2">
-                  <p className="font-medium">{product.name}</p>
+                  <p className="font-medium">
+                    {product.name} <span className="text-muted-foreground">· {variant.label}</span>
+                  </p>
                   <p className="text-xs text-muted-foreground">
-                    {t('catalog.costPrice')} {formatMoney(product.costPrice)} / {tUnit(product.unit)} ·{' '}
-                    {t('catalog.minOrderQty')} {formatNumber(product.minOrderQty)}
+                    {t('catalog.costPrice')} {formatMoney(variant.costPrice)} /{' '}
+                    {t('catalog.perBox')}
                   </p>
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <Field label={`${t('order.quantity')} (${tUnit(product.unit)})`} className="mb-0">
+                  <Field label={t('order.boxes')} className="mb-0">
                     <QuantityStepper
                       value={Number(line?.quantity) || 0}
-                      step={product.step}
-                      min={product.minOrderQty}
-                      unit={product.unit}
+                      suffix={t('order.boxes')}
                       onChange={(value) =>
-                        setLine(product.id, 'quantity', value ? String(value) : '')
+                        setLine(variant.id, 'quantity', value ? String(value) : '')
                       }
                     />
                   </Field>
 
-                  <Field label={t('catalog.sellPrice')} className="mb-0">
+                  <Field label={t('catalog.sellPrice')} hint={t('catalog.perBox')} className="mb-0">
                     <MoneyInput
-                      value={line?.sellPrice ?? formatMoneyPlain(product.sellPrice ?? 0)}
-                      onChange={(e) => setLine(product.id, 'sellPrice', e.target.value)}
+                      value={line?.sellPrice ?? formatMoneyPlain(variant.sellPrice ?? 0)}
+                      onChange={(e) => setLine(variant.id, 'sellPrice', e.target.value)}
                     />
                   </Field>
                 </div>
@@ -231,15 +245,25 @@ export default function ManualOrderPage() {
           required
         />
 
-        <Field label={t('order.district')} htmlFor="district" error={errors.district} required>
-          <Select id="district" value={customer.district} onChange={setCustomerField('district')} required>
-            <option value="">{t('app.search')}</option>
-            {districts.map((d) => (
-              <option key={d.district} value={d.district}>
-                {d.district} · {formatMoney(d.charge)}
-              </option>
-            ))}
-          </Select>
+        {/* All sixty-four, searchable, deliverable ones first. lib/districts.ts. */}
+        <Field
+          label={t('order.district')}
+          htmlFor="district"
+          error={errors.district}
+          hint={
+            deliveryCharge > 0
+              ? `${t('order.deliveryCharge')} ${formatMoney(deliveryCharge)}`
+              : undefined
+          }
+          required
+        >
+          <DistrictSelect
+            id="district"
+            value={customer.district}
+            onChange={(district) => setCustomer((prev) => ({ ...prev, district }))}
+            deliverable={districts.map((d) => d.district)}
+            invalid={Boolean(errors.district)}
+          />
         </Field>
 
         <Field label={t('order.address')} htmlFor="address" error={errors['customer.address']} required>

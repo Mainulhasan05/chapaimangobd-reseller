@@ -2,14 +2,23 @@
 
 const { z } = require('zod');
 const { PAYMENT_MODE, values } = require('../../domain/constants');
+const { MAX_BOX_QTY } = require('../../domain/variants');
 
 const objectId = z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid identifier');
 
-// The client sends product ids and quantities and nothing else. Prices are
-// looked up server side. Accepting a client total is the oldest bug in commerce.
+/*
+ * The client sends box ids and how many of each, and nothing else. Prices are
+ * looked up server side. Accepting a client total is the oldest bug in commerce.
+ *
+ * One line is one box: two eleven-kilo boxes and three six-kilo boxes of the
+ * same mango are two lines, which is why the product id alone is not the key.
+ * See docs/adr/0021.
+ */
 const orderItem = z.object({
   product: objectId,
-  quantity: z.number().positive().max(100000),
+  variant: objectId,
+  // Whole boxes.
+  quantity: z.number().int().positive().max(MAX_BOX_QTY),
 });
 
 const createOrder = z.object({

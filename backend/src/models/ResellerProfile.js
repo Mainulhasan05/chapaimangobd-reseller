@@ -2,6 +2,7 @@
 
 const mongoose = require('mongoose');
 const { KYC_STATUS, values } = require('../domain/constants');
+const { kycBlocks } = require('../domain/kyc');
 const { isSafeMoney } = require('../utils/money');
 const publicImageSchema = require('./publicImage');
 const {
@@ -72,6 +73,17 @@ const resellerProfileSchema = new mongoose.Schema(
       default: DEFAULT_LANDING_TEMPLATE,
     },
 
+    /*
+     * Whether the owner has asked this reseller to verify their identity.
+     *
+     * Off for everyone until the owner turns it on, one reseller at a time.
+     * While it is off the KYC module is not on their screens at all and nothing
+     * is gated by it: a national ID is not the price of opening an account, it
+     * is something the owner asks for when they have a reason to. Read it
+     * through domain/kyc.js, never directly. See docs/adr/0017.
+     */
+    kycRequired: { type: Boolean, default: false, index: true },
+
     kycStatus: {
       type: String,
       enum: values(KYC_STATUS),
@@ -105,9 +117,9 @@ const resellerProfileSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-/** The public form is live only when KYC passed and the reseller enabled it. */
+/** The public form is live when the reseller enabled it and no KYC gate holds it shut. */
 resellerProfileSchema.virtual('isFormLive').get(function isFormLive() {
-  return this.kycStatus === KYC_STATUS.APPROVED && this.formActive;
+  return !kycBlocks(this) && this.formActive;
 });
 
 module.exports = mongoose.model('ResellerProfile', resellerProfileSchema);

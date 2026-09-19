@@ -9,7 +9,6 @@ const { notFound } = require('../../utils/errors');
 const { normalizeBdPhone } = require('../../utils/phone');
 const { orderSearchFilter } = require('../../utils/orderSearch');
 const { businessDate } = require('../../utils/dhakaTime');
-const { toMilli } = require('../../utils/quantity');
 const { toPoisha, toTaka } = require('../../utils/money');
 const present = require('../../utils/present');
 const { availableActions } = require('../../domain/orderStateMachine');
@@ -50,13 +49,15 @@ async function getOrder(req, res) {
 }
 
 /**
- * The moment money moves. Prices arrive as taka and quantities as decimals, and
- * both are converted here before anything downstream sees them.
+ * The moment money moves. Prices arrive as taka and are converted here before
+ * anything downstream sees them; a quantity is already a whole box count.
  */
 async function confirmOrder(req, res) {
   const overrides = (req.body.items || []).map((item) => ({
     product: item.product,
-    ...(item.quantity != null ? { qtyMilli: toMilli(item.quantity) } : {}),
+    // Which box this correction is for. docs/adr/0021.
+    variant: item.variant,
+    ...(item.quantity != null ? { qty: item.quantity } : {}),
     ...(item.sellPrice != null ? { sellPricePoisha: toPoisha(item.sellPrice, 'sellPrice') } : {}),
   }));
 
@@ -91,7 +92,9 @@ async function createManualOrder(req, res) {
     },
     items: items.map((i) => ({
       product: i.product,
-      qtyMilli: toMilli(i.quantity),
+      variant: i.variant,
+      // Whole boxes, already. docs/adr/0021.
+      qty: i.quantity,
       ...(i.sellPrice != null ? { sellPricePoisha: toPoisha(i.sellPrice, 'sellPrice') } : {}),
     })),
   });

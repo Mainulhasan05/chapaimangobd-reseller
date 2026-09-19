@@ -2,6 +2,7 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import { expect, test, type Browser, type BrowserContext, type Locator, type Page, devices } from '@playwright/test';
 import { t, type DictKey } from '@/lib/i18n/bn';
+import type { District } from '@/lib/districts';
 
 /** Ports match e2e/harness/server.mjs. */
 export const WEB = `http://127.0.0.1:${process.env.E2E_WEB_PORT ?? 3222}`;
@@ -54,6 +55,21 @@ export function field(scope: Page | Locator, key: DictKey): Locator {
 
 export function button(scope: Page | Locator, key: DictKey): Locator {
   return scope.getByRole('button', { name: t(key), exact: true });
+}
+
+/**
+ * Picking a district from the searchable combobox.
+ *
+ * Not a `<select>`, so there is nothing to `selectOption`: the field is a button
+ * that opens a search box over all sixty-four districts. Typing the English
+ * name narrows the list to one row, which is exactly how a reseller uses it.
+ * See components/ui/district-field.tsx.
+ */
+export async function selectDistrict(scope: Page | Locator, district: District): Promise<void> {
+  await field(scope, 'order.district').click();
+  const search = scope.getByPlaceholder(t('district.search'));
+  await search.fill(district.value);
+  await scope.getByRole('option', { name: district.bn }).first().click();
 }
 
 /** A `Card` holding the given text, for rows that repeat the same controls. */

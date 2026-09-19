@@ -63,7 +63,7 @@ async function placeOrder({ profile, product, quantity = 10, paymentMode = PAYME
       address: '12 Test Road',
       district: 'Dhaka',
     },
-    items: [{ product: product._id, qtyMilli: toMilli(quantity) }],
+    items: [{ product: product._id, variant: product.variants[0]._id, qty: quantity }],
   });
   return order;
 }
@@ -153,7 +153,8 @@ test('a randomised sequence of every money movement keeps the ledger sound', asy
 
   // An independent model of what the balance and the stock must be.
   let expectedBalance = 0;
-  let expectedStockMilli = toMilli(100000);
+  // Boxes, because that is what stock counts now. docs/adr/0021.
+  let expectedStock = 100000;
   let reverseDeliveryOnReturn = false;
   const orders = [];
 
@@ -175,7 +176,7 @@ test('a randomised sequence of every money movement keeps the ledger sound', asy
       orders.push({
         id: order._id,
         status: ORDER_STATUS.PENDING,
-        qtyMilli: toMilli(quantity),
+        qty: quantity,
         costPoisha: order.totals.costSubtotalPoisha,
         sellPoisha: order.totals.sellSubtotalPoisha,
         chargePoisha: order.deliveryChargePoisha,
@@ -189,7 +190,7 @@ test('a randomised sequence of every money movement keeps the ledger sound', asy
       o.status = ORDER_STATUS.CONFIRMED;
       o.paymentMode = confirmed.paymentMode;
       expectedBalance -= o.costPoisha + o.chargePoisha;
-      expectedStockMilli -= o.qtyMilli;
+      expectedStock -= o.qty;
     } else if (op === 'advance') {
       const o = pick(inStatus(ORDER_STATUS.CONFIRMED, ORDER_STATUS.ACCEPTED, ORDER_STATUS.PACKED));
       if (!o) continue;
@@ -209,7 +210,7 @@ test('a randomised sequence of every money movement keeps the ledger sound', asy
       await walk(o.id, 'return', owner, source, { reason: 'refused', restock });
       o.status = ORDER_STATUS.RETURNED;
       expectedBalance += o.costPoisha + (reverseDeliveryOnReturn ? o.chargePoisha : 0);
-      if (restock) expectedStockMilli += o.qtyMilli;
+      if (restock) expectedStock += o.qty;
     } else if (op === 'cancel') {
       const o = pick(
         inStatus(ORDER_STATUS.PENDING, ORDER_STATUS.CONFIRMED, ORDER_STATUS.ACCEPTED, ORDER_STATUS.PACKED)
@@ -217,7 +218,7 @@ test('a randomised sequence of every money movement keeps the ledger sound', asy
       if (!o) continue;
       if (o.status !== ORDER_STATUS.PENDING) {
         expectedBalance += o.costPoisha + o.chargePoisha;
-        expectedStockMilli += o.qtyMilli;
+        expectedStock += o.qty;
       }
       await walk(o.id, 'cancel', owner, source, { reason: 'random cancel' });
       o.status = ORDER_STATUS.CANCELLED;
@@ -276,7 +277,7 @@ test('a randomised sequence of every money movement keeps the ledger sound', asy
   assert.equal(settled, expectedBalance);
 
   const afterProduct = await Product.findById(product._id);
-  assert.equal(afterProduct.stockQtyMilli, expectedStockMilli, 'stock drifted from the model');
+  assert.equal(afterProduct.variants[0].stockQty, expectedStock, 'stock drifted from the model');
 
   const all = await ledger.reconcileAll();
   assert.equal(all.checked, 1);
@@ -426,6 +427,82 @@ test('a withdrawal approval is refused once a confirm has spent the balance', as
   await assertLedgerSound(profile);
 });
 
+/* --------------------------------------------------------- payout destination */
+
+/*
+ * A withdrawal is paid to a wallet number or to a bank account, never to both
+ * and never to the wrong shape of either. See docs/adr/0018.
+ */
+
+test('a bank withdrawal is requested on an account, not a phone number', async () => {
+  const { phone, password, profile } = await f.makeReseller();
+  await credit(profile, 1000);
+  const agent = await signIn({ phone, password });
+
+  const res = await agent.post('/api/reseller/withdrawals').send({
+    amount: 500,
+    method: 'bank',
+    bank: {
+      accountName: 'Mainul Hasan',
+      bankName: 'Islami Bank Bangladesh',
+      branchName: 'Chapainawabganj',
+      accountNumber: '20501234567890',
+      routingNumber: '125440783',
+    },
+  });
+  assert.equal(res.status, 201, JSON.stringify(res.body));
+
+  const stored = await Withdrawal.findById(res.body.data.withdrawal.id);
+  assert.equal(stored.bank.bankName, 'Islami Bank Bangladesh');
+  assert.equal(stored.bank.branchName, 'Chapainawabganj');
+  assert.equal(stored.bank.accountNumber, '20501234567890');
+  // The account number is never bent into a phone number, and the phone field
+  // stays empty rather than holding something nobody can pay into.
+  assert.equal(stored.destinationNumber, undefined);
+  assert.equal(res.body.data.withdrawal.destinationNumber, null);
+  assert.equal(res.body.data.withdrawal.bank.accountName, 'Mainul Hasan');
+});
+
+test('a bank withdrawal missing its account details is refused field by field', async () => {
+  const { phone, password, profile } = await f.makeReseller();
+  await credit(profile, 1000);
+  const agent = await signIn({ phone, password });
+
+  const bare = await agent.post('/api/reseller/withdrawals').send({ amount: 500, method: 'bank' });
+  assert.equal(bare.status, 400);
+  assert.ok(bare.body.error.fields.bank, JSON.stringify(bare.body));
+
+  const partial = await agent.post('/api/reseller/withdrawals').send({
+    amount: 500,
+    method: 'bank',
+    bank: { accountName: 'Mainul Hasan', bankName: 'Islami Bank', branchName: '', accountNumber: 'abcd' },
+  });
+  assert.equal(partial.status, 400);
+  assert.ok(partial.body.error.fields['bank.branchName']);
+  assert.ok(partial.body.error.fields['bank.accountNumber']);
+});
+
+test('a wallet withdrawal still needs a number, and takes no bank block', async () => {
+  const { phone, password, profile } = await f.makeReseller();
+  await credit(profile, 1000);
+  const agent = await signIn({ phone, password });
+
+  const missing = await agent
+    .post('/api/reseller/withdrawals')
+    .send({ amount: 500, method: 'bkash' });
+  assert.equal(missing.status, 400);
+  assert.ok(missing.body.error.fields.destinationNumber, JSON.stringify(missing.body));
+
+  const ok = await agent
+    .post('/api/reseller/withdrawals')
+    .send({ amount: 500, method: 'nagad', destinationNumber: '01712345678' });
+  assert.equal(ok.status, 201, JSON.stringify(ok.body));
+
+  const stored = await Withdrawal.findById(ok.body.data.withdrawal.id);
+  assert.equal(stored.destinationNumber, '+8801712345678');
+  assert.equal(stored.bank, null);
+});
+
 /* ------------------------------------------------------------------- returns */
 
 async function shippedOrder({ creditLimit = 100000, trackStock = true, paymentMode } = {}) {
@@ -445,6 +522,74 @@ async function shippedOrder({ creditLimit = 100000, trackStock = true, paymentMo
   return { reseller, profile, phone, password, owner, product, source, order };
 }
 
+/*
+ * Stock is a count of boxes, held per box size, because that is what a godown
+ * holds. See docs/adr/0021.
+ */
+test('stock is counted per box, and one box running out does not stop the other', async () => {
+  const { user: reseller, profile } = await f.makeReseller({ creditLimit: 1000000 });
+  await f.makeZone({ districts: ['Dhaka'], charge: 80 });
+  const product = await f.makeProduct({
+    trackStock: true,
+    boxes: [
+      { content: 6, cost: 330, stockQty: 2 },
+      { content: 11, cost: 600, stockQty: 5 },
+    ],
+  });
+  await f.listProduct(profile, product, (variant) => variant.costPricePoisha / 100 + 100);
+
+  const place = (index, qty) =>
+    orderService.createPendingOrder({
+      resellerProfile: profile,
+      paymentMode: PAYMENT_MODE.PREPAID,
+      customer: {
+        name: 'Customer',
+        phoneE164: '+8801912345678',
+        address: '12 Test Road',
+        district: 'Dhaka',
+      },
+      items: [{ product: product._id, variant: product.variants[index]._id, qty }],
+    });
+
+  // Both sixes go.
+  const first = await place(0, 2);
+  await confirm({ _id: first.order._id }, profile, reseller);
+  let live = await Product.findById(product._id);
+  assert.equal(live.variants[0].stockQty, 0);
+  assert.equal(live.variants[1].stockQty, 5, 'the other box was touched');
+
+  // A third six is refused, and names the box rather than the product.
+  const third = await place(0, 1);
+  await assert.rejects(
+    () => confirm({ _id: third.order._id }, profile, reseller),
+    (err) => {
+      assert.equal(err.code, 'OUT_OF_STOCK');
+      assert.match(err.message, /6 kg/);
+      return true;
+    }
+  );
+
+  // The eleven-kilo box still sells, which is the whole point of counting boxes.
+  const big = await place(1, 3);
+  const confirmed = await confirm({ _id: big.order._id }, profile, reseller);
+  assert.equal(confirmed.status, ORDER_STATUS.CONFIRMED);
+  live = await Product.findById(product._id);
+  assert.equal(live.variants[1].stockQty, 2);
+
+  // And cancelling puts those three boxes back on their own row.
+  await orderService.transitionOrder({
+    orderId: big.order._id,
+    action: 'cancel',
+    actorUser: reseller,
+    role: ROLES.RESELLER,
+    resellerProfile: profile,
+    payload: { reason: 'Customer changed mind' },
+  });
+  live = await Product.findById(product._id);
+  assert.equal(live.variants[1].stockQty, 5);
+  assert.equal(live.variants[0].stockQty, 0);
+});
+
 test('a return without the restock box leaves stock where it is', async () => {
   const { owner, product, order, profile } = await shippedOrder();
   const agent = await signIn({ phone: owner.phone, password: owner.password });
@@ -454,7 +599,7 @@ test('a return without the restock box leaves stock where it is', async () => {
   assert.equal(res.body.data.order.status, ORDER_STATUS.RETURNED);
   assert.equal(res.body.data.order.restockedOnReturn, false);
 
-  assert.equal((await Product.findById(product._id)).stockQtyMilli, toMilli(90));
+  assert.equal((await Product.findById(product._id)).variants[0].stockQty, 90);
 
   const log = await AuditLog.findOne({ action: 'order.return', targetId: order._id });
   assert.equal(log.after.restocked, false);
@@ -471,7 +616,7 @@ test('a return with the restock box puts the stock back and records it', async (
   assert.equal(res.status, 200);
   assert.equal(res.body.data.order.restockedOnReturn, true);
 
-  assert.equal((await Product.findById(product._id)).stockQtyMilli, toMilli(100));
+  assert.equal((await Product.findById(product._id)).variants[0].stockQty, 100);
   assert.equal((await Order.findById(order._id)).restockedOnReturn, true);
 
   const log = await AuditLog.findOne({ action: 'order.return', targetId: order._id });
@@ -503,11 +648,11 @@ test('cancelling a packed order gives its stock back', async () => {
   await confirm(order, profile, reseller);
   await walk(order._id, 'accept', owner, source);
   await walk(order._id, 'pack', owner, source);
-  assert.equal((await Product.findById(product._id)).stockQtyMilli, toMilli(90));
+  assert.equal((await Product.findById(product._id)).variants[0].stockQty, 90);
 
   await walk(order._id, 'cancel', owner, source, { reason: 'orchard short' });
 
-  assert.equal((await Product.findById(product._id)).stockQtyMilli, toMilli(100));
+  assert.equal((await Product.findById(product._id)).variants[0].stockQty, 100);
   assert.equal(await balanceOf(profile), 0);
 });
 
@@ -848,7 +993,7 @@ test('identical public submissions sent at once return the same order', async ()
     submissionId: crypto.randomUUID(),
     paymentMode: PAYMENT_MODE.PREPAID,
     customer: f.customer(),
-    items: [{ product: String(product._id), quantity: 10 }],
+    items: [{ product: String(product._id), variant: String(product.variants[0]._id), quantity: 10 }],
   };
 
   const results = await Promise.all([
@@ -873,7 +1018,7 @@ test('a submission that loses the insert race gets the winning order, not a 409'
     submissionId: crypto.randomUUID(),
     paymentMode: PAYMENT_MODE.PREPAID,
     customer: f.customer(),
-    items: [{ product: String(product._id), quantity: 10 }],
+    items: [{ product: String(product._id), variant: String(product.variants[0]._id), quantity: 10 }],
   };
 
   const first = await request(app).post(`/api/public/shop/${profile.slug}/orders`).send(body);

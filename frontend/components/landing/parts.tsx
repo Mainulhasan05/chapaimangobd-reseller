@@ -18,9 +18,10 @@ import {
   Truck,
   Wallet,
 } from 'lucide-react';
-import { t, tUnit } from '@/lib/i18n/bn';
+import { t } from '@/lib/i18n/bn';
 import { formatMoney, formatNumber } from '@/lib/format';
 import { percentOff, videoEmbed, waNumber } from '@/lib/landing';
+import { externalHref } from '@/lib/url';
 import { cn } from '@/lib/utils';
 import type { LandingContent, LandingIcon, ProductImage, PublicShop } from '@/lib/types';
 
@@ -431,7 +432,11 @@ export function ContactButtons({
 }
 
 export function ContactSection({ shop, className }: { shop: Shop; className?: string }) {
-  const anything = shop.phone || shop.whatsapp || shop.facebookUrl || shop.address;
+  // The field holds whatever the reseller typed, so it becomes a followable
+  // link here rather than at save time. Null for a scheme that runs code, which
+  // is the one thing this is not drawn for. See lib/url.ts and docs/adr/0020.
+  const facebookHref = externalHref(shop.facebookUrl);
+  const anything = shop.phone || shop.whatsapp || facebookHref || shop.address;
   if (!anything) return null;
   return (
     <Section className={className}>
@@ -446,11 +451,11 @@ export function ContactSection({ shop, className }: { shop: Shop; className?: st
 
         <ContactButtons shop={shop} className="mx-auto mt-5 max-w-md" />
 
-        {(shop.facebookUrl || shop.address) && (
+        {(facebookHref || shop.address) && (
           <div className="mt-4 flex flex-col items-center gap-2 text-sm opacity-95">
-            {shop.facebookUrl && (
+            {facebookHref && (
               <a
-                href={shop.facebookUrl}
+                href={facebookHref}
                 target="_blank"
                 rel="noreferrer"
                 className="tap inline-flex items-center gap-1.5 font-semibold underline underline-offset-4"
@@ -505,16 +510,21 @@ export function FloatingContact({ shop }: { shop: Shop }) {
   );
 }
 
-/** The price a customer pays, and the one struck through beside it. */
+/**
+ * The price a customer pays for one box, and the one struck through beside it.
+ *
+ * `label` is the box's own name, because a price is per box and "৪৩০ / কেজি"
+ * would be a different and wrong statement. See docs/adr/0021.
+ */
 export function PriceTag({
   price,
   regularPrice,
-  unit,
+  label,
   size = 'md',
 }: {
   price: number;
   regularPrice?: number;
-  unit: string;
+  label: string;
   size?: 'md' | 'lg';
 }) {
   return (
@@ -522,7 +532,7 @@ export function PriceTag({
       <span className={cn('tabular font-bold text-(--lp-price)', size === 'lg' ? 'text-3xl' : 'text-xl')}>
         {formatMoney(price)}
       </span>
-      <span className="text-sm text-muted-foreground">/ {tUnit(unit)}</span>
+      <span className="text-sm text-muted-foreground">/ {label}</span>
       {regularPrice != null && (
         <>
           <s className="tabular text-sm text-muted-foreground">{formatMoney(regularPrice)}</s>

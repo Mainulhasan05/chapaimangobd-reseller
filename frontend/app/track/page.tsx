@@ -5,7 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { useMutation } from '@tanstack/react-query';
 import { api, errorMessage } from '@/lib/api';
 import { t, tStatus } from '@/lib/i18n/bn';
-import { formatMoney, formatQuantity, formatDateTime } from '@/lib/format';
+import { formatMoney, formatNumber, formatQuantity, formatDateTime } from '@/lib/format';
 import type { PublicOrder } from '@/lib/types';
 import { Alert, Badge, Card, statusTone } from '@/components/ui/layout';
 import { Logo } from '@/components/ui/logo';
@@ -99,7 +99,10 @@ function TrackView() {
                 <span>
                   {item.productName}
                   <span className="block text-xs text-muted-foreground">
-                    {formatQuantity(item.quantity, item.unit)} × {formatMoney(item.unitPrice)}
+                    {item.boxes == null
+                      ? formatQuantity(item.quantity, item.unit)
+                      : `${item.variantLabel} × ${formatNumber(item.boxes)}`}{' '}
+                    × {formatMoney(item.unitPrice)}
                   </span>
                 </span>
                 <span className="tabular">{formatMoney(item.lineTotal)}</span>

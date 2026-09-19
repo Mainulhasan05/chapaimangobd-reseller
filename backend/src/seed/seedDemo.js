@@ -74,10 +74,34 @@ async function seedDemo() {
     );
   }
 
+  /*
+   * Two box sizes each, which is how mangoes actually leave: a six-kilo box and
+   * an eleven-kilo box, priced per box and counted per box. See docs/adr/0021.
+   */
   const products = [
-    { name: 'হিমসাগর আম', cost: 55, min: 5, max: 90, stock: 500 },
-    { name: 'ল্যাংড়া আম', cost: 62, min: 5, max: 100, stock: 300 },
-    { name: 'আম্রপালি আম', cost: 70, min: 5, max: null, stock: null },
+    {
+      name: 'হিমসাগর আম',
+      boxes: [
+        { content: 6, cost: 330, max: 540, stock: 60 },
+        { content: 11, cost: 600, max: 990, stock: 25 },
+      ],
+    },
+    {
+      name: 'ল্যাংড়া আম',
+      boxes: [
+        { content: 6, cost: 372, max: 600, stock: 40 },
+        { content: 11, cost: 680, max: 1100, stock: 18 },
+      ],
+    },
+    {
+      // Untracked stock, to exercise the other branch.
+      name: 'আম্রপালি আম',
+      boxes: [
+        { content: 6, cost: 420, max: null, stock: 0 },
+        { content: 11, cost: 770, max: null, stock: 0 },
+      ],
+      trackStock: false,
+    },
   ];
 
   const created = [];
@@ -89,12 +113,15 @@ async function seedDemo() {
         $setOnInsert: {
           nameBn: p.name,
           unit: 'kg',
-          qtyStepMilli: toMilli(0.5),
-          minOrderQtyMilli: toMilli(p.min),
-          costPricePoisha: toPoisha(p.cost),
-          maxSellPricePoisha: p.max == null ? null : toPoisha(p.max),
-          trackStock: p.stock != null,
-          stockQtyMilli: p.stock == null ? 0 : toMilli(p.stock),
+          trackStock: p.trackStock !== false,
+          variants: p.boxes.map((box, i) => ({
+            contentMilli: toMilli(box.content),
+            costPricePoisha: toPoisha(box.cost),
+            maxSellPricePoisha: box.max == null ? null : toPoisha(box.max),
+            stockQty: box.stock,
+            isAvailable: true,
+            sortOrder: i,
+          })),
           isAvailable: true,
         },
       },
@@ -122,6 +149,8 @@ async function seedDemo() {
         user: reseller._id,
         shopName: 'Demo Mango Shop',
         slug: 'demo-mango',
+        // Verified, and asked to be: the demo shows the module switched on.
+        kycRequired: true,
         kycStatus: KYC_STATUS.APPROVED,
         formActive: true,
         creditLimitPoisha: toPoisha(5000),
@@ -139,7 +168,12 @@ async function seedDemo() {
         $setOnInsert: {
           reseller: profile._id,
           product: product._id,
-          sellPricePoisha: product.costPricePoisha + toPoisha(7),
+          // A price per box, a little over what the owner charges for it.
+          variants: product.variants.map((variant) => ({
+            variant: variant._id,
+            sellPricePoisha: variant.costPricePoisha + toPoisha(60),
+            isListed: true,
+          })),
           isListed: true,
         },
       },

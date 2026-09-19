@@ -3,6 +3,7 @@
 const mongoose = require('mongoose');
 const { UNITS } = require('../utils/quantity');
 const { isSafeMoney } = require('../utils/money');
+const { MAX_VARIANTS } = require('../domain/variants');
 const publicImageSchema = require('./publicImage');
 
 const money = (opts = {}) => ({
@@ -10,6 +11,50 @@ const money = (opts = {}) => ({
   validate: { validator: isSafeMoney, message: '{PATH} must be a whole number of poisha' },
   ...opts,
 });
+
+/**
+ * One box a product is sold in: a six-kilo box, an eleven-kilo box.
+ *
+ * The price lives here and not on the product, because a box is what is bought
+ * and the two sizes are not two quantities of one thing at one rate. The `_id`
+ * is referenced by an order line and by a reseller's price row, so it is stable
+ * for the life of the box and a box is archived rather than deleted once it has
+ * been ordered. See domain/variants.js and docs/adr/0021.
+ */
+const variantSchema = new mongoose.Schema(
+  {
+    // The owner's own name for it. Blank means the derived one, which is the
+    // content and the unit: "6 kg".
+    label: { type: String, trim: true, maxlength: 60 },
+
+    // How much is in the box, in the product's unit, in milli-units.
+    contentMilli: { type: Number, required: true, min: 1 },
+
+    // Per box, both of them. Not per kilo.
+    costPricePoisha: money({ required: true, min: 0 }),
+    maxSellPricePoisha: {
+      type: Number,
+      default: null,
+      validate: {
+        validator: (v) => v == null || isSafeMoney(v),
+        message: '{PATH} must be a whole number of poisha',
+      },
+    },
+
+    /*
+     * Whole boxes, and only read while the product tracks stock. A count, not a
+     * weight: boxes are counted in a godown, and the six-kilo boxes running out
+     * must not stop the eleven-kilo ones going out.
+     */
+    stockQty: { type: Number, default: 0, min: 0 },
+
+    // A box the owner has stopped offering. Never deleted once ordered: an
+    // order line holds this id, and the pick list groups by it.
+    isAvailable: { type: Boolean, default: true },
+    sortOrder: { type: Number, default: 0 },
+  },
+  { _id: true }
+);
 
 const productSchema = new mongoose.Schema(
   {
@@ -22,28 +67,31 @@ const productSchema = new mongoose.Schema(
      */
     images: [publicImageSchema],
 
+    /*
+     * The unit a box's contents are measured in. The product has no price and no
+     * quantity rules of its own any more: both belong to a box. See
+     * domain/variants.js.
+     */
     unit: { type: String, enum: UNITS, required: true },
-    // Smallest orderable increment, in milli-units. Whole units are 1000.
-    qtyStepMilli: { type: Number, required: true, min: 1 },
-    minOrderQtyMilli: { type: Number, required: true, min: 1 },
 
-    costPricePoisha: money({ required: true, min: 0 }),
-    // Optional ceiling protecting the brand from absurd reseller pricing.
-    // Nullable means "no ceiling", so the validator has to accept null as well
-    // as an integer; the shared money() validator alone would reject it.
-    maxSellPricePoisha: {
-      type: Number,
-      default: null,
-      validate: {
-        validator: (v) => v == null || isSafeMoney(v),
-        message: '{PATH} must be a whole number of poisha',
-      },
+    variants: {
+      type: [variantSchema],
+      validate: [
+        {
+          validator: (v) => v.length > 0,
+          message: 'A product needs at least one box',
+        },
+        {
+          validator: (v) => v.length <= MAX_VARIANTS,
+          message: `A product can have at most ${MAX_VARIANTS} boxes`,
+        },
+      ],
     },
 
     // Unlimited stock is this flag being false, never a null quantity:
     // $inc on null errors, and null-or-missing filters do not use an index.
+    // The count itself is per box, on the variant.
     trackStock: { type: Boolean, default: false },
-    stockQtyMilli: { type: Number, default: 0, min: 0 },
 
     isAvailable: { type: Boolean, default: true },
     /*
@@ -58,5 +106,7 @@ const productSchema = new mongoose.Schema(
 );
 
 productSchema.index({ isArchived: 1, isAvailable: 1, sortOrder: 1 });
+// An order line names a variant; this is how it is found again.
+productSchema.index({ 'variants._id': 1 });
 
 module.exports = mongoose.model('Product', productSchema);

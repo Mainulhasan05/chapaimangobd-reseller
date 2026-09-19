@@ -3,6 +3,8 @@
 const { z } = require('zod');
 const { PAYMENT_MODE, DEPOSIT_METHOD, values } = require('../../domain/constants');
 const { TEMPLATES: LANDING_TEMPLATES } = require('../../domain/landing');
+const { isBankMethod } = require('../../domain/payout');
+const { MAX_VARIANTS, MAX_BOX_QTY } = require('../../domain/variants');
 
 const objectId = z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid identifier');
 const money = z.coerce.number().nonnegative().max(10000000);
@@ -26,8 +28,13 @@ const updateProfile = z.object({
   /* The shopfront. All optional, all shown to logged-out customers. */
   publicPhone: optionalText(20),
   whatsappNumber: optionalText(20),
-  // Validated as a URL only when there is one, so clearing it stays possible.
-  facebookUrl: z.union([z.literal(''), z.string().trim().url().max(300)]).optional(),
+  /*
+   * Any text, not a URL. A reseller types `facebook.com/amarshop`, or the page
+   * name, or pastes a link from a chat app with a tracking tail on it, and all
+   * of those are what they meant. `lib/url.ts` makes it followable at render.
+   * See docs/adr/0020.
+   */
+  facebookUrl: optionalText(300),
   about: optionalText(600),
   bkashNumber: optionalText(20),
   nagadNumber: optionalText(20),
@@ -36,17 +43,37 @@ const updateProfile = z.object({
   landingTemplate: z.enum(Object.values(LANDING_TEMPLATES)).optional(),
 });
 
+/**
+ * This reseller's prices for one product, a price per box.
+ *
+ * The whole set every time: the screen shows every box of one product together
+ * and saves them together, so a partial update would need per-box endpoints for
+ * no gain. A box left out of the list is a box this shop does not sell, which is
+ * how a reseller carries the six-kilo and not the eleven. See docs/adr/0021.
+ */
 const setCatalogPrice = z.object({
-  sellPrice: money,
-  // Null or zero clears it. Checked against the sell price in the controller.
-  regularPrice: money.nullable().optional(),
+  variants: z
+    .array(
+      z.object({
+        variant: objectId,
+        sellPrice: money,
+        // Null or zero clears it. Checked against the sell price in the controller.
+        regularPrice: money.nullable().optional(),
+        isListed: z.boolean().optional(),
+      })
+    )
+    .min(1, 'Price at least one box')
+    .max(MAX_VARIANTS),
   hidePrice: z.boolean().optional(),
   isListed: z.boolean().optional(),
 });
 
 const orderItemOverride = z.object({
   product: objectId,
-  quantity: z.number().positive().max(100000).optional(),
+  // Which box. An order line is a box, not a product. docs/adr/0021.
+  variant: objectId,
+  // Whole boxes.
+  quantity: z.number().int().positive().max(MAX_BOX_QTY).optional(),
   sellPrice: money.optional(),
 });
 
@@ -69,7 +96,10 @@ const manualOrder = z.object({
     .array(
       z.object({
         product: objectId,
-        quantity: z.number().positive().max(100000),
+        // A line is a box. docs/adr/0021.
+        variant: objectId,
+        // Whole boxes.
+        quantity: z.number().int().positive().max(MAX_BOX_QTY),
         sellPrice: money.optional(),
       })
     )
@@ -104,12 +134,60 @@ const createDeposit = z.object({
   note: z.string().max(500).optional(),
 });
 
-const createWithdrawal = z.object({
-  amount: money.refine((v) => v > 0, 'Amount must be greater than zero'),
-  method: z.enum(values(DEPOSIT_METHOD)),
-  destinationNumber: z.string().min(6).max(20),
-  note: z.string().max(500).optional(),
+/*
+ * Where the money is actually sent. A mobile wallet is paid on a number and a
+ * bank on an account, so the two are asked for different things and neither
+ * accepts the other's answer. See domain/payout.js and docs/adr/0018.
+ */
+const bankAccount = z.object({
+  accountName: z.string().trim().min(2).max(120),
+  bankName: z.string().trim().min(2).max(120),
+  branchName: z.string().trim().min(2).max(120),
+  // Bangladeshi account numbers run to seventeen digits; some banks print them
+  // with dashes, which are kept rather than stripped so the reseller's own
+  // reading of their passbook is what the owner sees on the payout screen.
+  accountNumber: z
+    .string()
+    .trim()
+    .min(6)
+    .max(34)
+    .regex(/^[0-9][0-9 -]*[0-9]$/, 'Account number must be digits'),
+  routingNumber: z
+    .string()
+    .trim()
+    .regex(/^\d{9}$/, 'Routing number is nine digits')
+    .optional(),
 });
+
+const createWithdrawal = z
+  .object({
+    amount: money.refine((v) => v > 0, 'Amount must be greater than zero'),
+    method: z.enum(values(DEPOSIT_METHOD)),
+    destinationNumber: z.string().min(6).max(20).optional(),
+    bank: bankAccount.optional(),
+    note: z.string().max(500).optional(),
+  })
+  .superRefine((body, ctx) => {
+    if (isBankMethod(body.method)) {
+      if (!body.bank) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['bank'],
+          message: 'Bank name, branch, account name and account number are required',
+        });
+      }
+      return;
+    }
+    // Every other method is paid to a number, and a bank block sent with one
+    // would be stored against a payout nobody makes by bank transfer.
+    if (!body.destinationNumber) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['destinationNumber'],
+        message: 'Where should the money be sent?',
+      });
+    }
+  });
 
 const purchaseSms = z.object({ credits: z.number().int().positive().max(10000) });
 

@@ -140,11 +140,11 @@ function LandingEditor({ initial, live }: { initial: LandingContent; live: Landi
           hint={t('landingEdit.videoUrlHint')}
           error={errors.videoUrl}
         >
+          {/* Any text; see docs/adr/0020 and the note on the shop form. */}
           <Input
             id="videoUrl"
-            type="url"
             inputMode="url"
-            placeholder="https://youtu.be/..."
+            placeholder="youtu.be/..."
             value={draft.videoUrl}
             onChange={(e) => set('videoUrl', e.target.value)}
           />

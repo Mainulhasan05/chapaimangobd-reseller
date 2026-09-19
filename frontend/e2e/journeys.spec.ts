@@ -15,7 +15,9 @@ import {
   lastOtp,
   makePng,
   mobileContext,
+  selectDistrict,
 } from './support/harness';
+import { findDistrict } from '@/lib/districts';
 
 /**
  * The whole business, in the order it happens, on a 360px phone in Bengali.
@@ -36,24 +38,42 @@ const RESELLER = {
   password: 'reseller-pass-123',
 };
 
-const CUSTOMER = { name: 'ই২ই ক্রেতা', phone: '01812345678', address: '১২ টেস্ট রোড, ধানমন্ডি', district: 'Dhaka' };
+// The district is one of the sixty-four in lib/districts.ts, not a loose
+// string: the zone below is created from its stored value and the order form
+// offers it by its Bengali name.
+const CUSTOMER = {
+  name: 'ই২ই ক্রেতা',
+  phone: '01812345678',
+  address: '১২ টেস্ট রোড, ধানমন্ডি',
+  district: findDistrict('Dhaka')!,
+};
 
-/** Catalog numbers, in taka and kilos, chosen so every total is obvious. */
-const PRODUCT = { name: `হিমসাগর ${RUN}`, costPrice: 200, minOrderQty: 5, stockQty: 100 };
-const SELL_PRICE = 250;
+/**
+ * Catalog numbers, in taka, chosen so every total is obvious.
+ *
+ * A product is sold in boxes and priced per box, so this is one five-kilo box
+ * at a thousand taka rather than two hundred a kilo. See docs/adr/0021.
+ */
+const PRODUCT = { name: `হিমসাগর ${RUN}`, boxContent: 5, boxCost: 1000, stockQty: 100 };
+/** Per box. */
+const SELL_PRICE = 1250;
+/** How many boxes the customer takes, in every order this suite places. */
+const BOXES = 1;
 const DELIVERY_CHARGE = 100;
 const OPENING_CREDIT = 5000;
 const SOURCE_NAME = `বাগান ${RUN}`;
 
-/** What confirm debits: cost of five kilos plus delivery. */
-const CONFIRM_DEBIT = PRODUCT.costPrice * PRODUCT.minOrderQty + DELIVERY_CHARGE;
+/** What confirm debits: the box at cost, plus delivery. */
+const CONFIRM_DEBIT = PRODUCT.boxCost * BOXES + DELIVERY_CHARGE;
 /** What the reseller keeps once a cash-on-delivery order is delivered. */
-const MARGIN = (SELL_PRICE - PRODUCT.costPrice) * PRODUCT.minOrderQty;
+const MARGIN = (SELL_PRICE - PRODUCT.boxCost) * BOXES;
 
 type Shared = {
   slug: string;
   profileId: string;
   productId: string;
+  /** The one box this product is sold in. An order line names it. */
+  variantId: string;
   sourceId: string;
   firstOrderCode: string;
 };
@@ -93,20 +113,24 @@ async function ownerOrderId(orderCode: string): Promise<string> {
 
 async function resellerOrder(orderCode: string) {
   const { orders } = await apiJson<{
-    orders: { id: string; orderCode: string; items: { product: string; quantity: number }[] }[];
+    orders: {
+      id: string;
+      orderCode: string;
+      items: { product: string; variant: string | null; boxes: number | null }[];
+    }[];
   }>(reseller, 'GET', '/reseller/orders?limit=20');
   const match = orders.find((order) => order.orderCode === orderCode);
   if (!match) throw new Error(`reseller cannot see order ${orderCode}`);
   return match;
 }
 
+/** Boxes left on the shelf. Stock is counted per box now. docs/adr/0021. */
 async function productStock(): Promise<number | null> {
-  const { products } = await apiJson<{ products: { id: string; stockQty: number | null }[] }>(
-    owner,
-    'GET',
-    '/owner/products'
-  );
-  return products.find((product) => product.id === shared.productId)?.stockQty ?? null;
+  const { products } = await apiJson<{
+    products: { id: string; variants: { id: string; stockQty: number | null }[] }[];
+  }>(owner, 'GET', '/owner/products');
+  const product = products.find((row) => row.id === shared.productId);
+  return product?.variants.find((v) => v.id === shared.variantId)?.stockQty ?? null;
 }
 
 test('1. a reseller registers with an SMS code and lands in the app', async ({ browser }) => {
@@ -127,12 +151,17 @@ test('1. a reseller registers with an SMS code and lands in the app', async ({ b
   await field(page, 'auth.password').fill(RESELLER.password);
   await button(page, 'auth.register').click();
 
-  // A new account goes straight to KYC, the first thing it has to do.
-  await expect(page).toHaveURL(/\/reseller\/kyc$/);
-  await expect(page.getByRole('heading', { name: t('kyc.title') })).toBeVisible();
+  // A new account lands on the dashboard. Nobody is asked for a national ID to
+  // join: the KYC module is hidden until the owner asks for it (docs/adr/0017).
+  await expect(page).toHaveURL(/\/reseller$/);
+  await expect(page.getByRole('heading', { level: 1, name: RESELLER.shopName })).toBeVisible();
+
+  // The page is reachable by address, and says only that nothing was asked for.
+  await page.goto('/reseller/kyc');
+  await expect(page.getByText(t('kyc.notRequired'))).toBeVisible();
+  await expect(page.getByText(t('kyc.privacyTitle'))).toHaveCount(0);
 
   await page.goto('/reseller');
-  await expect(page.getByRole('heading', { level: 1, name: RESELLER.shopName })).toBeVisible();
   await expectNoHorizontalScroll(page);
 
   const me = await apiJson<{ profile: { _id?: string; id?: string; slug: string } }>(reseller, 'GET', '/auth/me');
@@ -143,8 +172,16 @@ test('1. a reseller registers with an SMS code and lands in the app', async ({ b
 });
 
 test('2. the reseller submits KYC and the owner approves it', async () => {
+  // The owner asks this one reseller to verify. Without it there is no module
+  // to submit to, and the API refuses the upload. See docs/adr/0017.
+  await apiJson(owner, 'PATCH', `/owner/resellers/${shared.profileId}`, { kycRequired: true });
+
   const page = await reseller.newPage();
   await page.goto('/reseller/kyc');
+
+  // Why the documents are being asked for, before the upload buttons.
+  await expect(page.getByText(t('kyc.privacyTitle'))).toBeVisible();
+  await expect(page.getByText(t('kyc.privacyNote'))).toBeVisible();
 
   for (const [key, name] of [
     ['kyc.nidFront', 'nid-front.png'],
@@ -188,20 +225,32 @@ test('3. the owner stocks the catalog and the reseller prices and lists a produc
 
   await apiJson(owner, 'POST', '/owner/delivery-zones', {
     name: 'ঢাকা',
-    districts: [CUSTOMER.district],
+    districts: [CUSTOMER.district.value],
     charge: DELIVERY_CHARGE,
   });
 
-  const created = await apiJson<{ product: { id: string } }>(owner, 'POST', '/owner/products', {
-    name: PRODUCT.name,
-    unit: 'kg',
-    minOrderQty: PRODUCT.minOrderQty,
-    costPrice: PRODUCT.costPrice,
-    trackStock: true,
-    stockQty: PRODUCT.stockQty,
-    isAvailable: true,
-  });
+  // One box, because this suite is about the journey and not about box sizes.
+  const created = await apiJson<{ product: { id: string; variants: { id: string }[] } }>(
+    owner,
+    'POST',
+    '/owner/products',
+    {
+      name: PRODUCT.name,
+      unit: 'kg',
+      trackStock: true,
+      variants: [
+        {
+          content: PRODUCT.boxContent,
+          costPrice: PRODUCT.boxCost,
+          stockQty: PRODUCT.stockQty,
+          isAvailable: true,
+        },
+      ],
+      isAvailable: true,
+    }
+  );
   shared.productId = created.product.id;
+  shared.variantId = created.product.variants[0].id;
 
   // Enough balance for confirm to debit, posted the way the owner corrects books.
   await apiJson(owner, 'POST', `/owner/resellers/${shared.profileId}/ledger`, {
@@ -215,6 +264,14 @@ test('3. the owner stocks the catalog and the reseller prices and lists a produc
   const row = cardWith(page, PRODUCT.name);
   await expect(row).toBeVisible();
   await expectNoHorizontalScroll(page);
+
+  /*
+   * The box first: a reseller says which sizes they carry, and only a carried
+   * box has a price to fill in. See docs/adr/0021.
+   */
+  const box = row.getByRole('switch', { name: `${PRODUCT.boxContent} kg` });
+  await expect(box).toHaveAttribute('aria-checked', 'false');
+  await box.click();
 
   await field(row, 'catalog.sellPrice').fill(String(SELL_PRICE));
   const listed = row.getByRole('switch', { name: t('catalog.listed') });
@@ -242,7 +299,7 @@ test('4. a customer orders cash on delivery from the shop and tracks it', async 
 
   await field(page, 'shop.yourName').fill(CUSTOMER.name);
   await field(page, 'shop.yourPhone').fill(CUSTOMER.phone);
-  await field(page, 'order.district').selectOption(CUSTOMER.district);
+  await selectDistrict(page, CUSTOMER.district);
   await field(page, 'order.address').fill(CUSTOMER.address);
   await expect(field(page, 'order.paymentMode')).toHaveValue('cod');
   await expectNoHorizontalScroll(page);
@@ -266,7 +323,7 @@ test('4. a customer orders cash on delivery from the shop and tracks it', async 
   const result = cardWith(page, code!).last();
   await expect(result).toContainText(tStatus('pending'));
   await expect(result).toContainText(PRODUCT.name);
-  await expect(result).toContainText(formatMoney(SELL_PRICE * PRODUCT.minOrderQty + DELIVERY_CHARGE));
+  await expect(result).toContainText(formatMoney(SELL_PRICE * BOXES + DELIVERY_CHARGE));
   await expectNoHorizontalScroll(page);
   await customer.close();
 });
@@ -356,7 +413,7 @@ test('7. a shipped COD order comes back and the owner puts it back in stock', as
       submissionId: crypto.randomUUID(),
       paymentMode: 'cod',
       customer: { ...CUSTOMER, name: 'ফেরত ক্রেতা' },
-      items: [{ product: shared.productId, quantity: PRODUCT.minOrderQty }],
+      items: [{ product: shared.productId, variant: shared.variantId, quantity: BOXES }],
     },
   });
   expect(placed.status()).toBe(201);
@@ -364,7 +421,12 @@ test('7. a shipped COD order comes back and the owner puts it back in stock', as
 
   const pending = await resellerOrder(orderCode);
   await apiJson(reseller, 'POST', `/reseller/orders/${pending.id}/confirm`, {
-    items: pending.items.map((item) => ({ product: item.product, quantity: item.quantity, sellPrice: SELL_PRICE })),
+    items: pending.items.map((item) => ({
+      product: item.product,
+      variant: item.variant,
+      quantity: item.boxes,
+      sellPrice: SELL_PRICE,
+    })),
   });
 
   const id = await ownerOrderId(orderCode);
@@ -375,8 +437,8 @@ test('7. a shipped COD order comes back and the owner puts it back in stock', as
   await apiJson(owner, 'POST', `/owner/orders/${id}/pack`, {});
   await apiJson(owner, 'POST', `/owner/orders/${id}/ship`, { courierName: 'Pathao', trackingNumber: `PT-${RUN}` });
 
-  // Two confirmed orders of five kilos each have left the shelf.
-  const shelved = PRODUCT.stockQty - 2 * PRODUCT.minOrderQty;
+  // Two confirmed orders of one box each have left the shelf.
+  const shelved = PRODUCT.stockQty - 2 * BOXES;
   expect(await productStock()).toBe(shelved);
 
   const page = await owner.newPage();
@@ -399,5 +461,5 @@ test('7. a shipped COD order comes back and the owner puts it back in stock', as
   await expect(page.getByText(tStatus('returned'), { exact: true }).first()).toBeVisible();
   await page.close();
 
-  await expect.poll(productStock).toBe(shelved + PRODUCT.minOrderQty);
+  await expect.poll(productStock).toBe(shelved + BOXES);
 });

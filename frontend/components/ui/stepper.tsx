@@ -17,17 +17,22 @@ import { t, tUnit } from '@/lib/i18n/bn';
 export function QuantityStepper({
   value,
   onChange,
-  step,
-  min,
+  step = 1,
+  min = 1,
   unit,
+  suffix,
   disabled,
   id,
 }: {
   value: number;
   onChange: (value: number) => void;
-  step: number;
-  min: number;
-  unit: string;
+  /** Defaults to whole units, which is what a count of boxes is. */
+  step?: number;
+  min?: number;
+  /** A domain unit, translated here. Omit when `suffix` says it instead. */
+  unit?: string;
+  /** Already-readable text to the right, such as a box's own name. */
+  suffix?: string;
   disabled?: boolean;
   id?: string;
 }) {
@@ -91,7 +96,7 @@ export function QuantityStepper({
        * domain value the server validates against, so every call site passing
        * `product.unit` stays correct and none of them has to remember this.
        */}
-      <span className="text-sm text-muted-foreground">{tUnit(unit)}</span>
+      <span className="text-sm text-muted-foreground">{suffix ?? (unit ? tUnit(unit) : null)}</span>
     </div>
   );
 }

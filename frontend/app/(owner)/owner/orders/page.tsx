@@ -9,6 +9,7 @@ import { Ban, ClipboardList, Eye, PackageCheck, Truck, Undo2 } from 'lucide-reac
 import { api, errorMessage } from '@/lib/api';
 import { useDebounced } from '@/lib/use-debounced';
 import { t, tStatus } from '@/lib/i18n/bn';
+import { districtLabel } from '@/lib/districts';
 import { formatMoney, formatAge, formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import type { Order, OrdersSummary, Paged, SourceDetail } from '@/lib/types';
@@ -535,7 +536,7 @@ function OwnerOrdersView() {
                         <p className="tabular text-xs text-muted-foreground">
                           {order.customer.phoneE164}
                         </p>
-                        <p className="text-xs text-muted-foreground">{order.customer.district}</p>
+                        <p className="text-xs text-muted-foreground">{districtLabel(order.customer.district)}</p>
                       </div>
                       <div className="shrink-0 text-right">
                         <Badge tone={statusTone(order.status)} dot>
@@ -713,7 +714,7 @@ function OwnerOrdersView() {
                       <div className="tabular text-xs text-muted-foreground">
                         {order.customer.phoneE164}
                       </div>
-                      <div className="text-xs text-muted-foreground">{order.customer.district}</div>
+                      <div className="text-xs text-muted-foreground">{districtLabel(order.customer.district)}</div>
                     </Td>
                   )}
 

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Ban, Copy, KeyRound, Store, TrendingDown, Users } from 'lucide-react';
+import { Ban, Copy, KeyRound, ShieldAlert, Store, TrendingDown, Users } from 'lucide-react';
 import { api, errorMessage } from '@/lib/api';
 import { useDebounced } from '@/lib/use-debounced';
 import { t, tLedgerKind, type DictKey } from '@/lib/i18n/bn';
@@ -416,9 +416,9 @@ function ResellerModal({
     },
   });
 
-  /** Active and SMS go through the same endpoint, one field at a time. */
+  /** Active, SMS and KYC go through the same endpoint, one field at a time. */
   const toggle = useMutation({
-    mutationFn: (body: { isActive: boolean } | { smsEnabled: boolean }) =>
+    mutationFn: (body: { isActive: boolean } | { smsEnabled: boolean } | { kycRequired: boolean }) =>
       api.patch<ResellerUpdate>(`/owner/resellers/${reseller.id}`, body),
     onSuccess: async (result, body) => {
       setConfirmingDeactivate(false);
@@ -452,6 +452,8 @@ function ResellerModal({
   const isActive = reseller.user?.isActive ?? true;
   const deactivatedAt = reseller.user?.deactivatedAt;
   const smsEnabled = detail.data?.reseller.channelPrefs?.sms ?? false;
+  const kycRequired = detail.data?.reseller.kycRequired ?? false;
+  const kycStatus = detail.data?.reseller.kycStatus ?? 'not_submitted';
 
   return (
     <Modal
@@ -561,13 +563,42 @@ function ResellerModal({
           ) : detail.isError ? (
             <p className="py-2 text-xs text-danger">{errorMessage(detail.error)}</p>
           ) : (
-            <Switch
-              checked={smsEnabled}
-              disabled={toggle.isPending}
-              onChange={(checked) => toggle.mutate({ smsEnabled: checked })}
-              label={t('reseller.smsEnabled')}
-              hint={t('reseller.smsEnabledHint')}
-            />
+            <>
+              {/*
+               * The switch that reveals the KYC module to one reseller. It is
+               * off for everyone until the owner has a reason, so this is the
+               * only way documents are ever asked for. See docs/adr/0017.
+               */}
+              <Switch
+                checked={kycRequired}
+                disabled={toggle.isPending}
+                onChange={(checked) => toggle.mutate({ kycRequired: checked })}
+                label={t('reseller.kycRequired')}
+                hint={kycRequired ? t('reseller.kycRequiredHint') : t('reseller.kycRequiredOff')}
+              />
+
+              {/*
+               * Switching it on for a reseller who is not approved shuts their
+               * public form the moment it saves, because the shop reads the
+               * same rule. Said here rather than discovered when the shop goes
+               * dark and a customer rings to ask why.
+               */}
+              {kycRequired && kycStatus !== 'approved' && (
+                <div className="py-3">
+                  <Alert tone="warning" icon={ShieldAlert} className="mb-0">
+                    {t('reseller.kycRequiredWarn')}
+                  </Alert>
+                </div>
+              )}
+
+              <Switch
+                checked={smsEnabled}
+                disabled={toggle.isPending}
+                onChange={(checked) => toggle.mutate({ smsEnabled: checked })}
+                label={t('reseller.smsEnabled')}
+                hint={t('reseller.smsEnabledHint')}
+              />
+            </>
           )}
         </div>
 

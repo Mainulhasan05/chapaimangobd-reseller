@@ -2,13 +2,25 @@
 
 const Product = require('../models/Product');
 const { conflict } = require('../utils/errors');
-const { fromMilli } = require('../utils/quantity');
+const { findVariant, variantLabel } = require('../domain/variants');
 
 /**
  * Stock moves only inside the order transaction, and only for products that opt in
  * with trackStock. Unlimited stock is that flag being false, never a null quantity:
  * $inc on null errors, and a null-or-missing filter cannot use an index.
+ *
+ * Stock is a count of boxes, held per variant, because that is what a godown
+ * holds: running out of six-kilo boxes must not stop the eleven-kilo ones going
+ * out. The flag stays on the product - whether this product is counted at all is
+ * one decision - and the number is on the box. See docs/adr/0021.
  */
+
+/** The positional filter both operations share: this product, this box. */
+const at = (line) => ({
+  _id: line.product,
+  trackStock: true,
+  'variants._id': line.variant,
+});
 
 /**
  * Takes stock for every tracked line. The conditional filter is the guard against
@@ -18,13 +30,22 @@ async function decrement(session, lines) {
   const taken = [];
 
   for (const line of lines) {
+    // A line from before boxes existed names no variant, so there is no box to
+    // take it from. Nothing to do, exactly as an untracked product.
+    if (!line.variant) continue;
+
     // Sequential on purpose: each update must see the previous one, and a failure
     // aborts the transaction so already-taken stock rolls back with it.
     // eslint-disable-next-line no-await-in-loop
     const updated = await Product.findOneAndUpdate(
-      { _id: line.product, trackStock: true, stockQtyMilli: { $gte: line.qtyMilli } },
-      { $inc: { stockQtyMilli: -line.qtyMilli } },
-      { new: true, session }
+      {
+        ...at(line),
+        // Matched on the same array element that is then decremented, so a
+        // product whose *other* box has enough cannot satisfy this one.
+        variants: { $elemMatch: { _id: line.variant, stockQty: { $gte: line.qty } } },
+      },
+      { $inc: { 'variants.$[box].stockQty': -line.qty } },
+      { new: true, session, arrayFilters: [{ 'box._id': line.variant }] }
     );
 
     if (updated) {
@@ -32,13 +53,16 @@ async function decrement(session, lines) {
       continue;
     }
 
-    // Either the product does not track stock, or there is not enough of it.
+    // Either the product does not track stock, or there are not enough boxes.
     // eslint-disable-next-line no-await-in-loop
     const product = await Product.findById(line.product).session(session);
     if (product && product.trackStock) {
+      const variant = findVariant(product, line.variant);
+      const left = variant ? variant.stockQty : 0;
+      const label = variant ? variantLabel(variant, product.unit) : '';
       throw conflict(
         'OUT_OF_STOCK',
-        `Only ${fromMilli(product.stockQtyMilli)} ${product.unit} of ${product.nameBn} is left`
+        `Only ${left} box(es) of ${product.nameBn} ${label} is left`.replace('  ', ' ')
       );
     }
   }
@@ -53,11 +77,12 @@ async function decrement(session, lines) {
  */
 async function restore(session, lines) {
   for (const line of lines) {
+    if (!line.variant) continue;
     // eslint-disable-next-line no-await-in-loop
     await Product.updateOne(
-      { _id: line.product, trackStock: true },
-      { $inc: { stockQtyMilli: line.qtyMilli } },
-      { session }
+      at(line),
+      { $inc: { 'variants.$[box].stockQty': line.qty } },
+      { session, arrayFilters: [{ 'box._id': line.variant }] }
     );
   }
 }

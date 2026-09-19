@@ -10,7 +10,8 @@ import { normalizeBdPhoneInput } from '@/lib/phone';
 import type { CustomerEditResult, DeliveryChargeChange, DeliveryZone, Order } from '@/lib/types';
 import { Alert } from '@/components/ui/layout';
 import { Button } from '@/components/ui/button';
-import { Field, Input, Select, Textarea } from '@/components/ui/form';
+import { Field, Input, Textarea } from '@/components/ui/form';
+import { DistrictSelect } from '@/components/ui/district-field';
 import { Modal } from '@/components/ui/modal';
 import { PhoneField } from '@/components/ui/phone-field';
 import { useToast } from '@/components/ui/toast';
@@ -84,9 +85,12 @@ function CustomerEditForm({
   const districts = (zones.data?.zones ?? []).flatMap((zone) =>
     zone.districts.map((district) => ({ district, charge: zone.charge }))
   );
-  // The order's own district stays selectable even if its zone has since been
-  // switched off, so opening the sheet never silently blanks the field.
-  const hasCurrent = districts.some((d) => d.district === order.customer.district);
+  /*
+   * The order's own district stays selected even if its zone has since been
+   * switched off: the picker lists all sixty-four and marks the undeliverable
+   * ones rather than dropping them, so opening the sheet never silently blanks
+   * the field. It used to need a synthetic <option> for exactly this case.
+   */
 
   const original = draftFrom(order);
   const changes: Partial<Draft> = {};
@@ -237,21 +241,25 @@ function CustomerEditForm({
           required
         />
 
-        <Field label={t('order.district')} htmlFor="edit-customer-district" error={errors.district} required>
-          <Select
+        {/*
+         * All sixty-four, searchable. The order's own district stays selected
+         * and is flagged rather than dropped when its zone has since been
+         * retired, because it is where the parcel is actually going.
+         */}
+        <Field
+          label={t('order.district')}
+          htmlFor="edit-customer-district"
+          error={errors.district}
+          required
+        >
+          <DistrictSelect
             id="edit-customer-district"
             value={draft.district}
-            onChange={set('district')}
+            onChange={(district) => setDraft((prev) => ({ ...prev, district }))}
+            deliverable={zones.isLoading ? undefined : districts.map((d) => d.district)}
             disabled={zones.isLoading}
-            required
-          >
-            {!hasCurrent && <option value={order.customer.district}>{order.customer.district}</option>}
-            {districts.map((d) => (
-              <option key={d.district} value={d.district}>
-                {d.district} · {formatMoney(d.charge)}
-              </option>
-            ))}
-          </Select>
+            invalid={Boolean(errors.district)}
+          />
         </Field>
 
         <Field

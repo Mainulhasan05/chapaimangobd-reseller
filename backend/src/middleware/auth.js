@@ -4,7 +4,8 @@ const User = require('../models/User');
 const ResellerProfile = require('../models/ResellerProfile');
 const { verifyAccessToken, ACCESS_COOKIE } = require('../services/tokens');
 const { AppError, unauthorized, forbidden } = require('../utils/errors');
-const { ROLES, KYC_STATUS } = require('../domain/constants');
+const { ROLES } = require('../domain/constants');
+const { kycBlocks } = require('../domain/kyc');
 const asyncHandler = require('../utils/asyncHandler');
 
 /**
@@ -113,10 +114,13 @@ const loadReseller = asyncHandler(async (req, _res, next) => {
  * Gates the two actions that create real obligations: activating a public form
  * and confirming an order. Everything else stays open while KYC is pending, so
  * a reseller can do their setup work during the wait.
+ *
+ * It gates nothing at all for a reseller the owner has not asked to verify,
+ * which is every reseller by default. See docs/adr/0017.
  */
 function requireKyc(req, _res, next) {
   if (!req.reseller) return next(forbidden('Reseller profile is missing'));
-  if (req.reseller.kycStatus !== KYC_STATUS.APPROVED) {
+  if (kycBlocks(req.reseller)) {
     return next(forbidden('Your KYC verification must be approved before you can do this'));
   }
   return next();

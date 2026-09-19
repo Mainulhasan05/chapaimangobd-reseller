@@ -214,7 +214,7 @@ test('the orders export escapes a customer name written as a formula', async () 
     .send({
       paymentMode: PAYMENT_MODE.PREPAID,
       customer: f.customer({ name: '=cmd|calc!A1' }),
-      items: [{ product: String(product._id), quantity: 10 }],
+      items: [{ product: String(product._id), variant: String(product.variants[0]._id), quantity: 10 }],
     });
   assert.equal(created.status, 201, JSON.stringify(created.body));
   assert.ok(await Order.exists({ orderCode: created.body.data.orderCode }));
