@@ -210,6 +210,129 @@ const SOURCE_COMPLAINT_KINDS = Object.freeze([
 /** Written as the cancel reason on every pending order a deactivation cancels. */
 const RESELLER_DEACTIVATED_REASON = 'reseller_deactivated';
 
+/* --------------------------------------------------------------- cost side */
+
+/**
+ * What a **Supply** is, as opposed to a Product: something the business buys and
+ * uses up and never sells. A crate, a roll of tape, polythene. See PLAN-3 and
+ * docs/adr/0022.
+ *
+ * Why a supply's stock is its own kind of record rather than a number somebody
+ * edits: the owner's question is never only "how many are there" but "where did
+ * they go", and a field that is overwritten cannot answer the second one.
+ */
+const MOVEMENT_KIND = Object.freeze({
+  // What was on the shelf before the system knew about it.
+  OPENING: 'OPENING',
+  PURCHASE: 'PURCHASE',
+  // Packed into an order. The only kind nothing human types.
+  CONSUMED: 'CONSUMED',
+  DAMAGED: 'DAMAGED',
+  LOST: 'LOST',
+  RETURN_TO_PAYEE: 'RETURN_TO_PAYEE',
+  // A recount. Either sign: the shelf is the truth and the book follows it.
+  ADJUSTMENT: 'ADJUSTMENT',
+  REVERSAL: 'REVERSAL',
+});
+
+/** The kinds that add to the shelf. Everything else takes from it or may do either. */
+const MOVEMENT_INCREASES = Object.freeze([MOVEMENT_KIND.OPENING, MOVEMENT_KIND.PURCHASE]);
+
+/**
+ * What a **Payee** is to the business. Changes the label a reader sees and
+ * nothing else: a due is a due, and the ledger underneath is identical for all
+ * of them. See docs/adr/0025.
+ */
+const PAYEE_KIND = Object.freeze({
+  SUPPLIER: 'supplier',
+  LABOUR: 'labour',
+  COURIER: 'courier',
+  TRANSPORT: 'transport',
+  LANDLORD: 'landlord',
+  OTHER: 'other',
+});
+
+/**
+ * Movements of what the owner owes a payee. The kind says what happened; the
+ * sign on amountPoisha says which way it moved, and positive always means the
+ * owner owes more. Adding one is a schema decision, not a convenience: the
+ * ledger is append-only, so a kind that turns out wrong cannot be edited away.
+ */
+const PAYEE_LEDGER_KIND = Object.freeze({
+  // Goods received. Increases the due.
+  PURCHASE: 'PURCHASE',
+  // An unpaid expense billed by this payee, such as a month of courier bills.
+  EXPENSE: 'EXPENSE',
+  // The owner paid them. Reduces the due, and past zero becomes an advance.
+  PAYMENT: 'PAYMENT',
+  // Goods sent back.
+  RETURN: 'RETURN',
+  // They waived part of it.
+  DISCOUNT: 'DISCOUNT',
+  // What was owed before the system knew about them. Either sign.
+  OPENING: 'OPENING',
+  ADJUSTMENT: 'ADJUSTMENT',
+  REVERSAL: 'REVERSAL',
+});
+
+/**
+ * A purchase is recorded when the goods are in hand, so there is no draft and no
+ * separate receive. A mistake is cancelled and re-entered, never edited: editing
+ * one would have to rewrite a stock movement, a landed cost and a due, all of
+ * which are append-only on purpose. See docs/adr/0024.
+ */
+const PURCHASE_STATUS = Object.freeze({ RECEIVED: 'received', CANCELLED: 'cancelled' });
+
+/** An extra cost on a purchase, beyond the rate paid for the goods. */
+const PURCHASE_CHARGE_KIND = Object.freeze({
+  TRANSPORT: 'transport',
+  LABOUR: 'labour',
+  LOADING: 'loading',
+  COMMISSION: 'commission',
+  OTHER: 'other',
+});
+
+/**
+ * Who a purchase charge is settled with. Both kinds count toward landed cost;
+ * only `PAYEE` reaches a ledger. Paying the van driver in cash at the gate does
+ * not make the crate seller owed more.
+ */
+const CHARGE_PAID_TO = Object.freeze({ PAYEE: 'payee', OTHER: 'other' });
+
+/**
+ * How a purchase's charges are spread over its lines. By value when the charge
+ * scales with what the goods are worth, by quantity when it scales with how much
+ * there is to carry.
+ */
+const ALLOCATION_BASIS = Object.freeze({ VALUE: 'value', QUANTITY: 'quantity' });
+
+/**
+ * Whether an expense belongs to one order or to a day. Every expense is exactly
+ * one, and a period expense is never divided across orders: nobody measured it
+ * per order, and a share invented to complete the per-order number is a number
+ * that is not true. See docs/adr/0027.
+ */
+const EXPENSE_SCOPE = Object.freeze({ ORDER: 'order', PERIOD: 'period' });
+
+/** What a category may be used for. `BOTH` lets one category serve either. */
+const CATEGORY_SCOPE = Object.freeze({ ORDER: 'order', PERIOD: 'period', BOTH: 'both' });
+
+/** Whether the money has actually left. Unpaid plus a payee is a due. */
+const EXPENSE_PAYMENT_STATUS = Object.freeze({ PAID: 'paid', UNPAID: 'unpaid' });
+
+/**
+ * How something was paid, as a label only. This is not an account and there is
+ * no cash book: the system tracks what is owed and what was spent, not where the
+ * money sat. See PLAN-3 decision 20.
+ */
+const PAID_FROM = Object.freeze({
+  CASH: 'cash',
+  BKASH: 'bkash',
+  NAGAD: 'nagad',
+  ROCKET: 'rocket',
+  BANK: 'bank',
+});
+
 const values = (o) => Object.values(o);
 
 module.exports = {
@@ -235,5 +358,17 @@ module.exports = {
   COMPLAINT_KIND,
   SOURCE_COMPLAINT_KINDS,
   RESELLER_DEACTIVATED_REASON,
+  MOVEMENT_KIND,
+  MOVEMENT_INCREASES,
+  PAYEE_KIND,
+  PAYEE_LEDGER_KIND,
+  PURCHASE_STATUS,
+  PURCHASE_CHARGE_KIND,
+  CHARGE_PAID_TO,
+  ALLOCATION_BASIS,
+  EXPENSE_SCOPE,
+  CATEGORY_SCOPE,
+  EXPENSE_PAYMENT_STATUS,
+  PAID_FROM,
   values,
 };

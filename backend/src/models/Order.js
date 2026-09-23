@@ -68,6 +68,29 @@ const lineItemSchema = new mongoose.Schema(
      */
     source: { type: mongoose.Schema.Types.ObjectId, ref: 'Source', default: null },
     sourceNameBn: { type: String, default: null },
+
+    /*
+     * What this line actually consumed in packaging, written when the parcel's
+     * fate is settled: at **deliver** or at **return**, never at pack.
+     *
+     * A snapshot in the same sense as the prices above: the name, the quantity
+     * and what one unit was worth at the moment it was recognised. The variant's
+     * packaging recipe may be edited tomorrow and a crate's average cost moves
+     * with every purchase, and neither may restate what this parcel cost.
+     *
+     * Empty for a cancelled order, which never went anywhere, and for every line
+     * and variant written before this existed. See docs/adr/0026.
+     */
+    packagingUsed: [
+      {
+        _id: false,
+        supply: { type: mongoose.Schema.Types.ObjectId, ref: 'Supply' },
+        supplyNameBn: { type: String },
+        qtyMilli: { type: Number },
+        unitCostPoisha: money({ default: 0 }),
+        costPoisha: money({ default: 0 }),
+      },
+    ],
   },
   { _id: true }
 );
@@ -119,6 +142,18 @@ const orderSchema = new mongoose.Schema(
      * suffix of the entry's idempotency key. See docs/adr/0010.
      */
     deliveryAdjustmentCount: { type: Number, default: 0, min: 0 },
+
+    /*
+     * What the packaging on this order cost, summed from the lines' snapshots.
+     * Denormalised so a ranged cost report is an aggregation over one field
+     * rather than a walk through every line's array. Zero until the parcel is
+     * delivered or returned, and zero forever on a cancel.
+     *
+     * A cost, never a charge: this is the owner's money going out and it is not
+     * billed to anybody. It does not touch `totals` below, all of which are
+     * figures the reseller is party to. See docs/adr/0027.
+     */
+    packagingCostPoisha: money({ default: 0, min: 0 }),
 
     totals: {
       costSubtotalPoisha: money({ default: 0 }),

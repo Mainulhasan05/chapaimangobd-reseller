@@ -1,0 +1,1219 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>মালিকের ড্যাশবোর্ড</title>
+<meta name="description" content="ChapaiMango owner dashboard redesign prototype — Orchard Calm" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+/*
+ * Orchard Calm — a redesign prototype of the owner dashboard.
+ *
+ * Warm paper, leaf green as the working colour, mango only as an accent.
+ * Everything a card shows maps to a field of OwnerDashboard, PickList,
+ * SalesReport or ResellerSummary in lib/types.ts; the numbers are mock.
+ *
+ * Chart slots were run through the dataviz validator against these exact
+ * surfaces: leaf / mango / iris pass every gate in both modes.
+ */
+:root {
+  color-scheme: light;
+  --page: #f4f2ea;
+  --surface: #fffefa;
+  --surface-2: #f8f6ef;
+  --ink: #1c2a23;
+  --ink-2: #4c5a52;
+  --muted: #7a847d;
+  --line: #e6e2d6;
+  --grid: #eeeae0;
+
+  --leaf: #0a8465;
+  --leaf-soft: #e2f1ea;
+  --leaf-ink: #0a6a52;
+  --mango: #c9780a;
+  --mango-soft: #fbefd9;
+  --mango-ink: #8a5006;
+  --iris: #5b62c8;
+
+  --ok-ink: #1f7a3a;   --ok-soft: #e4f3e7;
+  --warn-ink: #8a5a00; --warn-soft: #fcf0d4;
+  --bad-ink: #b3372f;  --bad-soft: #fbe7e4; --bad-bar: #e08a80;
+
+  --shadow: 0 1px 2px rgba(40, 36, 20, .04), 0 4px 16px rgba(40, 36, 20, .05);
+  --shadow-hover: 0 2px 4px rgba(40, 36, 20, .05), 0 10px 28px rgba(40, 36, 20, .08);
+  --radius: 18px;
+  --ease: cubic-bezier(.22, .8, .3, 1);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #141714; --surface: #1c1f1c; --surface-2: #222622;
+    --ink: #edf0ea; --ink-2: #b6beb5; --muted: #8a938b; --line: #2d322d; --grid: #272b27;
+    --leaf: #14a17c; --leaf-soft: #17302a; --leaf-ink: #6fd1b0;
+    --mango: #c2800f; --mango-soft: #33291a; --mango-ink: #f0b95c;
+    --iris: #7a80e0;
+    --ok-ink: #7fd394; --ok-soft: #1a2f20;
+    --warn-ink: #f0c060; --warn-soft: #33291a;
+    --bad-ink: #f19a90; --bad-soft: #3a211e; --bad-bar: #a8554c;
+    --shadow: 0 1px 2px rgba(0,0,0,.3); --shadow-hover: 0 6px 24px rgba(0,0,0,.35);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #141714; --surface: #1c1f1c; --surface-2: #222622;
+  --ink: #edf0ea; --ink-2: #b6beb5; --muted: #8a938b; --line: #2d322d; --grid: #272b27;
+  --leaf: #14a17c; --leaf-soft: #17302a; --leaf-ink: #6fd1b0;
+  --mango: #c2800f; --mango-soft: #33291a; --mango-ink: #f0b95c;
+  --iris: #7a80e0;
+  --ok-ink: #7fd394; --ok-soft: #1a2f20;
+  --warn-ink: #f0c060; --warn-soft: #33291a;
+  --bad-ink: #f19a90; --bad-soft: #3a211e; --bad-bar: #a8554c;
+  --shadow: 0 1px 2px rgba(0,0,0,.3); --shadow-hover: 0 6px 24px rgba(0,0,0,.35);
+}
+
+* { box-sizing: border-box; margin: 0; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  font-family: "Hind Siliguri", system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--page);
+  color: var(--ink);
+  font-size: 15px;
+  line-height: 1.55;
+  min-height: 100vh;
+  transition: background-color .3s ease, color .3s ease;
+}
+a { color: inherit; text-decoration: none; }
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+svg.i { width: 20px; height: 20px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.tab-num { font-variant-numeric: tabular-nums; }
+:focus-visible { outline: 2px solid var(--leaf); outline-offset: 2px; border-radius: 10px; }
+
+/* ---------- Shell ---------- */
+.shell { display: flex; min-height: 100vh; }
+.side {
+  display: none;
+  width: 236px; flex: none;
+  position: sticky; top: 0; height: 100vh;
+  padding: 22px 14px;
+  border-right: 1px solid var(--line);
+  background: var(--surface-2);
+  flex-direction: column; gap: 4px;
+  overflow-y: auto;
+}
+.brand { display: flex; align-items: center; gap: 10px; padding: 0 8px 18px; }
+.brand-mark {
+  width: 36px; height: 36px; border-radius: 12px;
+  display: grid; place-items: center;
+  background: var(--leaf); color: #fff;
+}
+.brand-mark svg { width: 20px; height: 20px; }
+.brand b { font-size: 16px; font-weight: 700; display: block; line-height: 1.1; }
+.brand small { font-size: 12px; color: var(--muted); }
+.side h6 { font-size: 12px; font-weight: 600; color: var(--muted); padding: 14px 10px 4px; }
+.nav-a {
+  display: flex; align-items: center; gap: 11px;
+  padding: 9px 10px; border-radius: 12px;
+  color: var(--ink-2); font-weight: 500;
+  transition: background-color .2s ease, color .2s ease;
+}
+.nav-a:hover { background: var(--surface); color: var(--ink); }
+.nav-a[aria-current="page"] { background: var(--leaf-soft); color: var(--leaf-ink); font-weight: 600; }
+.nav-a .count {
+  margin-left: auto; font-size: 12px; font-weight: 600;
+  background: var(--mango-soft); color: var(--mango-ink);
+  padding: 0 8px; border-radius: 99px;
+}
+
+main { flex: 1; min-width: 0; padding: 0 16px 104px; }
+.wrap { max-width: 1240px; margin: 0 auto; }
+
+.topbar {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 0 12px;
+  background: color-mix(in srgb, var(--page) 88%, transparent);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+}
+.hello { min-width: 0; }
+.hello p { font-size: 13px; color: var(--muted); }
+.hello h1 { font-size: 21px; font-weight: 700; line-height: 1.25; letter-spacing: -.01em; }
+.top-actions { margin-left: auto; display: flex; gap: 6px; }
+.icon-btn {
+  width: 44px; height: 44px; border-radius: 14px;
+  display: grid; place-items: center;
+  background: var(--surface); border: 1px solid var(--line);
+  color: var(--ink-2); position: relative;
+  transition: background-color .2s ease, transform .15s ease;
+}
+.icon-btn:hover { color: var(--ink); }
+.icon-btn:active { transform: scale(.96); }
+.icon-btn .dot { position: absolute; top: 10px; right: 11px; width: 8px; height: 8px; border-radius: 50%; background: var(--mango); box-shadow: 0 0 0 2px var(--surface); }
+
+.live {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--muted);
+}
+.live i { width: 7px; height: 7px; border-radius: 50%; background: var(--leaf); animation: pulse 2.4s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
+
+/* Bottom tab bar — the phone's navigation */
+.tabbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+  display: grid; grid-template-columns: repeat(5, 1fr);
+  padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  border-top: 1px solid var(--line);
+}
+.tabbar a {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  min-height: 52px; justify-content: center;
+  font-size: 12px; color: var(--muted); border-radius: 12px; position: relative;
+}
+.tabbar a[aria-current="page"] { color: var(--leaf-ink); font-weight: 600; }
+.tabbar a[aria-current="page"]::before {
+  content: ""; position: absolute; top: 4px; width: 44px; height: 28px; border-radius: 99px;
+  background: var(--leaf-soft); z-index: -1;
+}
+.tabbar .count {
+  position: absolute; top: 2px; left: calc(50% + 6px);
+  font-size: 11px; line-height: 16px; min-width: 18px; padding: 0 5px; text-align: center;
+  background: var(--mango); color: #fff; border-radius: 99px; font-weight: 600;
+}
+
+/* ---------- Cards ---------- */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 18px;
+  box-shadow: var(--shadow);
+  transition: box-shadow .25s ease, border-color .25s ease, background-color .3s ease;
+}
+.card-h { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
+.card-h h2 { font-size: 16px; font-weight: 600; }
+.card-h .sub { font-size: 13px; color: var(--muted); }
+.card-h .more {
+  margin-left: auto; font-size: 13px; font-weight: 500; color: var(--leaf-ink);
+  display: inline-flex; align-items: center; gap: 2px; padding: 4px 2px;
+}
+.card-h .more svg { width: 16px; height: 16px; transition: transform .2s ease; }
+.card-h .more:hover svg { transform: translateX(3px); }
+
+.grid { display: grid; gap: 14px; }
+.stack { display: grid; gap: 14px; align-content: start; }
+
+/* reveal on load */
+.reveal { opacity: 0; transform: translateY(8px); animation: rise .5s var(--ease) forwards; }
+@keyframes rise { to { opacity: 1; transform: none; } }
+
+/* ---------- Hero ---------- */
+.hero { padding: 20px 18px 18px; position: relative; overflow: hidden; }
+.hero::after {
+  /* one soft leaf-shaped wash, the only decoration on the page */
+  content: ""; position: absolute; right: -80px; top: -90px;
+  width: 260px; height: 260px; border-radius: 60% 0 60% 0;
+  background: var(--leaf-soft); opacity: .7; transform: rotate(18deg);
+  pointer-events: none;
+}
+.hero > * { position: relative; z-index: 1; }
+.hero { display: flex; flex-direction: column; }
+.week { margin-top: auto; padding-top: 18px; }
+.week p { font-size: 12px; color: var(--muted); margin-bottom: 8px; display: flex; justify-content: space-between; }
+.week-bars { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; align-items: end; height: 64px; }
+.week-bars span { display: block; border-radius: 4px 4px 0 0; background: var(--leaf); opacity: .28; height: 0; transition: height .6s var(--ease); }
+.week-bars span.today { opacity: 1; }
+.week-days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin-top: 4px; font-size: 11px; color: var(--muted); text-align: center; }
+.week-days .today { color: var(--ink); font-weight: 600; }
+.eyebrow { font-size: 13px; color: var(--ink-2); display: flex; align-items: center; gap: 8px; }
+.hero-num { font-size: 40px; font-weight: 700; letter-spacing: -.02em; line-height: 1.15; margin-top: 2px; }
+.delta {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 13px; font-weight: 600; padding: 2px 10px 2px 6px; border-radius: 99px;
+}
+.delta.up { background: var(--ok-soft); color: var(--ok-ink); }
+.delta.down { background: var(--bad-soft); color: var(--bad-ink); }
+.delta svg { width: 16px; height: 16px; }
+.hero-note { font-size: 13px; color: var(--muted); margin-top: 6px; }
+
+.split { margin-top: 18px; }
+.split-bar { display: flex; gap: 2px; height: 12px; border-radius: 99px; overflow: hidden; background: var(--grid); }
+.split-bar span { height: 100%; transition: flex-grow .6s var(--ease); }
+.split-bar span:first-child { border-radius: 99px 0 0 99px; }
+.split-bar span:last-child { border-radius: 0 99px 99px 0; }
+.legend { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+.legend div { min-width: 0; }
+.legend dt { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.legend dt i { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.legend dd { font-size: 15px; font-weight: 600; margin: 0; }
+.legend .owner dd { color: var(--ink); }
+
+/* ---------- KPI tiles ---------- */
+.kpis { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.kpi {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 14px; min-height: 108px;
+  transition: transform .2s var(--ease), box-shadow .25s ease;
+}
+.kpi:hover { transform: translateY(-2px); box-shadow: var(--shadow-hover); }
+.kpi .ico {
+  width: 34px; height: 34px; border-radius: 11px; display: grid; place-items: center;
+  background: var(--surface-2); color: var(--ink-2);
+}
+.kpi .ico svg { width: 18px; height: 18px; }
+.kpi .lbl { font-size: 13px; color: var(--ink-2); }
+.kpi .val { font-size: 22px; font-weight: 700; line-height: 1.1; letter-spacing: -.01em; }
+.kpi .hint { font-size: 12px; color: var(--muted); margin-top: auto; }
+.kpi.attn .ico { background: var(--mango-soft); color: var(--mango-ink); }
+
+/* ---------- Decision queue ---------- */
+.queue { display: grid; gap: 8px; }
+.q {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 12px; min-height: 56px;
+  border-radius: 14px; background: var(--surface-2);
+  transition: background-color .2s ease, transform .2s var(--ease);
+}
+.q:hover { background: var(--leaf-soft); transform: translateX(2px); }
+.q .ico { width: 36px; height: 36px; border-radius: 11px; display: grid; place-items: center; background: var(--surface); color: var(--ink-2); flex: none; }
+.q .ico svg { width: 18px; height: 18px; }
+.q .t { min-width: 0; flex: 1; }
+.q .t b { font-weight: 600; font-size: 14px; display: block; }
+.q .t small { font-size: 12px; color: var(--muted); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.q .n { font-size: 18px; font-weight: 700; min-width: 28px; text-align: right; }
+.q.urgent .ico { background: var(--bad-soft); color: var(--bad-ink); }
+.q.urgent .n { color: var(--bad-ink); }
+.q.soon .ico { background: var(--mango-soft); color: var(--mango-ink); }
+.q-clear { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; padding: 6px 2px 0; }
+.q-clear svg { width: 16px; height: 16px; color: var(--ok-ink); }
+
+/* ---------- Pipeline ---------- */
+.flow { display: grid; gap: 10px; }
+.stage { display: grid; grid-template-columns: 104px 1fr 34px; align-items: center; gap: 10px; }
+.stage .name { font-size: 13px; color: var(--ink-2); display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.stage .name .step { width: 20px; height: 20px; border-radius: 50%; font-size: 11px; display: grid; place-items: center; background: var(--surface-2); color: var(--muted); font-weight: 600; flex: none; }
+.track { height: 10px; border-radius: 99px; background: var(--grid); overflow: hidden; }
+.track span {
+  display: block; height: 100%; width: 0; border-radius: 99px;
+  background: var(--leaf); transition: width .7s var(--ease);
+}
+.stage.needs .track span { background: var(--mango); }
+.stage.needs .name { color: var(--ink); font-weight: 600; }
+.stage .c { font-weight: 700; text-align: right; }
+.closed { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--line); }
+.closed div { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); }
+.closed svg { width: 18px; height: 18px; }
+.closed b { font-size: 16px; color: var(--ink); display: block; line-height: 1.1; }
+.closed .ok svg { color: var(--ok-ink); }
+.closed .bad svg { color: var(--bad-ink); }
+.closed .warn svg { color: var(--warn-ink); }
+
+/* ---------- Segmented control ---------- */
+.seg {
+  display: inline-flex; padding: 3px; border-radius: 12px;
+  background: var(--surface-2); border: 1px solid var(--line); position: relative;
+}
+.seg button {
+  position: relative; z-index: 1;
+  padding: 6px 12px; min-height: 36px; border-radius: 9px;
+  font-size: 13px; font-weight: 500; color: var(--ink-2);
+  transition: color .2s ease;
+}
+.seg button[aria-pressed="true"] { color: var(--ink); font-weight: 600; }
+.seg .thumb {
+  position: absolute; top: 3px; bottom: 3px; left: 0; border-radius: 9px;
+  background: var(--surface); box-shadow: 0 1px 3px rgba(0,0,0,.08);
+  transition: transform .3s var(--ease), width .3s var(--ease);
+}
+
+/* ---------- Trend chart ---------- */
+.trend-h { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 6px; }
+.trend-h h2 { font-size: 16px; font-weight: 600; margin-right: auto; }
+.trend-sum { display: flex; gap: 22px; margin: 6px 0 10px; flex-wrap: wrap; }
+.trend-sum div small { font-size: 12px; color: var(--muted); display: block; }
+.trend-sum div b { font-size: 20px; font-weight: 700; }
+.chart { position: relative; height: 220px; }
+.chart svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.chart .grid-l { stroke: var(--grid); stroke-width: 1; }
+.chart .base-l { stroke: var(--line); stroke-width: 1; }
+.chart .axis-t { fill: var(--muted); font-size: 11px; font-family: inherit; }
+.chart .line { fill: none; stroke: var(--leaf); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart .bar { fill: var(--leaf); transition: opacity .2s ease; }
+.chart .bar.dim { opacity: .45; }
+.chart .cross { stroke: var(--ink-2); stroke-width: 1; stroke-dasharray: 3 3; opacity: 0; transition: opacity .15s ease; }
+.chart .pt { fill: var(--leaf); stroke: var(--surface); stroke-width: 2; opacity: 0; transition: opacity .15s ease; }
+.chart.hovering .cross, .chart.hovering .pt { opacity: 1; }
+.chart .draw { stroke-dasharray: var(--len); stroke-dashoffset: var(--len); animation: draw .9s var(--ease) forwards; }
+@keyframes draw { to { stroke-dashoffset: 0; } }
+.tip {
+  position: absolute; top: 0; left: 0; pointer-events: none; z-index: 5;
+  background: var(--ink); color: var(--surface);
+  padding: 8px 11px; border-radius: 11px; font-size: 12px; line-height: 1.4;
+  box-shadow: 0 8px 24px rgba(0,0,0,.18);
+  opacity: 0; transform: translateY(4px);
+  transition: opacity .15s ease, transform .15s ease;
+  white-space: nowrap;
+}
+.tip b { font-size: 15px; display: block; }
+.chart.hovering .tip { opacity: 1; transform: none; }
+.table-link { font-size: 13px; color: var(--leaf-ink); font-weight: 500; margin-top: 8px; padding: 6px 0; min-height: 36px; }
+.dtable { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 6px; }
+.dtable th { text-align: left; font-weight: 500; color: var(--muted); padding: 6px 4px; border-bottom: 1px solid var(--line); }
+.dtable td { padding: 7px 4px; border-bottom: 1px solid var(--grid); }
+.dtable td:not(:first-child), .dtable th:not(:first-child) { text-align: right; }
+
+/* ---------- Bar lists (products, debtors) ---------- */
+.blist { display: grid; gap: 12px; list-style: none; padding: 0; }
+.blist li { display: grid; gap: 5px; }
+.blist .row { display: flex; align-items: baseline; gap: 8px; font-size: 14px; }
+.blist .row b { font-weight: 600; }
+.blist .row small { color: var(--muted); font-size: 12px; }
+.blist .row .v { margin-left: auto; font-weight: 600; }
+.blist .track { height: 6px; }
+.blist.debt .track span { background: var(--bad-bar); }
+.blist.debt .v { color: var(--bad-ink); }
+
+.pay { margin-top: 18px; padding-top: 14px; border-top: 1px dashed var(--line); }
+.pay p { font-size: 13px; color: var(--ink-2); margin-bottom: 8px; }
+.pay .split-bar { height: 10px; }
+.pay-legend { display: flex; justify-content: space-between; margin-top: 8px; font-size: 13px; }
+.pay-legend span { display: flex; align-items: center; gap: 6px; }
+.pay-legend i { width: 10px; height: 10px; border-radius: 3px; }
+
+/* ---------- Pick list ---------- */
+.pick { list-style: none; padding: 0; display: grid; gap: 10px; }
+.pick li { padding: 12px; border-radius: 14px; background: var(--surface-2); }
+.pick .top { display: flex; align-items: baseline; gap: 8px; }
+.pick .top b { font-size: 15px; font-weight: 600; }
+.pick .top .kg { margin-left: auto; font-weight: 700; }
+.pick .boxes { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12px; padding: 3px 10px; border-radius: 99px;
+  background: var(--surface); border: 1px solid var(--line); color: var(--ink-2);
+}
+.chip b { color: var(--ink); font-weight: 600; }
+.pick .src { font-size: 12px; color: var(--muted); margin-top: 8px; display: flex; align-items: center; gap: 5px; }
+.pick .src svg { width: 14px; height: 14px; }
+.pick .src.undecided { color: var(--warn-ink); }
+.btn {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  width: 100%; min-height: 46px; margin-top: 12px; border-radius: 13px;
+  background: var(--leaf); color: #fff; font-weight: 600; font-size: 14px;
+  transition: filter .2s ease, transform .15s ease;
+}
+.btn:hover { filter: brightness(1.06); }
+.btn:active { transform: scale(.98); }
+.btn svg { width: 18px; height: 18px; }
+
+/* ---------- Aging ---------- */
+.aging { list-style: none; padding: 0; }
+.aging li + li { border-top: 1px solid var(--grid); }
+.aging a { display: flex; align-items: center; gap: 12px; padding: 10px 4px; min-height: 52px; border-radius: 10px; transition: background-color .2s ease; }
+.aging a:hover { background: var(--surface-2); }
+.aging .code { font-weight: 600; font-size: 14px; letter-spacing: .02em; }
+.aging small { display: block; font-size: 12px; color: var(--muted); }
+.age {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 4px;
+  font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 99px;
+  background: var(--bad-soft); color: var(--bad-ink); white-space: nowrap;
+}
+.age svg { width: 14px; height: 14px; }
+
+/* ---------- Health ---------- */
+.health { list-style: none; padding: 0; display: grid; gap: 8px; }
+.health li { display: flex; align-items: center; gap: 10px; font-size: 14px; padding: 8px 10px; border-radius: 12px; }
+.health svg { width: 18px; height: 18px; }
+.health .ok { color: var(--ok-ink); background: var(--ok-soft); }
+.health .warn { color: var(--warn-ink); background: var(--warn-soft); }
+.health li span { color: var(--ink); }
+.health li em { margin-left: auto; font-style: normal; font-size: 12px; font-weight: 600; }
+
+/* skeleton shimmer while a range loads */
+.loading .fade { opacity: .35; filter: saturate(.4); }
+.fade { transition: opacity .25s ease, filter .25s ease; }
+
+/* ---------- Layout breakpoints ---------- */
+/* On a phone the two columns dissolve so the morning's pick list sits right under the numbers */
+@media (max-width: 1023px) {
+  .col { display: contents; }
+  .o1 { order: 1; } .o2 { order: 2; } .o3 { order: 3; } .o4 { order: 4; }
+  .o5 { order: 5; } .o6 { order: 6; } .o7 { order: 7; } .o8 { order: 8; }
+}
+@media (min-width: 640px) {
+  main { padding: 0 24px 104px; }
+  .kpis { grid-template-columns: repeat(4, 1fr); }
+  .hero-num { font-size: 46px; }
+  .card { padding: 20px; }
+}
+@media (min-width: 1024px) {
+  .side { display: flex; }
+  .tabbar { display: none; }
+  main { padding: 0 32px 40px; }
+  .topbar { padding: 22px 0 18px; }
+  .hello h1 { font-size: 24px; }
+  .grid.main { grid-template-columns: minmax(0, 1fr) 360px; gap: 18px; align-items: start; }
+  .grid.pair { grid-template-columns: 1fr 1fr; }
+  .hero-row { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 14px; }
+  .stage { grid-template-columns: 130px 1fr 40px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+  .reveal { opacity: 1; transform: none; }
+}
+@media (forced-colors: active) {
+  .track span, .split-bar span { forced-color-adjust: none; }
+}
+</style>
+</head>
+<body>
+
+<!-- Icon sprite: hand-drawn in the lucide idiom the app already uses -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/><path d="M10 20v-5h4v5"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1"/><path d="M9 10h6M9 14h6M9 18h3"/></symbol>
+    <symbol id="i-box" viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5Z"/><path d="m3 8 9 5 9-5M12 13v8"/></symbol>
+    <symbol id="i-wallet" viewBox="0 0 24 24"><path d="M19 7V5a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-4a2 2 0 0 0 0 4h4v2a1 1 0 0 1-1 1H5a2 2 0 0 1-2-2V6"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0"/><path d="M16 4a4 4 0 0 1 0 8M22 21a7 7 0 0 0-4-6.3"/></symbol>
+    <symbol id="i-contact" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="12" cy="11" r="3"/><path d="M7 20a5 5 0 0 1 10 0"/></symbol>
+    <symbol id="i-badge" viewBox="0 0 24 24"><path d="M12 2 15 5h4v4l3 3-3 3v4h-4l-3 3-3-3H5v-4l-3-3 3-3V5h4Z"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="i-msg" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z"/><path d="M12 7v4M12 14h.01"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M8 17v-5M13 17V8M18 17v-9"/></symbol>
+    <symbol id="i-store" viewBox="0 0 24 24"><path d="M4 10v10h16V10"/><path d="M2 10 4 4h16l2 6Z"/><path d="M10 20v-5h4v5"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24"><path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="3"/></symbol>
+    <symbol id="i-cog" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+    <symbol id="i-bag" viewBox="0 0 24 24"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18M16 10a4 4 0 0 1-8 0"/></symbol>
+    <symbol id="i-truck" viewBox="0 0 24 24"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9M19 18h2a1 1 0 0 0 1-1v-3.6a1 1 0 0 0-.2-.6l-3.5-4.4A1 1 0 0 0 17.5 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-hand" viewBox="0 0 24 24"><path d="M12 22a8 8 0 0 0 8-8V9a1.5 1.5 0 0 0-3 0v3M17 9V6a1.5 1.5 0 0 0-3 0v5M14 6V4.5a1.5 1.5 0 0 0-3 0V11M11 5.5a1.5 1.5 0 0 0-3 0V14l-1.7-1.7a1.6 1.6 0 0 0-2.3 2.3L8 18.6A8 8 0 0 0 12 22"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 17V3M6 11l6 6 6-6M5 21h14"/></symbol>
+    <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 7v14M6 13l6-6 6 6M5 3h14"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m15 9-6 6M9 9l6 6"/></symbol>
+    <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="i-trend-up" viewBox="0 0 24 24"><path d="m3 17 6-6 4 4 8-8"/><path d="M14 7h7v7"/></symbol>
+    <symbol id="i-trend-down" viewBox="0 0 24 24"><path d="m3 7 6 6 4-4 8 8"/><path d="M14 17h7v-7"/></symbol>
+    <symbol id="i-print" viewBox="0 0 24 24"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
+    <symbol id="i-leaf" viewBox="0 0 24 24"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.5 19 2c1 2 2 4.2 2 8 0 5.5-4.8 10-10 10Z"/><path d="M2 21c0-3 1.9-5.4 5.2-6.1C9.5 14.5 12 13 13 12"/></symbol>
+    <symbol id="i-mail" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></symbol>
+  </defs>
+</svg>
+
+<div class="shell">
+  <!-- Desktop sidebar: the same three groups the app's owner layout uses -->
+  <aside class="side" aria-label="মূল মেনু">
+    <div class="brand">
+      <div class="brand-mark"><svg class="i"><use href="#i-leaf"/></svg></div>
+      <div><b>চাঁপাই ম্যাঙ্গো</b><small>মালিকের প্যানেল</small></div>
+    </div>
+    <h6>প্রতিদিনের কাজ</h6>
+    <a class="nav-a" href="#" aria-current="page"><svg class="i"><use href="#i-home"/></svg>ড্যাশবোর্ড</a>
+    <a class="nav-a" href="#"><svg class="i"><use href="#i-list"/></svg>অর্ডার<span class="count" data-bind="awaiting"></span></a>
+    <a class="nav-a" href="#"><svg class="i"><use href="#i-box"/></svg>পণ্য</a>
+    <a class="nav-a" href="#"><svg class="i"><use href="#i-wallet"/></svg>জমা</a>
+    <h6>হিসাব</h6>
+    <a class="nav-a" href="#"><svg class="i"><use href="#i-users"/></svg>রিসেলার</a>
+    <a class="nav-a" href="#"><svg class="i"><use href="#i-contact"/></svg>ক্রেতা</a>
+    <a class="nav-a" href="#"><svg class="i"><use href="#i-badge"/></svg>কেওয়াইসি</a>
+    <a class="nav-a" href="#"><svg class="i"><use href="#i-msg"/></svg>অভিযোগ</a>
+    <a class="nav-a" href="#"><svg class="i"><use href="#i-chart"/></svg>রিপোর্ট</a>
+    <h6>সেটআপ</h6>
+    <a class="nav-a" href="#"><svg class="i"><use href="#i-store"/></svg>সংগ্রহের উৎস</a>
+    <a class="nav-a" href="#"><svg class="i"><use href="#i-pin"/></svg>ডেলিভারি এলাকা</a>
+    <a class="nav-a" href="#"><svg class="i"><use href="#i-cog"/></svg>সেটিংস</a>
+  </aside>
+
+  <main>
+    <div class="wrap">
+      <header class="topbar">
+        <div class="hello">
+          <p id="greet">শুভ সকাল</p>
+          <h1>আজ কী চলছে</h1>
+        </div>
+        <div class="top-actions">
+          <button class="icon-btn" id="themeBtn" aria-label="থিম বদলান"><svg class="i"><use href="#i-moon"/></svg></button>
+          <button class="icon-btn" aria-label="নোটিফিকেশন"><svg class="i"><use href="#i-bell"/></svg><span class="dot"></span></button>
+        </div>
+      </header>
+
+      <p class="live" style="margin:-4px 0 14px"><i></i><span id="today"></span> · প্রতি মিনিটে হালনাগাদ</p>
+
+      <div class="grid main">
+        <!-- ================= LEFT: what is happening ================= -->
+        <div class="stack col">
+
+          <div class="hero-row stack o1">
+            <!--
+              Money leads. The owner's revenue is the wallet debit — goods at
+              cost plus delivery — not the customer total, which carries the
+              resellers' margin. The bar shows the whole customer total split
+              three ways, so both numbers are on screen and never confused.
+            -->
+            <section class="card hero reveal" style="animation-delay:.02s" aria-labelledby="h-rev">
+              <p class="eyebrow" id="h-rev">আজকের বিক্রি · আপনার আয়</p>
+              <p class="hero-num" data-count="ownerRevenue" data-money>৳০</p>
+              <p style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:6px">
+                <span class="delta up" id="revDelta"><svg class="i"><use href="#i-trend-up"/></svg><span></span></span>
+                <span class="hero-note" style="margin:0" id="revNote"></span>
+              </p>
+
+              <div class="split">
+                <div class="split-bar" id="moneySplit" role="img" aria-label="ক্রেতার মোট টাকার ভাগ"></div>
+                <dl class="legend" id="moneyLegend"></dl>
+              </div>
+
+              <div class="week">
+                <p><span>গত ৭ দিনের আয়</span><span id="weekBest"></span></p>
+                <div class="week-bars" id="weekBars" role="img"></div>
+                <div class="week-days" id="weekDays"></div>
+              </div>
+            </section>
+
+            <!-- Everything waiting on the owner personally, loudest first -->
+            <section class="card reveal" style="animation-delay:.08s" aria-labelledby="h-q">
+              <div class="card-h">
+                <h2 id="h-q">আপনার সিদ্ধান্তের অপেক্ষায়</h2>
+                <span class="sub" id="qTotal"></span>
+              </div>
+              <div class="queue" id="queue"></div>
+              <p class="q-clear" id="qClear"></p>
+            </section>
+          </div>
+
+          <div class="grid kpis o2">
+            <a href="#" class="card kpi reveal" style="animation-delay:.12s">
+              <span class="ico"><svg class="i"><use href="#i-bag"/></svg></span>
+              <span class="lbl">আজকের অর্ডার</span>
+              <span class="val" data-count="ordersToday">০</span>
+              <span class="hint" id="kOrdersHint"></span>
+            </a>
+            <a href="#" class="card kpi attn reveal" style="animation-delay:.15s">
+              <span class="ico"><svg class="i"><use href="#i-truck"/></svg></span>
+              <span class="lbl">কুরিয়ারে টাকা</span>
+              <span class="val" data-count="codAmount" data-money>৳০</span>
+              <span class="hint" id="kCodHint"></span>
+            </a>
+            <a href="#" class="card kpi attn reveal" style="animation-delay:.18s">
+              <span class="ico"><svg class="i"><use href="#i-wallet"/></svg></span>
+              <span class="lbl">মোট বকেয়া</span>
+              <span class="val" data-count="totalReceivable" data-money>৳০</span>
+              <span class="hint">রিসেলারদের কাছে পাওনা</span>
+            </a>
+            <a href="#" class="card kpi reveal" style="animation-delay:.21s">
+              <span class="ico"><svg class="i"><use href="#i-users"/></svg></span>
+              <span class="lbl">সক্রিয় রিসেলার</span>
+              <span class="val" data-count="activeResellers">০</span>
+              <span class="hint">এ সপ্তাহে অর্ডার দিয়েছেন</span>
+            </a>
+          </div>
+
+          <!-- Where the orders in flight are sitting -->
+          <section class="card reveal o4" style="animation-delay:.24s" aria-labelledby="h-flow">
+            <div class="card-h">
+              <h2 id="h-flow">অর্ডার কোন ধাপে আছে</h2>
+              <span class="sub" id="flowTotal"></span>
+              <a class="more" href="#">সব অর্ডার<svg class="i"><use href="#i-arrow"/></svg></a>
+            </div>
+            <div class="flow" id="flow"></div>
+            <div class="closed" id="closed"></div>
+          </section>
+
+          <!-- Is today normal? One measure at a time, one axis. -->
+          <section class="card reveal o5" style="animation-delay:.28s" id="trendCard" aria-labelledby="h-trend">
+            <div class="trend-h">
+              <h2 id="h-trend">বিক্রির ধারা</h2>
+              <div class="seg" id="rangeSeg" role="group" aria-label="সময়">
+                <span class="thumb"></span>
+                <button aria-pressed="true" data-range="7">৭ দিন</button>
+                <button aria-pressed="false" data-range="30">৩০ দিন</button>
+              </div>
+              <div class="seg" id="measureSeg" role="group" aria-label="মাপ">
+                <span class="thumb"></span>
+                <button aria-pressed="true" data-measure="revenue">টাকা</button>
+                <button aria-pressed="false" data-measure="orders">অর্ডার</button>
+              </div>
+            </div>
+            <div class="fade">
+              <div class="trend-sum" id="trendSum"></div>
+              <div class="chart" id="chart">
+                <svg id="chartSvg" role="img" aria-label="দৈনিক বিক্রির চার্ট"></svg>
+                <div class="tip" id="tip"></div>
+              </div>
+              <button class="table-link" id="tableBtn" aria-expanded="false">টেবিলে দেখুন</button>
+              <div id="tableWrap" hidden></div>
+            </div>
+          </section>
+
+          <div class="grid pair o6">
+            <!-- What sold, over the same range as the trend -->
+            <section class="card reveal" style="animation-delay:.32s" aria-labelledby="h-top">
+              <div class="card-h">
+                <h2 id="h-top">কোন আম বেশি চলছে</h2>
+                <span class="sub" id="topSub"></span>
+              </div>
+              <div class="fade">
+                <ul class="blist" id="topProducts"></ul>
+                <div class="pay">
+                  <p>টাকা কীভাবে আসছে</p>
+                  <div class="split-bar" id="paySplit" role="img"></div>
+                  <div class="pay-legend" id="payLegend"></div>
+                </div>
+              </div>
+            </section>
+
+            <!-- Confirmed orders going stale: mangoes do not wait -->
+            <section class="card reveal" style="animation-delay:.36s" aria-labelledby="h-aging">
+              <div class="card-h">
+                <h2 id="h-aging">পুরনো অর্ডার</h2>
+                <span class="sub" id="agingSub"></span>
+              </div>
+              <ul class="aging" id="aging"></ul>
+            </section>
+          </div>
+        </div>
+
+        <!-- ================= RIGHT RAIL: what to do about it ================= -->
+        <div class="stack col">
+          <!-- What to collect today, and from which orchard -->
+          <section class="card reveal o3" style="animation-delay:.1s" aria-labelledby="h-pick">
+            <div class="card-h">
+              <h2 id="h-pick">আজ আনতে হবে</h2>
+              <span class="sub" id="pickSub"></span>
+            </div>
+            <ul class="pick" id="pick"></ul>
+            <button class="btn"><svg class="i"><use href="#i-print"/></svg>পিক লিস্ট প্রিন্ট করুন</button>
+          </section>
+
+          <section class="card reveal o7" style="animation-delay:.16s" aria-labelledby="h-debt">
+            <div class="card-h">
+              <h2 id="h-debt">সবচেয়ে বেশি বকেয়া</h2>
+              <a class="more" href="#">রিসেলার<svg class="i"><use href="#i-arrow"/></svg></a>
+            </div>
+            <ul class="blist debt" id="debtors"></ul>
+          </section>
+
+          <!-- Silent when healthy; each row is a thing that used to surface only as a complaint -->
+          <section class="card reveal o8" style="animation-delay:.22s" aria-labelledby="h-health">
+            <div class="card-h"><h2 id="h-health">সিস্টেম</h2></div>
+            <ul class="health" id="health"></ul>
+          </section>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- Phone navigation: primary destinations within thumb reach -->
+<nav class="tabbar" aria-label="মূল মেনু">
+  <a href="#" aria-current="page"><svg class="i"><use href="#i-home"/></svg>হোম</a>
+  <a href="#"><svg class="i"><use href="#i-list"/></svg>অর্ডার<span class="count" data-bind="awaiting"></span></a>
+  <a href="#"><svg class="i"><use href="#i-box"/></svg>পণ্য</a>
+  <a href="#"><svg class="i"><use href="#i-wallet"/></svg>জমা</a>
+  <a href="#"><svg class="i"><use href="#i-more"/></svg>আরও</a>
+</nav>
+
+<script>
+/* ============================================================
+ * Mock data, shaped exactly like the API responses.
+ * ============================================================ */
+
+/** GET /owner/reports/dashboard → OwnerDashboard */
+const dashboard = {
+  ordersToday: 48,
+  money: { orders: 48, goods: 64800, delivery: 5760, resellerMargin: 14400, customerTotal: 84960, ownerRevenue: 70560 },
+  byStatus: { pending: 6, confirmed: 11, accepted: 9, packed: 7, shipped: 23 },
+  closedToday: { delivered: 31, cancelled: 2, returned: 1 },
+  codInFlight: { orders: 17, amount: 38450 },
+  awaitingAcceptance: 11,
+  agingOrders: 3,
+  agingThresholdHours: 24,
+  totalReceivable: 124300,
+  pendingDeposits: 4,
+  pendingWithdrawals: 2,
+  pendingKyc: 1,
+  openComplaints: 2,
+  activeResellers: 37,
+  health: { lowStock: 2, deadLetters: 0, smsEnabled: true },
+};
+
+/** GET /owner/reports/pick-list → PickList.products */
+const pickList = [
+  { name: 'হিমসাগর', unit: 'kg', quantity: 372, boxes: 42, variants: [{ label: '১১ কেজির বাক্স', boxes: 24 }, { label: '৬ কেজির বাক্স', boxes: 18 }], sources: ['শিবগঞ্জ বাগান', 'ভোলাহাট'] },
+  { name: 'ল্যাংড়া', unit: 'kg', quantity: 200, boxes: 25, variants: [{ label: '১১ কেজির বাক্স', boxes: 10 }, { label: '৬ কেজির বাক্স', boxes: 15 }], sources: ['কানসাট'] },
+  { name: 'আম্রপালি', unit: 'kg', quantity: 108, boxes: 18, variants: [{ label: '৬ কেজির বাক্স', boxes: 18 }], sources: [null] },
+  { name: 'ফজলি', unit: 'kg', quantity: 99, boxes: 9, variants: [{ label: '১১ কেজির বাক্স', boxes: 9 }], sources: ['নাচোল'] },
+];
+
+/** GET /owner/orders?aging=true */
+const aging = [
+  { code: 'K7QX-2M', shop: 'রাজশাহী ফ্রেশ', hours: 31, boxes: 3 },
+  { code: 'P4TR-9A', shop: 'আমের হাট ঢাকা', hours: 27, boxes: 5 },
+  { code: 'Z2HN-6C', shop: 'সবুজ বাগান শপ', hours: 25, boxes: 2 },
+];
+
+/** GET /owner/resellers → balance < 0, deepest first */
+const debtors = [
+  { shop: 'আমের হাট ঢাকা', owner: 'রাকিব হাসান', owed: 38600 },
+  { shop: 'মিষ্টি আম ঘর', owner: 'নুসরাত জাহান', owed: 27250 },
+  { shop: 'রাজশাহী ফ্রেশ', owner: 'তানভীর আহমেদ', owed: 21900 },
+  { shop: 'ফলের দোকান চট্টগ্রাম', owner: 'সাইফুল ইসলাম', owed: 14800 },
+  { shop: 'গাছপাকা শপ', owner: 'মারিয়া সুলতানা', owed: 9350 },
+];
+
+/** GET /owner/reports/orders-by-day and /sales — generated, deterministic */
+function makeDays(n) {
+  const out = [];
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 9301 + 49297) % 233280) / 233280);
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    const weekend = d.getDay() === 5; // Friday is quiet
+    const wave = Math.sin((n - i) / 4) * 6;
+    const orders = i === 0 ? dashboard.ordersToday : Math.round(38 + wave + rnd() * 14 - (weekend ? 12 : 0));
+    const revenue = i === 0 ? dashboard.money.ownerRevenue : Math.round(orders * (1380 + rnd() * 160) / 10) * 10;
+    out.push({ date: d, orders, revenue });
+  }
+  return out;
+}
+const series = { 7: makeDays(7), 30: makeDays(30) };
+
+const topProducts = {
+  7: [
+    { name: 'হিমসাগর', qty: 2140, amount: 318400 },
+    { name: 'ল্যাংড়া', qty: 1320, amount: 181500 },
+    { name: 'আম্রপালি', qty: 870, amount: 112300 },
+    { name: 'ফজলি', qty: 640, amount: 72600 },
+    { name: 'গোপালভোগ', qty: 290, amount: 44100 },
+  ],
+  30: [
+    { name: 'হিমসাগর', qty: 9180, amount: 1352000 },
+    { name: 'ল্যাংড়া', qty: 6040, amount: 842500 },
+    { name: 'আম্রপালি', qty: 4260, amount: 548800 },
+    { name: 'গোপালভোগ', qty: 2310, amount: 351900 },
+    { name: 'ফজলি', qty: 2050, amount: 232400 },
+  ],
+};
+const payModes = { 7: { prepaid: 58, cod: 42 }, 30: { prepaid: 53, cod: 47 } };
+
+/* ============================================================
+ * Formatting — Bengali digits, taka sign, as lib/format.ts does
+ * ============================================================ */
+const BN = new Intl.NumberFormat('bn-BD');
+const num = (v) => BN.format(v);
+const money = (v) => '৳' + BN.format(v);
+const compact = (v) => v >= 100000 ? '৳' + BN.format(+(v / 100000).toFixed(1)) + ' লাখ' : v >= 1000 ? '৳' + BN.format(Math.round(v / 1000)) + 'হা' : money(v);
+const dayShort = (d) => d.toLocaleDateString('bn-BD', { weekday: 'short' });
+const dateShort = (d) => d.toLocaleDateString('bn-BD', { day: 'numeric', month: 'short' });
+const dateLong = (d) => d.toLocaleDateString('bn-BD', { weekday: 'long', day: 'numeric', month: 'long' });
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const $ = (s) => document.querySelector(s);
+const icon = (id) => `<svg class="i"><use href="#i-${id}"/></svg>`;
+
+/* ============================================================
+ * Count-up — short, eased, skipped for reduced motion
+ * ============================================================ */
+function countUp(el, to, fmt) {
+  if (reduced) { el.textContent = fmt(to); return; }
+  const start = performance.now(), dur = 700;
+  const step = (now) => {
+    const p = Math.min(1, (now - start) / dur);
+    const e = 1 - Math.pow(1 - p, 3);
+    el.textContent = fmt(Math.round(to * e));
+    if (p < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+/* ============================================================
+ * Static sections
+ * ============================================================ */
+function renderHeader() {
+  const h = new Date().getHours();
+  $('#greet').textContent = h < 12 ? 'শুভ সকাল' : h < 17 ? 'শুভ দুপুর' : h < 20 ? 'শুভ সন্ধ্যা' : 'শুভ রাত্রি';
+  $('#today').textContent = dateLong(new Date());
+  document.querySelectorAll('[data-bind="awaiting"]').forEach((el) => (el.textContent = num(dashboard.awaitingAcceptance)));
+}
+
+function renderCounters() {
+  const values = {
+    ownerRevenue: dashboard.money.ownerRevenue,
+    ordersToday: dashboard.ordersToday,
+    codAmount: dashboard.codInFlight.amount,
+    totalReceivable: dashboard.totalReceivable,
+    activeResellers: dashboard.activeResellers,
+  };
+  document.querySelectorAll('[data-count]').forEach((el) => {
+    countUp(el, values[el.dataset.count], el.hasAttribute('data-money') ? money : num);
+  });
+  const c = dashboard.closedToday.cancelled;
+  $('#kOrdersHint').textContent = c ? `${num(c)}টি বাতিল হয়েছে` : 'কোনো বাতিল নেই';
+  $('#kCodHint').textContent = `${num(dashboard.codInFlight.orders)}টি পার্সেলে`;
+}
+
+function renderHero() {
+  const prev = series[7].slice(0, -1);
+  const avg = prev.reduce((s, d) => s + d.revenue, 0) / prev.length;
+  const pct = Math.round(((dashboard.money.ownerRevenue - avg) / avg) * 100);
+  const up = pct >= 0;
+  const delta = $('#revDelta');
+  delta.className = 'delta ' + (up ? 'up' : 'down');
+  delta.querySelector('use').setAttribute('href', up ? '#i-trend-up' : '#i-trend-down');
+  delta.querySelector('span').textContent = `${num(Math.abs(pct))}% ${up ? 'বেশি' : 'কম'}`;
+  $('#revNote').textContent = `গত ৬ দিনের গড় ${money(Math.round(avg / 10) * 10)}-এর তুলনায়`;
+
+  // Customer total, split three ways. Order matches the validated palette slots.
+  const m = dashboard.money;
+  const parts = [
+    { key: 'goods', label: 'পণ্যের দাম', v: m.goods, c: 'var(--leaf)', owner: true },
+    { key: 'margin', label: 'রিসেলারের লাভ', v: m.resellerMargin, c: 'var(--mango)' },
+    { key: 'delivery', label: 'ডেলিভারি', v: m.delivery, c: 'var(--iris)', owner: true },
+  ];
+  $('#moneySplit').innerHTML = parts.map((p) => `<span style="flex-grow:0;background:${p.c}" data-v="${p.v}" title="${p.label} ${money(p.v)}"></span>`).join('');
+  $('#moneyLegend').innerHTML = parts.map((p) => `
+    <div class="${p.owner ? 'owner' : ''}"><dt><i style="background:${p.c}"></i>${p.label}</dt><dd class="tab-num">${money(p.v)}</dd></div>`).join('');
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    document.querySelectorAll('#moneySplit span').forEach((s) => (s.style.flexGrow = s.dataset.v));
+  }));
+  const week = series[7], wmax = Math.max(...week.map((d) => d.revenue));
+  const best = week.reduce((a, d) => (d.revenue > a.revenue ? d : a));
+  $('#weekBest').textContent = `সেরা দিন ${dayShort(best.date)}`;
+  $('#weekBars').innerHTML = week.map((d, i) => `<span class="${i === 6 ? 'today' : ''}" data-h="${(d.revenue / wmax) * 100}" title="${dateShort(d.date)} ${money(d.revenue)}"></span>`).join('');
+  $('#weekBars').setAttribute('aria-label', week.map((d) => `${dayShort(d.date)} ${money(d.revenue)}`).join(', '));
+  $('#weekDays').innerHTML = week.map((d, i) => `<span class="${i === 6 ? 'today' : ''}">${i === 6 ? 'আজ' : dayShort(d.date)}</span>`).join('');
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    document.querySelectorAll('#weekBars span').forEach((b) => (b.style.height = b.dataset.h + '%'));
+  }));
+  $('#moneySplit').setAttribute('aria-label', `ক্রেতার মোট ${money(m.customerTotal)}: ` + parts.map((p) => `${p.label} ${money(p.v)}`).join(', '));
+}
+
+function renderQueue() {
+  const d = dashboard;
+  const items = [
+    { icon: 'clock', label: 'পুরনো অর্ডার', hint: `${num(d.agingThresholdHours)} ঘণ্টার বেশি পড়ে আছে`, n: d.agingOrders, level: 'urgent' },
+    { icon: 'hand', label: 'গ্রহণের অপেক্ষায়', hint: 'রিসেলার নিশ্চিত করেছেন', n: d.awaitingAcceptance, level: 'soon' },
+    { icon: 'down', label: 'জমার অনুরোধ', hint: 'টাকা এসেছে কিনা মিলিয়ে নিন', n: d.pendingDeposits, level: 'soon' },
+    { icon: 'up', label: 'উত্তোলনের অনুরোধ', hint: 'রিসেলার টাকা তুলতে চান', n: d.pendingWithdrawals, level: '' },
+    { icon: 'msg', label: 'খোলা অভিযোগ', hint: 'ক্রেতা সমস্যার কথা জানিয়েছেন', n: d.openComplaints, level: '' },
+    { icon: 'badge', label: 'KYC অপেক্ষায়', hint: 'যাচাই না হলে বিক্রি বন্ধ', n: d.pendingKyc, level: '' },
+  ];
+  const open = items.filter((i) => i.n > 0);
+  const clear = items.filter((i) => i.n === 0);
+  const total = open.reduce((s, i) => s + i.n, 0);
+  $('#qTotal').textContent = total ? `মোট ${num(total)}টি` : '';
+  $('#queue').innerHTML = open.map((i) => `
+    <a href="#" class="q ${i.level}">
+      <span class="ico">${icon(i.icon)}</span>
+      <span class="t"><b>${i.label}</b><small>${i.hint}</small></span>
+      <span class="n tab-num">${num(i.n)}</span>
+    </a>`).join('');
+  $('#qClear').innerHTML = open.length === 0
+    ? `${icon('check')} সব কাজ শেষ — কিছু অপেক্ষায় নেই`
+    : clear.length ? `${icon('check')} ${clear.map((i) => i.label).join(', ')} — কিছু নেই` : '';
+}
+
+function renderFlow() {
+  const stages = [
+    ['pending', 'অপেক্ষমাণ'], ['confirmed', 'নিশ্চিত'], ['accepted', 'গৃহীত'], ['packed', 'প্যাক করা'], ['shipped', 'পাঠানো'],
+  ];
+  const max = Math.max(...stages.map(([k]) => dashboard.byStatus[k] || 0), 1);
+  const total = stages.reduce((s, [k]) => s + (dashboard.byStatus[k] || 0), 0);
+  $('#flowTotal').textContent = `${num(total)}টি চলমান`;
+  $('#flow').innerHTML = stages.map(([k, label], i) => {
+    const v = dashboard.byStatus[k] || 0;
+    // "confirmed" is the stage waiting on the owner, so it alone wears mango
+    return `<div class="stage ${k === 'confirmed' ? 'needs' : ''}">
+      <span class="name"><span class="step">${num(i + 1)}</span>${label}</span>
+      <span class="track" role="img" aria-label="${label}: ${num(v)}"><span data-w="${(v / max) * 100}"></span></span>
+      <span class="c tab-num">${num(v)}</span>
+    </div>`;
+  }).join('');
+  const c = dashboard.closedToday;
+  $('#closed').innerHTML = `
+    <div class="ok">${icon('check')}<span><b>${num(c.delivered)}</b>ডেলিভারি</span></div>
+    <div class="bad">${icon('x')}<span><b>${num(c.cancelled)}</b>বাতিল</span></div>
+    <div class="warn">${icon('undo')}<span><b>${num(c.returned)}</b>ফেরত</span></div>`;
+  growBars('#flow');
+}
+
+function renderPick() {
+  const boxes = pickList.reduce((s, p) => s + p.boxes, 0);
+  $('#pickSub').textContent = `${num(boxes)} বাক্স`;
+  $('#pick').innerHTML = pickList.map((p) => {
+    const undecided = p.sources.every((s) => s === null);
+    return `<li>
+      <div class="top"><b>${p.name}</b><span class="kg tab-num">${num(p.quantity)} কেজি</span></div>
+      <div class="boxes">${p.variants.map((v) => `<span class="chip"><b>${num(v.boxes)}</b>× ${v.label}</span>`).join('')}</div>
+      <p class="src ${undecided ? 'undecided' : ''}">${icon(undecided ? 'alert' : 'pin')}${undecided ? 'বাগান এখনো ঠিক হয়নি' : p.sources.join(', ')}</p>
+    </li>`;
+  }).join('');
+}
+
+function renderAging() {
+  $('#agingSub').textContent = `${num(dashboard.agingThresholdHours)} ঘণ্টার বেশি`;
+  $('#aging').innerHTML = aging.map((o) => `
+    <li><a href="#">
+      <span><span class="code">${o.code}</span><small>${o.shop} · ${num(o.boxes)} বাক্স</small></span>
+      <span class="age">${icon('clock')}${num(o.hours)} ঘণ্টা</span>
+    </a></li>`).join('');
+}
+
+function renderDebtors() {
+  const max = debtors[0].owed;
+  $('#debtors').innerHTML = debtors.map((r) => `
+    <li>
+      <div class="row"><b>${r.shop}</b><small>${r.owner}</small><span class="v tab-num">${money(r.owed)}</span></div>
+      <span class="track"><span data-w="${(r.owed / max) * 100}"></span></span>
+    </li>`).join('');
+  growBars('#debtors');
+}
+
+function renderHealth() {
+  const h = dashboard.health;
+  const rows = [
+    h.lowStock > 0
+      ? { cls: 'warn', icon: 'alert', text: 'স্টক শেষ হয়ে আসছে', tag: `${num(h.lowStock)}টি বাক্স` }
+      : { cls: 'ok', icon: 'check', text: 'সব বাক্সে স্টক আছে', tag: '' },
+    h.smsEnabled
+      ? { cls: 'ok', icon: 'check', text: 'SMS চালু আছে', tag: '' }
+      : { cls: 'warn', icon: 'alert', text: 'SMS বন্ধ — রেজিস্ট্রেশন আটকে যাবে', tag: '' },
+    h.deadLetters > 0
+      ? { cls: 'warn', icon: 'mail', text: 'না-পৌঁছানো নোটিফিকেশন', tag: num(h.deadLetters) }
+      : { cls: 'ok', icon: 'check', text: 'সব নোটিফিকেশন পৌঁছেছে', tag: '' },
+  ];
+  $('#health').innerHTML = rows.map((r) => `<li class="${r.cls}">${icon(r.icon)}<span>${r.text}</span><em>${r.tag}</em></li>`).join('');
+}
+
+function growBars(scope) {
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    document.querySelectorAll(`${scope} [data-w]`).forEach((s) => (s.style.width = s.dataset.w + '%'));
+  }));
+}
+
+/* ============================================================
+ * Range-driven sections: trend, top products, payment split
+ * ============================================================ */
+const state = { range: 7, measure: 'revenue', table: false };
+
+function renderRange() {
+  const days = series[state.range];
+  const tot = days.reduce((a, d) => ({ o: a.o + d.orders, r: a.r + d.revenue }), { o: 0, r: 0 });
+  $('#trendSum').innerHTML = `
+    <div><small>মোট আয়</small><b class="tab-num">${money(tot.r)}</b></div>
+    <div><small>মোট অর্ডার</small><b class="tab-num">${num(tot.o)}</b></div>
+    <div><small>দিনে গড়</small><b class="tab-num">${num(Math.round(tot.o / days.length))}টি</b></div>`;
+  drawChart();
+  renderTable();
+
+  const tp = topProducts[state.range];
+  const max = tp[0].amount;
+  $('#topSub').textContent = `গত ${num(state.range)} দিন`;
+  $('#topProducts').innerHTML = tp.map((p) => `
+    <li>
+      <div class="row"><b>${p.name}</b><small>${num(p.qty)} কেজি</small><span class="v tab-num">${compact(p.amount)}</span></div>
+      <span class="track"><span data-w="${(p.amount / max) * 100}"></span></span>
+    </li>`).join('');
+  growBars('#topProducts');
+
+  const pm = payModes[state.range];
+  $('#paySplit').innerHTML = `<span style="flex-grow:${pm.prepaid};background:var(--leaf)"></span><span style="flex-grow:${pm.cod};background:var(--mango)"></span>`;
+  $('#paySplit').setAttribute('aria-label', `আগে পরিশোধ ${num(pm.prepaid)}%, ক্যাশ অন ডেলিভারি ${num(pm.cod)}%`);
+  $('#payLegend').innerHTML = `
+    <span><i style="background:var(--leaf)"></i>আগে পরিশোধ <b>${num(pm.prepaid)}%</b></span>
+    <span><i style="background:var(--mango)"></i>ক্যাশ অন ডেলিভারি <b>${num(pm.cod)}%</b></span>`;
+}
+
+/** Nice round tick step for a max value */
+function niceMax(v) {
+  const p = Math.pow(10, Math.floor(Math.log10(v)));
+  const n = v / p;
+  const s = n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10;
+  return s * p;
+}
+
+function drawChart(animate = true) {
+  const anim = animate && !reduced;
+  const svg = $('#chartSvg');
+  const box = $('#chart');
+  const W = box.clientWidth, H = box.clientHeight;
+  const days = series[state.range];
+  const key = state.measure;
+  const fmtAxis = key === 'revenue' ? (v) => (v >= 1000 ? BN.format(v / 1000) + 'হা' : BN.format(v)) : num;
+  const pad = { l: 40, r: 8, t: 10, b: 26 };
+  const iw = W - pad.l - pad.r, ih = H - pad.t - pad.b;
+  const top = niceMax(Math.max(...days.map((d) => d[key])) * 1.08);
+  const y = (v) => pad.t + ih - (v / top) * ih;
+  const n = days.length;
+
+  let g = '';
+  for (let i = 0; i <= 4; i++) {
+    const v = (top / 4) * i, yy = y(v);
+    g += `<line class="${i ? 'grid-l' : 'base-l'}" x1="${pad.l}" x2="${W - pad.r}" y1="${yy}" y2="${yy}"/>`;
+    g += `<text class="axis-t tab-num" x="${pad.l - 8}" y="${yy + 4}" text-anchor="end">${fmtAxis(v)}</text>`;
+  }
+
+  // 7 days reads best as bars (discrete days); 30 days as a line (a shape over time)
+  const asBars = state.range === 7;
+  const band = iw / n;
+  const x = (i) => asBars ? pad.l + band * i + band / 2 : pad.l + (iw * i) / (n - 1);
+  const labelEvery = asBars ? 1 : 5;
+  days.forEach((d, i) => {
+    if ((n - 1 - i) % labelEvery === 0) {
+      const lbl = i === n - 1 ? 'আজ' : asBars ? dayShort(d.date) : dateShort(d.date);
+      g += `<text class="axis-t" x="${x(i)}" y="${H - 6}" text-anchor="middle">${lbl}</text>`;
+    }
+  });
+
+  let marks = '';
+  if (asBars) {
+    const bw = Math.min(34, band * 0.56), r = 4;
+    days.forEach((d, i) => {
+      const x0 = x(i) - bw / 2, y0 = y(d[key]), h = pad.t + ih - y0;
+      // rounded data-end, square at the baseline
+      const path = `M${x0},${pad.t + ih} V${y0 + r} Q${x0},${y0} ${x0 + r},${y0} H${x0 + bw - r} Q${x0 + bw},${y0} ${x0 + bw},${y0 + r} V${pad.t + ih} Z`;
+      marks += `<path class="bar" data-i="${i}" d="${h > r ? path : ''}" style="transform-origin:0 ${pad.t + ih}px;${anim ? `animation:barIn .5s ${i * 0.04}s var(--ease) both` : ''}"/>`;
+    });
+  } else {
+    const pts = days.map((d, i) => [x(i), y(d[key])]);
+    const line = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
+    const area = line + ` L${pts[n - 1][0]},${pad.t + ih} L${pts[0][0]},${pad.t + ih} Z`;
+    marks += `<defs><linearGradient id="ag" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--leaf)" stop-opacity=".18"/><stop offset="1" stop-color="var(--leaf)" stop-opacity="0"/></linearGradient></defs>`;
+    marks += `<path d="${area}" fill="url(#ag)" style="${anim ? 'animation:fadeIn .8s ease both' : ''}"/>`;
+    marks += `<path class="line ${anim ? 'draw' : ''}" d="${line}" style="--len:${Math.ceil(iw * 2)}"/>`;
+    // direct label on the latest point only
+    const last = pts[n - 1];
+    marks += `<circle cx="${last[0]}" cy="${last[1]}" r="4" fill="var(--leaf)" stroke="var(--surface)" stroke-width="2"/>`;
+  }
+
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.innerHTML = g + marks +
+    `<line class="cross" id="cross" y1="${pad.t}" y2="${pad.t + ih}"/>` +
+    `<circle class="pt" id="pt" r="5"/>` +
+    `<rect id="hit" x="${pad.l}" y="0" width="${iw}" height="${H}" fill="transparent"/>`;
+
+  // Hover / touch: nearest day, crosshair + tooltip
+  const hit = svg.querySelector('#hit'), cross = svg.querySelector('#cross'), pt = svg.querySelector('#pt'), tip = $('#tip');
+  const show = (ev) => {
+    const rect = svg.getBoundingClientRect();
+    const px = (ev.touches ? ev.touches[0].clientX : ev.clientX) - rect.left;
+    let i = asBars ? Math.floor((px - pad.l) / band) : Math.round(((px - pad.l) / iw) * (n - 1));
+    i = Math.max(0, Math.min(n - 1, i));
+    const d = days[i], cx = x(i), cy = y(d[key]);
+    box.classList.add('hovering');
+    cross.setAttribute('x1', cx); cross.setAttribute('x2', cx);
+    pt.setAttribute('cx', cx); pt.setAttribute('cy', cy);
+    pt.style.display = asBars ? 'none' : '';
+    svg.querySelectorAll('.bar').forEach((b) => b.classList.toggle('dim', +b.dataset.i !== i));
+    const main = key === 'revenue' ? money(d.revenue) : `${num(d.orders)}টি অর্ডার`;
+    const other = key === 'revenue' ? `${num(d.orders)}টি অর্ডার` : money(d.revenue);
+    tip.innerHTML = `${i === n - 1 ? 'আজ · ' : ''}${dateShort(d.date)}<b class="tab-num">${main}</b>${other}`;
+    const tw = tip.offsetWidth;
+    const left = Math.max(0, Math.min(W - tw, cx - tw / 2));
+    tip.style.left = left + 'px';
+    tip.style.top = Math.max(0, cy - tip.offsetHeight - 14) + 'px';
+  };
+  const hide = () => {
+    box.classList.remove('hovering');
+    svg.querySelectorAll('.bar').forEach((b) => b.classList.remove('dim'));
+  };
+  hit.addEventListener('pointermove', show);
+  hit.addEventListener('pointerdown', show);
+  hit.addEventListener('pointerleave', hide);
+}
+
+function renderTable() {
+  const wrap = $('#tableWrap');
+  wrap.hidden = !state.table;
+  $('#tableBtn').textContent = state.table ? 'টেবিল লুকান' : 'টেবিলে দেখুন';
+  $('#tableBtn').setAttribute('aria-expanded', state.table);
+  if (!state.table) return;
+  const rows = series[state.range].slice().reverse();
+  wrap.innerHTML = `<table class="dtable"><thead><tr><th>তারিখ</th><th>অর্ডার</th><th>আয়</th></tr></thead><tbody>
+    ${rows.map((d, i) => `<tr><td>${i === 0 ? 'আজ' : dateShort(d.date)}</td><td class="tab-num">${num(d.orders)}</td><td class="tab-num">${money(d.revenue)}</td></tr>`).join('')}
+  </tbody></table>`;
+}
+
+/* ============================================================
+ * Controls
+ * ============================================================ */
+function segment(el, onPick) {
+  const thumb = el.querySelector('.thumb');
+  const place = () => {
+    const on = el.querySelector('[aria-pressed="true"]');
+    thumb.style.width = on.offsetWidth + 'px';
+    thumb.style.transform = `translateX(${on.offsetLeft}px)`;
+  };
+  el.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
+    if (b.getAttribute('aria-pressed') === 'true') return;
+    el.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', x === b));
+    place();
+    onPick(b);
+  }));
+  place();
+  return place;
+}
+
+/** A brief dim while "fetching" — the real page would await the query */
+function withLoading(fn) {
+  const cards = [$('#trendCard'), $('#topProducts').closest('.card')];
+  cards.forEach((c) => c.classList.add('loading'));
+  setTimeout(() => { fn(); cards.forEach((c) => c.classList.remove('loading')); }, reduced ? 0 : 220);
+}
+
+const placeRange = segment($('#rangeSeg'), (b) => { state.range = +b.dataset.range; withLoading(renderRange); });
+const placeMeasure = segment($('#measureSeg'), (b) => { state.measure = b.dataset.measure; drawChart(); });
+$('#tableBtn').addEventListener('click', () => { state.table = !state.table; renderTable(); });
+
+/* Theme: OS by default, the button overrides and is remembered */
+function currentTheme() {
+  const set = document.documentElement.dataset.theme;
+  return set || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+}
+function syncThemeIcon() {
+  $('#themeBtn use').setAttribute('href', currentTheme() === 'dark' ? '#i-sun' : '#i-moon');
+}
+try { const t = localStorage.getItem('orchard-theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+$('#themeBtn').addEventListener('click', () => {
+  const next = currentTheme() === 'dark' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = next;
+  try { localStorage.setItem('orchard-theme', next); } catch (e) {}
+  syncThemeIcon();
+});
+syncThemeIcon();
+
+/* Redraw on resize, cheaply */
+let rz, lastW = 0;
+new ResizeObserver(([e]) => {
+  const w = Math.round(e.contentRect.width);
+  if (!lastW || w === lastW) { lastW = w; return; }
+  lastW = w;
+  clearTimeout(rz); rz = setTimeout(() => { drawChart(false); placeRange(); placeMeasure(); }, 120); }).observe($('#chart'));
+
+const style = document.createElement('style');
+style.textContent = '@keyframes barIn{from{transform:scaleY(0)}to{transform:scaleY(1)}}@keyframes fadeIn{from{opacity:0}}';
+document.head.appendChild(style);
+
+renderHeader();
+renderCounters();
+renderHero();
+renderQueue();
+renderFlow();
+renderPick();
+renderAging();
+renderDebtors();
+renderHealth();
+renderRange();
+document.fonts && document.fonts.ready.then(() => { placeRange(); placeMeasure(); });
+</script>
+</body>
+</html>

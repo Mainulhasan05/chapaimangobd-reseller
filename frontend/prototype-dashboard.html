@@ -1,0 +1,1977 @@
+<!DOCTYPE html>
+<html lang="bn" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ChapaiMango Command Center — Modern UX Prototype</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    /* ==========================================================================
+       DESIGN SYSTEM & TOKENS (Ultra-modern OLED Slate & Crisp Studio Light)
+       ========================================================================== */
+    :root[data-theme="dark"] {
+      --bg-canvas: #090b10;
+      --bg-subtle: #0f131a;
+      --bg-card: #131822;
+      --bg-card-hover: #181f2c;
+      --bg-card-elevated: #1a2230;
+      --border: rgba(255, 255, 255, 0.08);
+      --border-subtle: rgba(255, 255, 255, 0.04);
+      --border-focus: rgba(245, 158, 11, 0.5);
+      --text-primary: #f8fafc;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      --text-brand: #fbbf24;
+      
+      --accent-mango: #f59e0b;
+      --accent-mango-glow: rgba(245, 158, 11, 0.2);
+      --accent-emerald: #10b981;
+      --accent-emerald-soft: rgba(16, 185, 129, 0.15);
+      --accent-cyan: #06b6d4;
+      --accent-cyan-soft: rgba(6, 182, 212, 0.15);
+      --accent-rose: #f43f5e;
+      --accent-rose-soft: rgba(244, 63, 94, 0.15);
+      --accent-violet: #8b5cf6;
+      
+      --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
+      --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.5);
+      --shadow-lg: 0 20px 48px rgba(0, 0, 0, 0.7);
+      --glass-bg: rgba(15, 19, 26, 0.75);
+    }
+
+    :root[data-theme="light"] {
+      --bg-canvas: #f8fafc;
+      --bg-subtle: #f1f5f9;
+      --bg-card: #ffffff;
+      --bg-card-hover: #fcfcfd;
+      --bg-card-elevated: #ffffff;
+      --border: #e2e8f0;
+      --border-subtle: #f1f5f9;
+      --border-focus: rgba(217, 119, 6, 0.4);
+      --text-primary: #0f172a;
+      --text-secondary: #475569;
+      --text-muted: #94a3b8;
+      --text-brand: #d97706;
+      
+      --accent-mango: #d97706;
+      --accent-mango-glow: rgba(217, 119, 6, 0.15);
+      --accent-emerald: #059669;
+      --accent-emerald-soft: rgba(5, 150, 105, 0.1);
+      --accent-cyan: #0891b2;
+      --accent-cyan-soft: rgba(8, 145, 178, 0.1);
+      --accent-rose: #e11d48;
+      --accent-rose-soft: rgba(225, 29, 72, 0.1);
+      --accent-violet: #7c3aed;
+      
+      --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03);
+      --shadow-md: 0 10px 30px rgba(0, 0, 0, 0.06);
+      --shadow-lg: 0 20px 40px rgba(0, 0, 0, 0.08);
+      --glass-bg: rgba(255, 255, 255, 0.85);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      background-color: var(--bg-canvas);
+      color: var(--text-primary);
+      min-height: 100vh;
+      display: flex;
+      font-size: 14px;
+      line-height: 1.5;
+      letter-spacing: -0.01em;
+      transition: background-color 0.25s ease, color 0.25s ease;
+      overflow-x: hidden;
+    }
+
+    /* ==========================================================================
+       SIDE NAVIGATION (Streamlined, Minimal & Purposeful)
+       ========================================================================== */
+    .sidebar {
+      width: 260px;
+      background: var(--bg-subtle);
+      border-right: 1px solid var(--border);
+      height: 100vh;
+      position: sticky;
+      top: 0;
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+      z-index: 40;
+    }
+
+    .brand-section {
+      padding: 24px 20px 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #f59e0b, #ea580c);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 14px var(--accent-mango-glow);
+      font-size: 20px;
+      color: white;
+    }
+
+    .brand-title {
+      font-size: 16px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .brand-badge {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      padding: 2px 6px;
+      border-radius: 6px;
+      background: var(--accent-mango-glow);
+      color: var(--accent-mango);
+      border: 1px solid var(--accent-mango);
+    }
+
+    .nav-scroll {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .nav-heading {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 16px 10px 6px;
+    }
+
+    .nav-link {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 9px 12px;
+      border-radius: 10px;
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-weight: 500;
+      font-size: 13.5px;
+      transition: all 0.15s ease;
+      position: relative;
+      cursor: pointer;
+    }
+
+    .nav-link:hover {
+      color: var(--text-primary);
+      background: var(--border-subtle);
+    }
+
+    .nav-link.active {
+      color: var(--text-primary);
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow-sm);
+      font-weight: 600;
+    }
+
+    .nav-link.active::before {
+      content: '';
+      position: absolute;
+      left: -12px;
+      top: 25%;
+      bottom: 25%;
+      width: 4px;
+      border-radius: 0 4px 4px 0;
+      background: var(--accent-mango);
+    }
+
+    .nav-counter {
+      margin-left: auto;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 20px;
+      background: var(--accent-rose-soft);
+      color: var(--accent-rose);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .user-footer {
+      padding: 16px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: var(--bg-card);
+    }
+
+    .avatar-wrap {
+      width: 38px;
+      height: 38px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+      color: white;
+      font-weight: 700;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* ==========================================================================
+       MAIN CONTENT CONTAINER
+       ========================================================================== */
+    .app-main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      height: 100vh;
+      overflow-y: auto;
+    }
+
+    /* Glass Top Header */
+    .top-header {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      background: var(--glass-bg);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .search-command {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 7px 14px;
+      width: 340px;
+      color: var(--text-muted);
+      cursor: text;
+      transition: border 0.15s ease;
+    }
+
+    .search-command:focus-within {
+      border-color: var(--border-focus);
+      box-shadow: 0 0 0 3px var(--accent-mango-glow);
+    }
+
+    .search-command input {
+      background: transparent;
+      border: none;
+      outline: none;
+      color: var(--text-primary);
+      width: 100%;
+      font-size: 13px;
+      font-family: inherit;
+    }
+
+    .kbd-shortcut {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: var(--bg-subtle);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .season-pulse {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      border-radius: 20px;
+      background: var(--accent-emerald-soft);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--accent-emerald);
+    }
+
+    .pulse-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent-emerald);
+      box-shadow: 0 0 8px var(--accent-emerald);
+      animation: pulseAnim 2s infinite;
+    }
+
+    @keyframes pulseAnim {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+
+    .btn-icon {
+      width: 38px;
+      height: 38px;
+      border-radius: 10px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .btn-icon:hover {
+      background: var(--bg-subtle);
+      color: var(--text-primary);
+      border-color: var(--text-muted);
+    }
+
+    /* Content Body */
+    .dashboard-body {
+      padding: 32px;
+      max-width: 1600px;
+      width: 100%;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 28px;
+    }
+
+    /* Page Hero / Command Bar */
+    .hero-strip {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .hero-title h1 {
+      font-size: 26px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+    }
+
+    .hero-title p {
+      color: var(--text-secondary);
+      font-size: 13.5px;
+      margin-top: 2px;
+    }
+
+    .quick-filters {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--bg-card);
+      padding: 4px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+    }
+
+    .filter-btn {
+      padding: 6px 12px;
+      border-radius: 7px;
+      font-size: 12.5px;
+      font-weight: 600;
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .filter-btn.active {
+      background: var(--accent-mango);
+      color: #000;
+      font-weight: 700;
+      box-shadow: 0 2px 8px var(--accent-mango-glow);
+    }
+
+    .filter-btn:hover:not(.active) {
+      color: var(--text-primary);
+      background: var(--bg-subtle);
+    }
+
+    /* ==========================================================================
+       BENTO EXECUTIVE KPI METRICS (High-density, High-signal, Clean)
+       ========================================================================== */
+    .bento-grid {
+      display: grid;
+      grid-template-columns: 1.4fr 1fr 1fr 1.1fr;
+      gap: 20px;
+    }
+
+    .bento-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 22px;
+      position: relative;
+      overflow: hidden;
+      box-shadow: var(--shadow-sm);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+    }
+
+    .bento-card:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-md);
+      border-color: rgba(255, 255, 255, 0.14);
+    }
+
+    .bento-card.hero-revenue {
+      background: linear-gradient(145deg, var(--bg-card) 0%, rgba(245, 158, 11, 0.05) 100%);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+
+    .card-label-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+
+    .card-label {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .card-trend {
+      font-size: 11.5px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      border-radius: 20px;
+    }
+
+    .card-trend.up {
+      background: var(--accent-emerald-soft);
+      color: var(--accent-emerald);
+    }
+
+    .card-trend.alert {
+      background: var(--accent-rose-soft);
+      color: var(--accent-rose);
+    }
+
+    .bento-big-value {
+      font-size: 32px;
+      font-weight: 800;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      letter-spacing: -0.03em;
+      line-height: 1.1;
+      margin-bottom: 14px;
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+    }
+
+    .currency-symbol {
+      font-size: 20px;
+      font-weight: 600;
+      color: var(--text-secondary);
+    }
+
+    /* Mini stats breakdown line inside cards */
+    .bento-sub-bar {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding-top: 14px;
+      border-top: 1px solid var(--border);
+      font-size: 12px;
+    }
+
+    .sub-item {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .sub-item-val {
+      font-weight: 700;
+      color: var(--text-primary);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .sub-item-lbl {
+      color: var(--text-muted);
+      font-size: 11px;
+    }
+
+    /* Circular progress indicator */
+    .radial-wrap {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .radial-svg {
+      width: 54px;
+      height: 54px;
+      transform: rotate(-90deg);
+    }
+
+    .radial-svg circle {
+      fill: none;
+      stroke-width: 5;
+      stroke-linecap: round;
+    }
+
+    .radial-bg {
+      stroke: var(--border);
+    }
+
+    .radial-fill {
+      stroke: var(--accent-emerald);
+      stroke-dasharray: 157;
+      stroke-dashoffset: 42; /* 73% */
+      transition: stroke-dashoffset 0.5s ease;
+    }
+
+    /* Mango harvest checklist pill */
+    .harvest-pill-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .harvest-pill {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 10px;
+      border-radius: 8px;
+      background: var(--bg-subtle);
+      border: 1px solid var(--border-subtle);
+      font-size: 12px;
+    }
+
+    .harvest-name {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+    }
+
+    .mango-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+
+    .dot-himsagar { background: #10b981; }
+    .dot-amrupali { background: #f59e0b; }
+    .dot-langra { background: #84cc16; }
+
+    /* ==========================================================================
+       INTERACTIVE FULFILLMENT PIPELINE TRACKER
+       ========================================================================== */
+    .pipeline-section {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 20px 24px;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .pipeline-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+
+    .pipeline-title {
+      font-size: 13.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .pipeline-flow {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 12px;
+      position: relative;
+    }
+
+    .pipeline-step {
+      background: var(--bg-subtle);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      position: relative;
+    }
+
+    .pipeline-step:hover, .pipeline-step.active {
+      background: var(--bg-card-hover);
+      border-color: var(--accent-mango);
+      transform: translateY(-2px);
+      box-shadow: 0 4px 14px var(--accent-mango-glow);
+    }
+
+    .pipeline-step.has-alert {
+      border-color: rgba(244, 63, 94, 0.4);
+      background: linear-gradient(to bottom, var(--bg-subtle), var(--accent-rose-soft));
+    }
+
+    .step-badge {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+      font-weight: 600;
+    }
+
+    .step-count {
+      font-size: 22px;
+      font-weight: 800;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-primary);
+    }
+
+    .step-name {
+      font-size: 12px;
+      color: var(--text-secondary);
+      font-weight: 600;
+      margin-top: 2px;
+    }
+
+    /* ==========================================================================
+       TWO-COLUMN OPERATIONAL HUB: TRIAGE FEED & FINANCIAL SIDEBAR
+       ========================================================================== */
+    .hub-grid {
+      display: grid;
+      grid-template-columns: 1fr 380px;
+      gap: 24px;
+      align-items: start;
+    }
+
+    /* Order Triage Stream */
+    .triage-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .triage-nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .triage-tabs {
+      display: flex;
+      gap: 6px;
+    }
+
+    .triage-tab {
+      padding: 6px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--text-secondary);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.15s ease;
+    }
+
+    .triage-tab.active {
+      background: var(--bg-subtle);
+      border-color: var(--border);
+      color: var(--text-primary);
+    }
+
+    .triage-tab .badge {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: 12px;
+      background: var(--border);
+      color: var(--text-primary);
+    }
+
+    .triage-tab.urgent .badge {
+      background: var(--accent-rose-soft);
+      color: var(--accent-rose);
+    }
+
+    /* Order Row Items */
+    .order-list {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .order-row {
+      display: grid;
+      grid-template-columns: 44px 1.4fr 1.2fr 1fr 140px;
+      padding: 16px 20px;
+      align-items: center;
+      gap: 16px;
+      border-bottom: 1px solid var(--border-subtle);
+      transition: background 0.15s ease;
+      cursor: pointer;
+    }
+
+    .order-row:hover {
+      background: var(--bg-card-hover);
+    }
+
+    .order-row.aging-warning {
+      border-left: 3px solid var(--accent-rose);
+      background: rgba(244, 63, 94, 0.02);
+    }
+
+    .order-avatar {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      background: var(--bg-subtle);
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 14px;
+      color: var(--text-brand);
+    }
+
+    .order-main-info {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .order-code-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .order-code {
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 700;
+      font-size: 13.5px;
+      color: var(--text-primary);
+    }
+
+    .order-time {
+      font-size: 11.5px;
+      color: var(--text-muted);
+    }
+
+    .customer-name {
+      font-size: 13px;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .order-items-spec {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .mango-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .reseller-credit-tag {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .order-amount-col {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .order-price {
+      font-size: 15px;
+      font-weight: 800;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-primary);
+    }
+
+    .order-cod-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--accent-cyan);
+    }
+
+    .order-actions-col {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 6px;
+    }
+
+    .btn-action-sm {
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 700;
+      border: 1px solid var(--border);
+      background: var(--bg-card);
+      color: var(--text-primary);
+      cursor: pointer;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+
+    .btn-action-sm:hover {
+      background: var(--accent-mango);
+      color: #000;
+      border-color: var(--accent-mango);
+    }
+
+    .btn-action-primary {
+      background: var(--accent-mango);
+      color: #000;
+      border-color: var(--accent-mango);
+    }
+
+    .btn-action-primary:hover {
+      background: #e58e07;
+    }
+
+    /* RIGHT SIDEBAR: RESELLERS & COURIER PULSE */
+    .side-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .side-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 20px;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .side-card-title {
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-secondary);
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .debtor-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .debtor-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: var(--bg-subtle);
+      border: 1px solid var(--border-subtle);
+      transition: border-color 0.15s ease;
+    }
+
+    .debtor-item:hover {
+      border-color: var(--accent-rose);
+    }
+
+    .debtor-info {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .debtor-name {
+      font-weight: 700;
+      font-size: 13px;
+    }
+
+    .debtor-phone {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .debtor-val {
+      text-align: right;
+    }
+
+    .debtor-due {
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 800;
+      font-size: 13.5px;
+      color: var(--accent-rose);
+    }
+
+    .btn-sms-remind {
+      font-size: 10.5px;
+      font-weight: 700;
+      color: var(--accent-mango);
+      background: none;
+      border: none;
+      cursor: pointer;
+      text-decoration: underline;
+      display: block;
+      margin-top: 2px;
+    }
+
+    /* Courier Performance bars */
+    .courier-stat-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 6px;
+      font-size: 12.5px;
+    }
+
+    .progress-bar-bg {
+      height: 6px;
+      border-radius: 3px;
+      background: var(--bg-subtle);
+      overflow: hidden;
+      margin-bottom: 14px;
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      border-radius: 3px;
+      background: linear-gradient(90deg, var(--accent-emerald), var(--accent-cyan));
+    }
+
+    /* System Health row */
+    .system-health-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .health-pill {
+      background: var(--bg-subtle);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      font-size: 11.5px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .health-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent-emerald);
+    }
+
+    /* ==========================================================================
+       SLIDE-OUT ORDER INSPECTOR DRAWER (Modern UX standard)
+       ========================================================================== */
+    .drawer-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(4px);
+      z-index: 100;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s ease;
+    }
+
+    .drawer-overlay.open {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .drawer-panel {
+      position: fixed;
+      top: 0;
+      right: 0;
+      width: 480px;
+      max-width: 90vw;
+      height: 100vh;
+      background: var(--bg-card-elevated);
+      border-left: 1px solid var(--border);
+      z-index: 101;
+      transform: translateX(100%);
+      transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      display: flex;
+      flex-direction: column;
+      box-shadow: var(--shadow-lg);
+    }
+
+    .drawer-panel.open {
+      transform: translateX(0);
+    }
+
+    .drawer-header {
+      padding: 24px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .drawer-body {
+      padding: 24px;
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .drawer-footer {
+      padding: 18px 24px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--bg-subtle);
+    }
+
+    /* Modal / Toast */
+    .toast-box {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: var(--accent-emerald);
+      color: #000;
+      font-weight: 700;
+      padding: 12px 20px;
+      border-radius: 10px;
+      box-shadow: var(--shadow-lg);
+      z-index: 200;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      transform: translateY(100px);
+      opacity: 0;
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .toast-box.show {
+      transform: translateY(0);
+      opacity: 1;
+    }
+
+    /* Responsive */
+    @media (max-width: 1200px) {
+      .bento-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      .hub-grid {
+        grid-template-columns: 1fr;
+      }
+      .pipeline-flow {
+        grid-template-columns: repeat(3, 1fr);
+      }
+    }
+
+    @media (max-width: 800px) {
+      .sidebar {
+        display: none;
+      }
+      .dashboard-body {
+        padding: 16px;
+      }
+      .bento-grid {
+        grid-template-columns: 1fr;
+      }
+      .pipeline-flow {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      .order-row {
+        grid-template-columns: 1fr;
+        gap: 8px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ==========================================================================
+       SIDEBAR NAVIGATION
+       ========================================================================== -->
+  <aside class="sidebar">
+    <div class="brand-section">
+      <div class="brand-icon">🥭</div>
+      <div>
+        <div class="brand-title">
+          চাঁপাইম্যাঙ্গো
+          <span class="brand-badge">PRO</span>
+        </div>
+        <div style="font-size: 11px; color: var(--text-muted); font-weight: 500;">Owner Control Center</div>
+      </div>
+    </div>
+
+    <div class="nav-scroll">
+      <div class="nav-heading">Operational Core</div>
+      <a class="nav-link active">
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>
+        <span>Dashboard</span>
+      </a>
+      <a class="nav-link" onclick="filterByStage('aging')">
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+        <span>Live Orders</span>
+        <span class="nav-counter">3 Urgent</span>
+      </a>
+      <a class="nav-link">
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
+        <span>Mango Inventory & Orchard</span>
+      </a>
+      <a class="nav-link">
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>
+        <span>Reseller Accounts & Margin</span>
+      </a>
+
+      <div class="nav-heading">Logistics & Gateway</div>
+      <a class="nav-link">
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><circle cx="7" cy="18" r="2"/><path d="M15 18H9"/><circle cx="17" cy="18" r="2"/><path d="M19 18h2a1 1 0 0 0 1-1v-5l-3-4h-5v10Z"/></svg>
+        <span>Steadfast & Couriers</span>
+      </a>
+      <a class="nav-link">
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <span>SMS Broadcast & Queue</span>
+      </a>
+      <a class="nav-link">
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+        <span>Financial Reports & Tax</span>
+      </a>
+
+      <div class="nav-heading">Config</div>
+      <a class="nav-link">
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <span>Store Settings</span>
+      </a>
+    </div>
+
+    <div class="user-footer">
+      <div class="avatar-wrap">HB</div>
+      <div style="flex: 1; min-width: 0;">
+        <div style="font-weight: 700; font-size: 13px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">Himel Barman</div>
+        <div style="font-size: 11px; color: var(--text-muted);">Master Owner</div>
+      </div>
+      <button class="btn-icon" title="Logout" style="width: 32px; height: 32px;">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg>
+      </button>
+    </div>
+  </aside>
+
+  <!-- ==========================================================================
+       MAIN APP WORKSPACE
+       ========================================================================== -->
+  <main class="app-main">
+    
+    <!-- Top Glass Header -->
+    <header class="top-header">
+      <div class="search-command">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <input type="text" placeholder="Search order #, customer phone, reseller..." id="searchInput" oninput="handleSearch(this.value)" />
+        <span class="kbd-shortcut">⌘K</span>
+      </div>
+
+      <div class="header-actions">
+        <div class="season-pulse">
+          <span class="pulse-dot"></span>
+          <span>Peak Season: Himsagar & Amrupali</span>
+        </div>
+
+        <!-- Theme Switcher -->
+        <button class="btn-icon" id="themeToggleBtn" onclick="toggleTheme()" title="Switch Light/Dark Mode">
+          <svg id="sunIcon" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="display:none;"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+          <svg id="moonIcon" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+        </button>
+
+        <!-- Notification Bell -->
+        <button class="btn-icon" style="position: relative;" onclick="showToast('No new gateway alerts')">
+          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+          <span style="position: absolute; top: 8px; right: 8px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent-rose); border: 2px solid var(--bg-card);"></span>
+        </button>
+
+        <button class="btn-action-primary btn-action-sm" onclick="openOrderDrawer('CM-8492')" style="padding: 8px 16px; border-radius: 10px; font-weight: 700;">
+          + New Manual Order
+        </button>
+      </div>
+    </header>
+
+    <!-- Dashboard Content Area -->
+    <div class="dashboard-body">
+
+      <!-- Executive Header & Date Filters -->
+      <section class="hero-strip">
+        <div class="hero-title">
+          <h1>Executive Operations Hub</h1>
+          <p>Real-time orchard fulfillment, reseller ledger velocity & dispatch telemetry.</p>
+        </div>
+
+        <div class="quick-filters">
+          <button class="filter-btn active" onclick="switchFilter(this, 'today')">Today (Live)</button>
+          <button class="filter-btn" onclick="switchFilter(this, 'yesterday')">Yesterday</button>
+          <button class="filter-btn" onclick="switchFilter(this, '7days')">Last 7 Days</button>
+          <button class="filter-btn" onclick="switchFilter(this, 'season')">Season Total</button>
+        </div>
+      </section>
+
+      <!-- ==========================================================================
+           BENTO EXECUTIVE KPI METRICS
+           ========================================================================== -->
+      <section class="bento-grid">
+        
+        <!-- Bento 1: Real-Time Cash Flow & Net Revenue -->
+        <div class="bento-card hero-revenue">
+          <div>
+            <div class="card-label-row">
+              <span class="card-label">
+                <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>
+                Owner Net Revenue Today
+              </span>
+              <span class="card-trend up">↑ +18.4%</span>
+            </div>
+            <div class="bento-big-value">
+              <span class="currency-symbol">৳</span>84,250
+            </div>
+          </div>
+          <div class="bento-sub-bar">
+            <div class="sub-item">
+              <span class="sub-item-val">৳52,000</span>
+              <span class="sub-item-lbl">Settled / Bank</span>
+            </div>
+            <div style="width: 1px; height: 24px; background: var(--border);"></div>
+            <div class="sub-item">
+              <span class="sub-item-val" style="color: var(--accent-mango);">৳32,250</span>
+              <span class="sub-item-lbl">COD In Transit</span>
+            </div>
+            <div style="width: 1px; height: 24px; background: var(--border);"></div>
+            <div class="sub-item">
+              <span class="sub-item-val" style="color: var(--text-muted);">৳1,14,000</span>
+              <span class="sub-item-lbl">Customer Gross</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bento 2: Operational Dispatch Velocity -->
+        <div class="bento-card">
+          <div>
+            <div class="card-label-row">
+              <span class="card-label">Dispatch Velocity</span>
+              <span class="card-trend up">73% Complete</span>
+            </div>
+            <div class="radial-wrap">
+              <svg class="radial-svg" viewBox="0 0 60 60">
+                <circle class="radial-bg" cx="30" cy="30" r="25" />
+                <circle class="radial-fill" cx="30" cy="30" r="25" />
+              </svg>
+              <div>
+                <div class="bento-big-value" style="margin-bottom: 2px;">94 / 128</div>
+                <div style="font-size: 11.5px; color: var(--text-muted);">Packages handed to courier</div>
+              </div>
+            </div>
+          </div>
+          <div class="bento-sub-bar">
+            <div class="sub-item">
+              <span class="sub-item-val">34</span>
+              <span class="sub-item-lbl">Packing Now</span>
+            </div>
+            <div style="width: 1px; height: 24px; background: var(--border);"></div>
+            <div class="sub-item">
+              <span class="sub-item-val" style="color: var(--accent-emerald);">52</span>
+              <span class="sub-item-lbl">Delivered</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bento 3: Critical Attention Triage -->
+        <div class="bento-card" style="border-color: rgba(244, 63, 94, 0.3);">
+          <div>
+            <div class="card-label-row">
+              <span class="card-label" style="color: var(--accent-rose);">Attention Required</span>
+              <span class="card-trend alert">3 Urgent</span>
+            </div>
+            <div class="bento-big-value" style="color: var(--accent-rose);">
+              03 <span style="font-size: 14px; font-weight: 600; color: var(--text-muted);">Aging >24h</span>
+            </div>
+          </div>
+          <div class="bento-sub-bar">
+            <div class="sub-item">
+              <span class="sub-item-val" style="color: var(--accent-rose);">CM-8412</span>
+              <span class="sub-item-lbl">31h in Packing</span>
+            </div>
+            <div style="width: 1px; height: 24px; background: var(--border);"></div>
+            <div class="sub-item">
+              <span class="sub-item-val" style="color: var(--accent-mango);">1 Reseller</span>
+              <span class="sub-item-lbl">Negative Balance</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bento 4: Morning Orchard Harvest Checklist -->
+        <div class="bento-card">
+          <div class="card-label-row">
+            <span class="card-label">Orchard Harvest Pick List</span>
+            <span style="font-size: 11px; font-weight: 700; color: var(--text-brand);">650 kg Total</span>
+          </div>
+          <div class="harvest-pill-list">
+            <div class="harvest-pill">
+              <div class="harvest-name">
+                <span class="mango-dot dot-himsagar"></span>
+                <span>হিমসাগর (Himsagar)</span>
+              </div>
+              <span style="font-weight: 700; font-family: 'JetBrains Mono', monospace;">380 kg</span>
+            </div>
+            <div class="harvest-pill">
+              <div class="harvest-name">
+                <span class="mango-dot dot-amrupali"></span>
+                <span>আম্রপালি (Amrupali)</span>
+              </div>
+              <span style="font-weight: 700; font-family: 'JetBrains Mono', monospace;">210 kg</span>
+            </div>
+            <div class="harvest-pill">
+              <div class="harvest-name">
+                <span class="mango-dot dot-langra"></span>
+                <span>ল্যাংড়া (Langra)</span>
+              </div>
+              <span style="font-weight: 700; font-family: 'JetBrains Mono', monospace;">60 kg</span>
+            </div>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ==========================================================================
+           INTERACTIVE WORKFLOW PIPELINE TRACKER
+           ========================================================================== -->
+      <section class="pipeline-section">
+        <div class="pipeline-header">
+          <div class="pipeline-title">
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+            Live Fulfillment Pipeline (Click to filter list)
+          </div>
+          <div style="font-size: 12px; color: var(--text-muted);">Updated 1 minute ago • Auto-refresh ON</div>
+        </div>
+
+        <div class="pipeline-flow">
+          <div class="pipeline-step active" onclick="filterByStage('all', this)">
+            <div class="step-badge">
+              <span>ALL TODAY</span>
+              <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/></svg>
+            </div>
+            <div class="step-count">128</div>
+            <div class="step-name">All Orders</div>
+          </div>
+
+          <div class="pipeline-step" onclick="filterByStage('submitted', this)">
+            <div class="step-badge">
+              <span>STAGE 1</span>
+              <span>Awaiting</span>
+            </div>
+            <div class="step-count" style="color: var(--accent-cyan);">14</div>
+            <div class="step-name">Submitted</div>
+          </div>
+
+          <div class="pipeline-step" onclick="filterByStage('confirmed', this)">
+            <div class="step-badge">
+              <span>STAGE 2</span>
+              <span>Accepted</span>
+            </div>
+            <div class="step-count" style="color: var(--accent-mango);">28</div>
+            <div class="step-name">Confirmed</div>
+          </div>
+
+          <div class="pipeline-step has-alert" onclick="filterByStage('packing', this)">
+            <div class="step-badge">
+              <span style="color: var(--accent-rose);">3 AGING</span>
+              <span>Orchard</span>
+            </div>
+            <div class="step-count" style="color: var(--accent-rose);">34</div>
+            <div class="step-name">Sorting & Packing</div>
+          </div>
+
+          <div class="pipeline-step" onclick="filterByStage('shipped', this)">
+            <div class="step-badge">
+              <span>STAGE 4</span>
+              <span>Courier</span>
+            </div>
+            <div class="step-count" style="color: var(--accent-emerald);">42</div>
+            <div class="step-name">Handed Over</div>
+          </div>
+
+          <div class="pipeline-step" onclick="filterByStage('delivered', this)">
+            <div class="step-badge">
+              <span>COMPLETED</span>
+              <span>Cleared</span>
+            </div>
+            <div class="step-count" style="color: var(--accent-emerald);">52</div>
+            <div class="step-name">Delivered</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==========================================================================
+           TWO-COLUMN CORE HUB: ORDER TRIAGE FEED & FINANCIAL SIDEBAR
+           ========================================================================== -->
+      <section class="hub-grid">
+
+        <!-- Left Column: Intelligent Order Triage & Action Table -->
+        <div class="triage-card">
+          <div class="triage-nav">
+            <div class="triage-tabs">
+              <button class="triage-tab active" onclick="switchTriageTab(this, 'all')">
+                Live Action Queue <span class="badge" id="triageCount">128</span>
+              </button>
+              <button class="triage-tab urgent" onclick="switchTriageTab(this, 'aging')">
+                Stale & Aging <span class="badge">3</span>
+              </button>
+              <button class="triage-tab" onclick="switchTriageTab(this, 'ready')">
+                Ready for Waybill <span class="badge">18</span>
+              </button>
+            </div>
+
+            <div style="display: flex; gap: 8px;">
+              <button class="btn-action-sm" onclick="bulkWaybill()">
+                ⚡ Bulk Generate Steadfast
+              </button>
+            </div>
+          </div>
+
+          <!-- Order Stream List -->
+          <div class="order-list" id="orderListContainer">
+
+            <!-- Order 1: Urgent Aging -->
+            <div class="order-row aging-warning" onclick="openOrderDrawer('CM-8412')">
+              <div class="order-avatar" style="color: var(--accent-rose); background: var(--accent-rose-soft);">⚠️</div>
+              <div class="order-main-info">
+                <div class="order-code-row">
+                  <span class="order-code">#CM-8412</span>
+                  <span class="order-time" style="color: var(--accent-rose); font-weight: 700;">Aging 31 hrs</span>
+                </div>
+                <div class="customer-name">
+                  <strong>Tanvir Ahmed</strong> • Dhanmondi, Dhaka (01711-884920)
+                </div>
+              </div>
+
+              <div class="order-items-spec">
+                <div class="mango-tag">
+                  <span class="mango-dot dot-himsagar"></span>
+                  <span>হিমসাগর (Himsagar) — 20 kg (2 Crates)</span>
+                </div>
+                <div class="reseller-credit-tag">Reseller: <strong>Rajshahi Fruit Hub</strong> (Margin: ৳450)</div>
+              </div>
+
+              <div class="order-amount-col">
+                <div class="order-price">৳2,850</div>
+                <div class="order-cod-pill">COD • Steadfast</div>
+              </div>
+
+              <div class="order-actions-col" onclick="event.stopPropagation()">
+                <button class="btn-action-primary btn-action-sm" onclick="showToast('Steadfast Waybill #ST-9948 Generated!')">
+                  Dispatch Now
+                </button>
+              </div>
+            </div>
+
+            <!-- Order 2: Normal Ready for Dispatch -->
+            <div class="order-row" onclick="openOrderDrawer('CM-8415')">
+              <div class="order-avatar">🥭</div>
+              <div class="order-main-info">
+                <div class="order-code-row">
+                  <span class="order-code">#CM-8415</span>
+                  <span class="order-time">45 mins ago</span>
+                </div>
+                <div class="customer-name">
+                  <strong>Dr. Nusrat Jahan</strong> • Uttara Sector 4, Dhaka (01822-441199)
+                </div>
+              </div>
+
+              <div class="order-items-spec">
+                <div class="mango-tag">
+                  <span class="mango-dot dot-amrupali"></span>
+                  <span>আম্রপালি (Amrupali) — 15 kg Special</span>
+                </div>
+                <div class="reseller-credit-tag">Reseller: <strong>Organic Bengal</strong> (Margin: ৳320)</div>
+              </div>
+
+              <div class="order-amount-col">
+                <div class="order-price">৳2,150</div>
+                <div class="order-cod-pill" style="color: var(--accent-emerald);">Paid bKash</div>
+              </div>
+
+              <div class="order-actions-col" onclick="event.stopPropagation()">
+                <button class="btn-action-sm" onclick="showToast('Pack label printed!')">
+                  Print Tag
+                </button>
+              </div>
+            </div>
+
+            <!-- Order 3: Normal Ready -->
+            <div class="order-row" onclick="openOrderDrawer('CM-8416')">
+              <div class="order-avatar">🥭</div>
+              <div class="order-main-info">
+                <div class="order-code-row">
+                  <span class="order-code">#CM-8416</span>
+                  <span class="order-time">1 hr ago</span>
+                </div>
+                <div class="customer-name">
+                  <strong>Sabbir Hossain</strong> • Agrabad, Chattogram (01912-776655)
+                </div>
+              </div>
+
+              <div class="order-items-spec">
+                <div class="mango-tag">
+                  <span class="mango-dot dot-langra"></span>
+                  <span>ল্যাংড়া (Langra) — 25 kg Export Grade</span>
+                </div>
+                <div class="reseller-credit-tag">Reseller: <strong>Chapai Mango Corner</strong> (Margin: ৳580)</div>
+              </div>
+
+              <div class="order-amount-col">
+                <div class="order-price">৳3,600</div>
+                <div class="order-cod-pill">COD • Paperfly</div>
+              </div>
+
+              <div class="order-actions-col" onclick="event.stopPropagation()">
+                <button class="btn-action-sm" onclick="openOrderDrawer('CM-8416')">
+                  Review
+                </button>
+              </div>
+            </div>
+
+            <!-- Order 4: Urgent Aging -->
+            <div class="order-row aging-warning" onclick="openOrderDrawer('CM-8409')">
+              <div class="order-avatar" style="color: var(--accent-rose); background: var(--accent-rose-soft);">⚠️</div>
+              <div class="order-main-info">
+                <div class="order-code-row">
+                  <span class="order-code">#CM-8409</span>
+                  <span class="order-time" style="color: var(--accent-rose); font-weight: 700;">Aging 26 hrs</span>
+                </div>
+                <div class="customer-name">
+                  <strong>Kamrul Hasan</strong> • Sylhet Sadar (01633-998811)
+                </div>
+              </div>
+
+              <div class="order-items-spec">
+                <div class="mango-tag">
+                  <span class="mango-dot dot-himsagar"></span>
+                  <span>হিমসাগর (Himsagar) — 30 kg Crate</span>
+                </div>
+                <div class="reseller-credit-tag">Reseller: <strong>Sylhet Express</strong> (Margin: ৳700)</div>
+              </div>
+
+              <div class="order-amount-col">
+                <div class="order-price">৳4,200</div>
+                <div class="order-cod-pill">COD • Steadfast</div>
+              </div>
+
+              <div class="order-actions-col" onclick="event.stopPropagation()">
+                <button class="btn-action-primary btn-action-sm" onclick="showToast('Courier assigned!')">
+                  Assign Courier
+                </button>
+              </div>
+            </div>
+
+            <!-- Order 5: Fresh Submitted -->
+            <div class="order-row" onclick="openOrderDrawer('CM-8420')">
+              <div class="order-avatar" style="color: var(--accent-cyan); background: var(--accent-cyan-soft);">✨</div>
+              <div class="order-main-info">
+                <div class="order-code-row">
+                  <span class="order-code">#CM-8420</span>
+                  <span class="order-time">Just now</span>
+                </div>
+                <div class="customer-name">
+                  <strong>Rubel Mia</strong> • Mirpur 10, Dhaka (01755-123456)
+                </div>
+              </div>
+
+              <div class="order-items-spec">
+                <div class="mango-tag">
+                  <span class="mango-dot dot-amrupali"></span>
+                  <span>আম্রপালি (Amrupali) — 10 kg</span>
+                </div>
+                <div class="reseller-credit-tag">Reseller: <strong>Direct Online Store</strong></div>
+              </div>
+
+              <div class="order-amount-col">
+                <div class="order-price">৳1,450</div>
+                <div class="order-cod-pill">COD • Pathao</div>
+              </div>
+
+              <div class="order-actions-col" onclick="event.stopPropagation()">
+                <button class="btn-action-primary btn-action-sm" onclick="showToast('Order CM-8420 Confirmed!')">
+                  Accept
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Right Column: Reseller Risk Radar & Operational Telemetry -->
+        <div class="side-stack">
+
+          <!-- Reseller Due / Debtor Radar -->
+          <div class="side-card">
+            <div class="side-card-title">
+              <span>Reseller Debt Risk (বকেয়া)</span>
+              <span style="font-size: 11px; color: var(--accent-rose); font-family: 'JetBrains Mono', monospace; font-weight: 700;">৳34,200 Overdue</span>
+            </div>
+
+            <div class="debtor-list">
+              <div class="debtor-item">
+                <div class="debtor-info">
+                  <span class="debtor-name">Farhan Enterprise</span>
+                  <span class="debtor-phone">01712-349811 • 7 orders active</span>
+                </div>
+                <div class="debtor-val">
+                  <span class="debtor-due">-৳16,400</span>
+                  <button class="btn-sms-remind" onclick="showToast('Payment reminder SMS sent to Farhan Enterprise')">SMS Notice</button>
+                </div>
+              </div>
+
+              <div class="debtor-item">
+                <div class="debtor-info">
+                  <span class="debtor-name">Dhaka Mango Mart</span>
+                  <span class="debtor-phone">01819-223344 • 12 orders active</span>
+                </div>
+                <div class="debtor-val">
+                  <span class="debtor-due">-৳11,800</span>
+                  <button class="btn-sms-remind" onclick="showToast('Payment reminder SMS sent to Dhaka Mango Mart')">SMS Notice</button>
+                </div>
+              </div>
+
+              <div class="debtor-item">
+                <div class="debtor-info">
+                  <span class="debtor-name">Bogura Fruits Hub</span>
+                  <span class="debtor-phone">01922-887766 • 4 orders active</span>
+                </div>
+                <div class="debtor-val">
+                  <span class="debtor-due">-৳6,000</span>
+                  <button class="btn-sms-remind" onclick="showToast('Payment reminder SMS sent to Bogura Fruits Hub')">SMS Notice</button>
+                </div>
+              </div>
+            </div>
+
+            <button class="btn-action-sm" style="width: 100%; margin-top: 14px; text-align: center;" onclick="showToast('Navigating to full Reseller Ledger')">
+              Manage All Reseller Balances →
+            </button>
+          </div>
+
+          <!-- Courier Delivery & Dispatch Health -->
+          <div class="side-card">
+            <div class="side-card-title">
+              <span>Courier Delivery Velocity</span>
+              <span style="font-size: 11px; color: var(--accent-emerald); font-weight: 700;">Avg 21.4 hrs</span>
+            </div>
+
+            <div>
+              <div class="courier-stat-row">
+                <strong>Steadfast Courier</strong>
+                <span style="color: var(--accent-emerald); font-weight: 700;">94% Success (72 pkgs)</span>
+              </div>
+              <div class="progress-bar-bg">
+                <div class="progress-bar-fill" style="width: 94%;"></div>
+              </div>
+
+              <div class="courier-stat-row">
+                <strong>Pathao Express</strong>
+                <span style="color: var(--accent-cyan); font-weight: 700;">89% Success (38 pkgs)</span>
+              </div>
+              <div class="progress-bar-bg">
+                <div class="progress-bar-fill" style="width: 89%; background: var(--accent-cyan);"></div>
+              </div>
+
+              <div class="courier-stat-row">
+                <strong>Paperfly</strong>
+                <span style="color: var(--accent-mango); font-weight: 700;">78% Success (18 pkgs)</span>
+              </div>
+              <div class="progress-bar-bg">
+                <div class="progress-bar-fill" style="width: 78%; background: var(--accent-mango);"></div>
+              </div>
+            </div>
+
+            <!-- Live Infrastructure Diagnostics -->
+            <div class="system-health-grid">
+              <div class="health-pill">
+                <span class="health-dot"></span>
+                <div>
+                  <strong>SMS Gateway</strong>
+                  <div style="color: var(--text-muted); font-size: 10px;">Greenweb (99.8%)</div>
+                </div>
+              </div>
+              <div class="health-pill">
+                <span class="health-dot"></span>
+                <div>
+                  <strong>Courier API</strong>
+                  <div style="color: var(--text-muted); font-size: 10px;">Webhook Synced</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+      </section>
+
+    </div>
+  </main>
+
+  <!-- ==========================================================================
+       MODERN SLIDE-OUT ORDER DETAILS DRAWER
+       ========================================================================== -->
+  <div class="drawer-overlay" id="drawerOverlay" onclick="closeOrderDrawer()"></div>
+  <aside class="drawer-panel" id="orderDrawer">
+    <div class="drawer-header">
+      <div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 18px; font-weight: 800; font-family: 'JetBrains Mono', monospace;" id="drawerOrderCode">#CM-8412</span>
+          <span style="font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 6px; background: var(--accent-rose-soft); color: var(--accent-rose);" id="drawerBadge">AGING 31 HRS</span>
+        </div>
+        <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">Placed Today at 08:30 AM via Rajshahi Fruit Hub</div>
+      </div>
+      <button class="btn-icon" onclick="closeOrderDrawer()">
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+
+    <div class="drawer-body">
+      <!-- Customer Box -->
+      <div style="background: var(--bg-subtle); border: 1px solid var(--border); border-radius: 12px; padding: 16px;">
+        <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); margin-bottom: 8px;">Customer & Delivery Destination</div>
+        <div style="font-size: 15px; font-weight: 700;" id="drawerCustomerName">Tanvir Ahmed</div>
+        <div style="font-size: 13px; color: var(--text-secondary); margin-top: 2px;">Phone: <strong style="font-family: 'JetBrains Mono', monospace;" id="drawerPhone">01711-884920</strong></div>
+        <div style="font-size: 13px; color: var(--text-secondary); margin-top: 2px;">House 42, Road 9/A, Dhanmondi, Dhaka</div>
+        <div style="margin-top: 10px; display: flex; gap: 8px;">
+          <button class="btn-action-sm" onclick="showToast('Calling customer...')">📞 Call Customer</button>
+          <button class="btn-action-sm" onclick="showToast('Opening WhatsApp chat...')">💬 WhatsApp</button>
+        </div>
+      </div>
+
+      <!-- Mango Goods Breakdown -->
+      <div style="background: var(--bg-subtle); border: 1px solid var(--border); border-radius: 12px; padding: 16px;">
+        <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); margin-bottom: 12px;">Mango Batch & Package Details</div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <div>
+            <div style="font-weight: 700; font-size: 13.5px;">হিমসাগর (Himsagar) — Crate Pack</div>
+            <div style="font-size: 11.5px; color: var(--text-muted);">20 kg Net • Orchard Lot #CH-04</div>
+          </div>
+          <div style="font-family: 'JetBrains Mono', monospace; font-weight: 700;">৳2,400</div>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 8px; border-top: 1px solid var(--border);">
+          <span style="font-size: 12px; color: var(--text-secondary);">Delivery Charge (Steadfast Express)</span>
+          <span style="font-family: 'JetBrains Mono', monospace; font-weight: 600;">৳150</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 8px; margin-top: 8px; border-top: 1px solid var(--border); font-size: 14px; font-weight: 800;">
+          <span>Total Payable (COD)</span>
+          <span style="color: var(--accent-mango); font-family: 'JetBrains Mono', monospace; font-size: 16px;">৳2,850</span>
+        </div>
+      </div>
+
+      <!-- Logistics Courier Dispatch -->
+      <div style="background: var(--bg-subtle); border: 1px solid var(--border); border-radius: 12px; padding: 16px;">
+        <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); margin-bottom: 10px;">Steadfast Courier Booking</div>
+        <div style="font-size: 12.5px; margin-bottom: 10px;">Auto-generate Steadfast shipment waybill with tracking barcode:</div>
+        <button class="btn-action-primary" style="width: 100%; padding: 10px; border-radius: 8px; font-weight: 700; cursor: pointer;" onclick="showToast('Waybill #ST-9948 created and linked!')">
+          ⚡ Generate & Print Steadfast Waybill
+        </button>
+      </div>
+    </div>
+
+    <div class="drawer-footer">
+      <button class="btn-action-sm" onclick="showToast('Order marked as Cancelled')">Cancel Order</button>
+      <button class="btn-action-primary btn-action-sm" style="padding: 10px 20px;" onclick="showToast('Order Dispatched Successfully!'); closeOrderDrawer();">
+        Confirm & Dispatch
+      </button>
+    </div>
+  </aside>
+
+  <!-- Interactive Toast Notification -->
+  <div class="toast-box" id="toastBox">
+    <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
+    <span id="toastMsg">Action completed successfully</span>
+  </div>
+
+  <!-- JavaScript for Full Interactivity -->
+  <script>
+    // Theme toggle
+    function toggleTheme() {
+      const html = document.documentElement;
+      const current = html.getAttribute('data-theme');
+      const next = current === 'dark' ? 'light' : 'dark';
+      html.setAttribute('data-theme', next);
+
+      document.getElementById('sunIcon').style.display = next === 'dark' ? 'none' : 'block';
+      document.getElementById('moonIcon').style.display = next === 'dark' ? 'block' : 'none';
+      showToast('Switched to ' + (next === 'dark' ? 'OLED Dark' : 'Studio Light') + ' mode');
+    }
+
+    // Quick filter buttons
+    function switchFilter(btn, range) {
+      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      showToast('Telemetry updated for: ' + btn.innerText);
+    }
+
+    // Triage tab switch
+    function switchTriageTab(btn, tab) {
+      document.querySelectorAll('.triage-tab').forEach(t => t.classList.remove('active'));
+      btn.classList.add('active');
+
+      const rows = document.querySelectorAll('.order-row');
+      if (tab === 'aging') {
+        rows.forEach(r => {
+          r.style.display = r.classList.contains('aging-warning') ? 'grid' : 'none';
+        });
+        showToast('Showing 3 aging orders needing urgent dispatch');
+      } else {
+        rows.forEach(r => r.style.display = 'grid');
+        showToast('Showing all active action orders');
+      }
+    }
+
+    // Pipeline step filter
+    function filterByStage(stage, stepEl) {
+      if (stepEl) {
+        document.querySelectorAll('.pipeline-step').forEach(s => s.classList.remove('active'));
+        stepEl.classList.add('active');
+      }
+      showToast('Pipeline filtered by stage: ' + stage.toUpperCase());
+    }
+
+    // Drawer functions
+    function openOrderDrawer(orderCode) {
+      document.getElementById('drawerOrderCode').innerText = '#' + orderCode;
+      document.getElementById('drawerOverlay').classList.add('open');
+      document.getElementById('orderDrawer').classList.add('open');
+    }
+
+    function closeOrderDrawer() {
+      document.getElementById('drawerOverlay').classList.remove('open');
+      document.getElementById('orderDrawer').classList.remove('open');
+    }
+
+    // Toast function
+    let toastTimeout;
+    function showToast(msg) {
+      const toast = document.getElementById('toastBox');
+      document.getElementById('toastMsg').innerText = msg;
+      toast.classList.add('show');
+      clearTimeout(toastTimeout);
+      toastTimeout = setTimeout(() => {
+        toast.classList.remove('show');
+      }, 3000);
+    }
+
+    // Search filter
+    function handleSearch(val) {
+      val = val.toLowerCase().trim();
+      const rows = document.querySelectorAll('.order-row');
+      let visible = 0;
+      rows.forEach(row => {
+        const text = row.innerText.toLowerCase();
+        if (text.includes(val)) {
+          row.style.display = 'grid';
+          visible++;
+        } else {
+          row.style.display = 'none';
+        }
+      });
+      document.getElementById('triageCount').innerText = visible;
+    }
+
+    function bulkWaybill() {
+      showToast('Generating 18 Steadfast Waybills in background...');
+    }
+
+    // Keyboard shortcut for Cmd+K
+    document.addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        document.getElementById('searchInput').focus();
+      }
+      if (e.key === 'Escape') {
+        closeOrderDrawer();
+      }
+    });
+  </script>
+</body>
+</html>

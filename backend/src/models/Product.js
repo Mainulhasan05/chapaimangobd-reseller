@@ -48,6 +48,25 @@ const variantSchema = new mongoose.Schema(
      */
     stockQty: { type: Number, default: 0, min: 0 },
 
+    /*
+     * What packing ONE box of this variant consumes: an eleven-kilo box takes
+     * one ক্যারেট, a six-kilo box may take a smaller one or none at all.
+     *
+     * On the variant and not on the product, because the box is the thing that
+     * gets packed. Read exactly once in an order's life, when the parcel's fate
+     * is settled at deliver or return, and snapshotted onto the line; never read
+     * again, so changing this tomorrow cannot change what last week's order cost.
+     * Empty means nothing is counted, which is what every variant written before
+     * this existed says. See domain/packaging.js and docs/adr/0026.
+     */
+    packaging: [
+      {
+        _id: false,
+        supply: { type: mongoose.Schema.Types.ObjectId, ref: 'Supply', required: true },
+        qtyMilli: { type: Number, required: true, min: 1 },
+      },
+    ],
+
     // A box the owner has stopped offering. Never deleted once ordered: an
     // order line holds this id, and the pick list groups by it.
     isAvailable: { type: Boolean, default: true },

@@ -10,8 +10,35 @@ const { badRequest } = require('./errors');
 const MILLI = 1000;
 
 /** Units that only make sense in whole numbers. */
-const WHOLE_UNITS = new Set(['pcs', 'dozen', 'box']);
-const UNITS = ['kg', 'gram', 'litre', 'pcs', 'dozen', 'box'];
+const WHOLE_UNITS = new Set(['pcs', 'dozen', 'box', 'sheet', 'roll', 'packet', 'bundle']);
+
+/**
+ * Every unit anything in this system is measured in.
+ *
+ * One list, shared by a Product, a Purchase line and a Supply, because a unit is
+ * a unit and two lists would drift. The back half exists for **supplies**: a
+ * mango is sold by the kilo, but the things that get it to a customer are
+ * counted in sheets of কাগজ, rolls of tape, metres of সুতা. Naming them properly
+ * is what keeps a stock screen from reading "৩ পিস কাগজ".
+ *
+ * Widening this list is safe and additive: it is a Mongoose enum and a Zod
+ * enum, so an existing document is still valid and nothing needs migrating.
+ */
+const UNITS = [
+  // Sold goods.
+  'kg',
+  'gram',
+  'litre',
+  'pcs',
+  'dozen',
+  'box',
+  // Supplies. See models/Supply.js.
+  'sheet',
+  'roll',
+  'metre',
+  'packet',
+  'bundle',
+];
 
 function toMilli(qty, field = 'quantity') {
   const n = typeof qty === 'string' ? Number(qty) : qty;
