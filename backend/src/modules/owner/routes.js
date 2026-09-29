@@ -12,10 +12,16 @@ const sms = require('./sms.controller');
 const customers = require('./customers.controller');
 const complaints = require('./complaints.controller');
 const auditLog = require('./audit.controller');
+const supplies = require('./supplies.controller');
+const payees = require('./payees.controller');
+const purchases = require('./purchases.controller');
+const expenses = require('./expenses.controller');
+const costReports = require('./costReports.controller');
 const notifications = require('../shared/notifications.controller');
 const messaging = require('../shared/messaging.controller');
 const prefsSchema = require('../shared/notificationPrefs.schema');
 const schema = require('./schema');
+const cost = require('./cost.schema');
 const validate = require('../../middleware/validate');
 const asyncHandler = require('../../utils/asyncHandler');
 const { authenticate, requireRole } = require('../../middleware/auth');
@@ -77,6 +83,16 @@ router.patch(
   asyncHandler(catalog.updateProduct)
 );
 router.delete('/products/:id', asyncHandler(catalog.archiveProduct));
+/*
+ * What one box of this variant consumes when the parcel goes out: the ক্যারেট, the
+ * কাগজ, the সুই. Its own route because the product form is multipart and a nested
+ * array of objects has no honest multipart encoding. See docs/adr/0026.
+ */
+router.put(
+  '/products/:id/variants/:variantId/packaging',
+  validate({ body: cost.setRecipe }),
+  asyncHandler(catalog.setVariantRecipe)
+);
 
 /* delivery zones */
 router.get('/delivery-zones', asyncHandler(catalog.listZones));
@@ -151,6 +167,8 @@ router.get(
   asyncHandler(orders.ordersSummary)
 );
 router.get('/orders/:id', asyncHandler(orders.getOrder));
+// What packing it is expected to take and cost, and what the shelf cannot cover.
+router.get('/orders/:id/packaging-estimate', asyncHandler(orders.packagingEstimate));
 // The exact text a customer SMS would carry, before the owner ticks the box.
 router.get(
   '/orders/:id/customer-sms-preview',
@@ -361,5 +379,127 @@ router.put(
   validate({ body: prefsSchema.updatePreferences }),
   asyncHandler(messaging.updatePreferences)
 );
+
+/*
+ * the cost side
+ *
+ * Everything above this line is what the owner bills. Everything below is what
+ * the owner spends, which the system did not record at all until PLAN-3. None of
+ * it is visible to a reseller and none of it touches a wallet.
+ */
+
+/* supplies — the things bought and used up. docs/adr/0022 */
+router.get('/supplies', validate({ query: cost.listSupplies }), asyncHandler(supplies.listSupplies));
+router.post('/supplies', validate({ body: cost.createSupply }), asyncHandler(supplies.createSupply));
+// Registered before the PATCH so the id route reads in the usual order.
+router.get('/supplies/:id', asyncHandler(supplies.getSupply));
+router.patch(
+  '/supplies/:id',
+  validate({ body: cost.updateSupply }),
+  asyncHandler(supplies.updateSupply)
+);
+router.delete('/supplies/:id', asyncHandler(supplies.archiveSupply));
+router.get('/supplies/:id/movements', asyncHandler(supplies.listMovements));
+router.post(
+  '/supplies/:id/adjust',
+  validate({ body: cost.adjustSupply }),
+  asyncHandler(supplies.adjustSupply)
+);
+/*
+ * A stock take takes the counted total, not a difference: "there are 94" is what
+ * somebody with a clipboard knows. It is also the only thing that corrects a
+ * drifting packaging recipe. See docs/adr/0026.
+ */
+router.post(
+  '/supplies/:id/stock-take',
+  validate({ body: cost.stockTake }),
+  asyncHandler(supplies.stockTake)
+);
+router.get(
+  '/supplies/:id/variance',
+  validate({ query: cost.dateRange }),
+  asyncHandler(supplies.variance)
+);
+
+/* payees — anyone owed money. docs/adr/0025 */
+router.get('/payees', validate({ query: cost.listPayees }), asyncHandler(payees.listPayees));
+router.post('/payees', validate({ body: cost.createPayee }), asyncHandler(payees.createPayee));
+router.get('/payees/:id', asyncHandler(payees.getPayee));
+router.patch('/payees/:id', validate({ body: cost.updatePayee }), asyncHandler(payees.updatePayee));
+router.delete('/payees/:id', asyncHandler(payees.archivePayee));
+router.get('/payees/:id/ledger', asyncHandler(payees.listLedger));
+router.post('/payees/:id/payments', validate({ body: cost.payPayee }), asyncHandler(payees.pay));
+router.post(
+  '/payees/:id/ledger',
+  validate({ body: cost.manualPayeeEntry }),
+  asyncHandler(payees.manualEntry)
+);
+
+/* purchases — recorded when the goods are in hand. docs/adr/0024 */
+router.get(
+  '/purchases',
+  validate({ query: cost.listPurchases }),
+  asyncHandler(purchases.listPurchases)
+);
+router.post(
+  '/purchases',
+  validate({ body: cost.createPurchase }),
+  asyncHandler(purchases.createPurchase)
+);
+router.get('/purchases/:id', asyncHandler(purchases.getPurchase));
+// Cancelled and re-entered, never edited.
+router.post(
+  '/purchases/:id/cancel',
+  validate({ body: cost.cancelPurchase }),
+  asyncHandler(purchases.cancelPurchase)
+);
+
+/* expenses — money out that nothing else records. docs/adr/0027 */
+router.get('/expense-categories', asyncHandler(expenses.listCategories));
+router.post(
+  '/expense-categories',
+  validate({ body: cost.createCategory }),
+  asyncHandler(expenses.createCategory)
+);
+// Creates the six the owner named. Idempotent, so it is safe to call twice.
+router.post('/expense-categories/seed', asyncHandler(expenses.seedCategories));
+router.patch(
+  '/expense-categories/:id',
+  validate({ body: cost.updateCategory }),
+  asyncHandler(expenses.updateCategory)
+);
+router.delete('/expense-categories/:id', asyncHandler(expenses.archiveCategory));
+
+router.get('/expenses', validate({ query: cost.listExpenses }), asyncHandler(expenses.listExpenses));
+router.post(
+  '/expenses',
+  validate({ body: cost.createExpense }),
+  asyncHandler(expenses.createExpense)
+);
+router.get('/expenses/:id', asyncHandler(expenses.getExpense));
+router.post(
+  '/expenses/:id/void',
+  validate({ body: cost.voidExpense }),
+  asyncHandler(expenses.voidExpense)
+);
+
+/*
+ * cost reports
+ *
+ * Every figure comes from services/costing.js, so these, the dashboard and the
+ * printed sheets cannot disagree — the same reason the order reports all build
+ * from utils/orderFilter.js.
+ */
+router.get('/reports/supplies', range, asyncHandler(costReports.supplies));
+router.get('/reports/purchases', range, asyncHandler(costReports.purchases));
+// No range: a due is where an account stands now, not a property of a period.
+router.get('/reports/payables', asyncHandler(costReports.payables));
+router.get('/reports/expenses', range, asyncHandler(costReports.expenses));
+// The report this whole plan exists for.
+router.get('/reports/profit', range, asyncHandler(costReports.profit));
+// Receivable and payable side by side, for the dashboard. Never netted.
+router.get('/reports/position', asyncHandler(costReports.position));
+router.get('/exports/purchases.csv', range, asyncHandler(costReports.exportPurchases));
+router.get('/exports/expenses.csv', range, asyncHandler(costReports.exportExpenses));
 
 module.exports = router;

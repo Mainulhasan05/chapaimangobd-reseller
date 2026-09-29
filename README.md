@@ -62,6 +62,49 @@ Three rules the code depends on:
    through one table that decides what may happen, what the ledger posts and
    whether stock comes back.
 
+## What it costs
+
+Everything above is what the owner **bills**. The cost side is what the owner
+**spends**, and none of it is visible to a reseller or touches a wallet. Full
+design in `docs/PLAN-3.md`, ADRs 0022–0027.
+
+Three mechanisms:
+
+- **Supply** (`/owner/supplies`) — things bought and used up but never sold: a
+  ক্যারেট, a sheet of কাগজ, a সুই. Counted in an append-only movement log with a
+  cached on-hand figure, the same shape as the ledger.
+- **Payee** (`/owner/payees`) — anyone owed money: the crate seller, a labourer,
+  the courier company, a van owner. A full append-only due ledger each, with
+  partial payments and advances.
+- **Expense** (`/owner/expenses`) — money out that nothing else records. Each one
+  belongs to **one order** (কুরিয়ার, হোম ডেলিভারি) or to **a day** (লেবার, পরিবহন).
+
+A **purchase** (`/owner/purchases`) moves the stock and posts the due in one
+transaction, and works out the **landed cost**: a hundred crates at 80 taka with
+600 of van hire and 200 of loading cost 88 each, and 88 is what a crate cost. A
+purchase is cancelled and re-entered, never edited.
+
+Packing is inferred, not keyed in. A **packaging recipe** on each box says an
+eleven-kilo box takes one ক্যারেট and about one and a half sheets of কাগজ; delivering
+or returning the parcel deducts it and snapshots the cost onto the line. That is
+an **estimate** and the system says so everywhere — a **stock take** is what
+corrects it, and the variance report is what shows the recipe drifting.
+
+Four more rules the cost code depends on:
+
+4. **`duePoisha` is positive when the owner owes**, the opposite of a reseller's
+   `balancePoisha`. Two fields that look alike and mean opposites is how a figure
+   ends up backwards in a report, so they are named differently and never netted.
+5. **No payee ledger entry is ever refused by a limit.** A reseller debit is
+   guarded because the owner is extending credit; a payee due already happened
+   elsewhere and is merely being written down. Overpaying is an advance (বায়না).
+6. **A period expense is never divided across orders.** Nobody measured লেবার per
+   parcel. `grossMargin` is before period costs and is never called profit;
+   `netProfit` is the only figure that may be.
+7. **What the owner pays the courier is not `deliveryChargePoisha`**, which is
+   what the reseller is billed. The gap between them is the delivery margin, and
+   the two are never added together.
+
 ## Testing
 
 ```bash

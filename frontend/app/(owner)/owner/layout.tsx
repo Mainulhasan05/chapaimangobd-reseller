@@ -2,7 +2,9 @@
 
 import {
   BadgeCheck,
+  Boxes,
   ChartColumn,
+  HandCoins,
   ClipboardList,
   Contact,
   LayoutDashboard,
@@ -11,7 +13,9 @@ import {
   MessageSquare,
   MessageSquareWarning,
   Package,
+  Receipt,
   ScrollText,
+  ShoppingCart,
   Settings,
   Store,
   UserCog,
@@ -55,7 +59,22 @@ const NAV: NavItem[] = [
     icon: MessageSquareWarning,
     section: 'nav.groupMoney',
   },
+  /*
+   * The cost side (PLAN-3). With the money rather than with setup, because these
+   * are worked through like the other queues — a purchase is recorded the day the
+   * crates arrive and a payee is paid when there is cash — not configured once a
+   * season. None of the four goes near the bottom bar: that is the daily four
+   * above, and adding to it would push something out.
+   */
+  { href: '/owner/purchases', labelKey: 'nav.purchases', icon: ShoppingCart, section: 'nav.groupMoney' },
+  { href: '/owner/payees', labelKey: 'nav.payees', icon: HandCoins, section: 'nav.groupMoney' },
+  { href: '/owner/expenses', labelKey: 'nav.expenses', icon: Receipt, section: 'nav.groupMoney' },
   { href: '/owner/reports', labelKey: 'nav.reports', icon: ChartColumn, section: 'nav.groupMoney' },
+  /*
+   * Inventory sits in setup: the items themselves are defined once, and the
+   * day-to-day movement happens through a purchase or a delivery rather than here.
+   */
+  { href: '/owner/supplies', labelKey: 'nav.supplies', icon: Boxes, section: 'nav.groupSetup' },
   { href: '/owner/sources', labelKey: 'nav.sources', icon: Store, section: 'nav.groupSetup' },
   // The content every reseller's public page is drawn from.
   { href: '/owner/landing', labelKey: 'nav.landing', icon: LayoutTemplate, section: 'nav.groupSetup' },

@@ -18,6 +18,7 @@ import { ReturnOrderModal } from '@/components/return-order-modal';
 import { DeliveryChargeModal } from '@/components/delivery-charge-field';
 import { ComplaintModal } from '@/components/complaint-modal';
 import { ComplaintList } from '@/components/complaints-panel';
+import { OrderCostPanel, PackagingPanel } from '@/components/order-cost-panel';
 
 /**
  * The transitions that need nothing but a click. The rest ask a question first:
@@ -118,6 +119,14 @@ export default function OwnerOrderPage({ params }: { params: Promise<{ id: strin
          * the orchard behind each line is already named.
          */
         below={(order) => (
+          <div className="space-y-5">
+            {/*
+              * The owner's side of the books: what this parcel cost and what
+              * packing it takes. On the owner's copy only — a reseller is party to
+              * `order.totals` and to nothing here. See docs/adr/0027.
+              */}
+            <OrderCostPanel id={id} />
+            <PackagingPanel id={id} />
           <Card>
             <CardHeader
               title={t('complaint.title')}
@@ -132,6 +141,7 @@ export default function OwnerOrderPage({ params }: { params: Promise<{ id: strin
             {complaints.isLoading && <ListSkeleton rows={2} />}
             {complaints.isSuccess && <ComplaintList complaints={complaints.data.complaints} />}
           </Card>
+          </div>
         )}
       />
 

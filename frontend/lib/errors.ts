@@ -172,6 +172,31 @@ const COPY: Record<string, ErrorCopy> = {
 
   /* generic */
   VALIDATION_FAILED: { message: 'কিছু তথ্য সঠিক নয়। নিচে দেখুন।' },
+  /*
+   * The cost side (PLAN-3). Without these the banner falls back to the server's
+   * English string, which in an all-Bengali app reads as a crash.
+   */
+  SUPPLY_SHORT: { message: 'স্টকে এত নেই। আগে গণনা করে হিসাব ঠিক করুন।' },
+  SUPPLY_ARCHIVED: { message: 'এই আইটেমটি আর্কাইভ করা। আগে ফিরিয়ে আনুন।' },
+  PAYEE_ARCHIVED: { message: 'এই পাওনাদার আর্কাইভ করা। আগে ফিরিয়ে আনুন।' },
+  CATEGORY_ARCHIVED: { message: 'এই খাতটি আর্কাইভ করা। আগে ফিরিয়ে আনুন।' },
+  DUPLICATE_SUPPLY: { message: 'একই আইটেম দুই লাইনে দেওয়া হয়েছে। একটি সরিয়ে দিন।' },
+  DUPLICATE_PACKAGING_ROW: { message: 'এই আইটেমটি এই বক্সের তালিকায় আগেই আছে।' },
+  TOO_MANY_PACKAGING_ROWS: { message: 'একটি বক্সে সর্বোচ্চ ছয়টি আইটেম দেওয়া যায়।' },
+  NO_LINES: { message: 'অন্তত একটি আইটেম যোগ করুন।' },
+  // A purchase is cancelled and re-entered, never edited. docs/adr/0024.
+  ALREADY_CANCELLED: { message: 'এই ক্রয়টি আগেই বাতিল করা হয়েছে। পাতাটি রিফ্রেশ করুন।' },
+  ALREADY_VOIDED: { message: 'এই খরচটি আগেই বাতিল করা হয়েছে। পাতাটি রিফ্রেশ করুন।' },
+  /*
+   * A period cost like লেবার belongs to a day, not to one parcel. Refused rather
+   * than reinterpreted, because a mis-scoped cost is summed into a margin and
+   * believed. docs/adr/0027.
+   */
+  WRONG_EXPENSE_SCOPE: { message: 'এই খাতটি অন্য হিসাবের জন্য। খাতটি বদলান, বা অর্ডারটি সরিয়ে দিন।' },
+  PAYEE_REQUIRED: { message: 'বাকি রাখলে কাকে দিতে হবে সেটা বলতে হবে।' },
+  PAYEE_LEDGER_DUPLICATE: { message: 'এই লেনদেনটি আগেই লেখা হয়েছে। পাতাটি রিফ্রেশ করুন।' },
+  SUPPLY_MOVEMENT_DUPLICATE: { message: 'এই নড়াচড়াটি আগেই লেখা হয়েছে। পাতাটি রিফ্রেশ করুন।' },
+
   DUPLICATE: { message: 'এই তথ্যটি আগেই ব্যবহার করা হয়েছে।' },
   NOT_FOUND: { message: 'যা খুঁজছেন তা পাওয়া যায়নি।' },
   INVALID_ID: { message: 'ঠিকানাটি সঠিক নয়।' },

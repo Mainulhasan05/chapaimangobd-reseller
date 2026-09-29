@@ -27,6 +27,7 @@ import {
   type ColumnDef,
 } from '@/components/ui/layout';
 import { rangeOf } from '@/components/ui/date-range';
+import { PackagingRecipeModal } from '@/components/packaging-recipe-modal';
 import { DownloadMenu } from '@/components/report/download-menu';
 import { SearchInput, SortSelect, Toolbar, ToolbarSpacer } from '@/components/ui/toolbar';
 import { Button, Spinner } from '@/components/ui/button';
@@ -106,6 +107,8 @@ const COLUMNS: ColumnDef<SortKey>[] = [
 
 export default function OwnerProductsPage() {
   const [editing, setEditing] = useState<OwnerProduct | null>(null);
+  // The box-level packaging recipe, which has its own modal and its own endpoint.
+  const [recipeFor, setRecipeFor] = useState<OwnerProduct | null>(null);
   const [creating, setCreating] = useState(false);
   const [term, setTerm] = useState('');
   const search = useDebounced(term);
@@ -272,15 +275,28 @@ export default function OwnerProductsPage() {
                 )}
 
                 <Td className="text-right">
-                  <Button size="sm" variant="outline" onClick={() => setEditing(product)}>
-                    {t('app.edit')}
-                  </Button>
+                  <div className="inline-flex gap-2">
+                    {/*
+                      * The packaging recipe is its own button and its own endpoint,
+                      * not part of the product form: that form is multipart because
+                      * it carries photographs, and multipart cannot honestly encode
+                      * a nested array. See docs/adr/0026.
+                      */}
+                    <Button size="sm" variant="quiet" onClick={() => setRecipeFor(product)}>
+                      {t('recipe.title')}
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => setEditing(product)}>
+                      {t('app.edit')}
+                    </Button>
+                  </div>
                 </Td>
               </Tr>
             ))}
           </tbody>
         </TableWrap>
       )}
+
+      <PackagingRecipeModal product={recipeFor} onClose={() => setRecipeFor(null)} />
 
       {(creating || editing) && (
         <ProductModal

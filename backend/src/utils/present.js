@@ -43,6 +43,17 @@ const line = (l) => ({
   boxes: l.qty ?? null,
   // What is in those boxes together, in the product's unit.
   quantity: fromMilli(l.qtyMilli),
+  /*
+   * What this line's packaging cost, from its own snapshot at deliver or return.
+   * Empty until then, and empty forever on a cancelled order. See docs/adr/0026.
+   */
+  packagingUsed: (l.packagingUsed || []).map((row) => ({
+    supply: row.supply,
+    supplyNameBn: row.supplyNameBn,
+    quantity: fromMilli(row.qtyMilli || 0),
+    unitCost: toTaka(row.unitCostPoisha || 0),
+    cost: toTaka(row.costPoisha || 0),
+  })),
   costPrice: toTaka(l.costPricePoisha),
   sellPrice: toTaka(l.sellPricePoisha),
   lineCost: toTaka(l.lineCostPoisha),
@@ -84,6 +95,15 @@ const order = (o) => ({
   deliveredAt: o.deliveredAt,
   cancelReason: o.cancelReason,
   restockedOnReturn: Boolean(o.restockedOnReturn),
+  /*
+   * What the packaging cost, once this parcel's fate is settled. Zero until then
+   * and zero forever on a cancel.
+   *
+   * A cost and never a charge: deliberately outside `totals` above, every member
+   * of which is a figure the reseller is party to. This one is the owner's money
+   * going out and is billed to nobody. See docs/adr/0027.
+   */
+  packagingCost: toTaka(o.packagingCostPoisha || 0),
   createdAt: o.createdAt,
 });
 
@@ -145,6 +165,18 @@ const variant = (v, { unit, trackStock }) => ({
   costPrice: toTaka(v.costPricePoisha),
   maxSellPrice: v.maxSellPricePoisha == null ? null : toTaka(v.maxSellPricePoisha),
   stockQty: trackStock ? v.stockQty : null,
+  /*
+   * What packing one of these boxes consumes: the ক্যারেট, the কাগজ, the সুই.
+   *
+   * Ids and quantities only, not names: the owner's recipe editor loads the
+   * supply list anyway to offer a choice, and a name here would be a second
+   * place for it to go stale. Empty means this box is not counted.
+   * See domain/packaging.js and docs/adr/0026.
+   */
+  packaging: (v.packaging || []).map((row) => ({
+    supplyId: row.supply,
+    quantity: fromMilli(row.qtyMilli),
+  })),
   isAvailable: v.isAvailable,
   sortOrder: v.sortOrder,
 });

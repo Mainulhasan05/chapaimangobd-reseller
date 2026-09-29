@@ -298,6 +298,12 @@ export type ProductVariant = {
   maxSellPrice: number | null;
   /** A count of boxes, null when the product is not counted. */
   stockQty: number | null;
+  /**
+   * What packing one of these boxes consumes. Empty means this box is not
+   * counted. Edited through its own endpoint, not the product form: see
+   * docs/adr/0026.
+   */
+  packaging: { supplyId: string; quantity: number }[];
   isAvailable: boolean;
   sortOrder: number;
 };
@@ -910,3 +916,370 @@ export type SmsCreditsInfo = {
   smsCredits: number;
   pricePerCredit: number;
 };
+
+/* ---------------------------------------------------------------- cost side */
+
+/*
+ * PLAN-3: what the business buys and spends. Money arrives as taka and
+ * quantities as decimals, like everything else here — poisha and milli never
+ * cross the API boundary.
+ */
+
+export type Supply = {
+  id: string;
+  nameBn: string;
+  unit: string;
+  note: string | null;
+  onHand: number;
+  /** Moving weighted average landed cost, per one unit. */
+  avgCost: number;
+  value: number;
+  reorderLevel: number;
+  isLow: boolean;
+  /**
+   * More was consumed than was recorded bought. Its own flag rather than a minus
+   * sign to read, because it is the one state that needs saying out loud.
+   */
+  isNegative: boolean;
+  isArchived: boolean;
+  sortOrder: number;
+};
+
+export type StockMovement = {
+  id: string;
+  seq: number;
+  kind: string;
+  quantity: number;
+  onHandAfter: number;
+  unitCost: number;
+  /** Worked out from a packaging recipe, rather than counted by a person. */
+  isEstimated: boolean;
+  refType: 'purchase' | 'order' | 'manual';
+  refId: string | null;
+  reversalOf: string | null;
+  businessDate: string;
+  note: string | null;
+  createdAt: string;
+};
+
+export type SupplyDetail = {
+  supply: Supply;
+  movements: StockMovement[];
+  purchases: {
+    id: string;
+    purchaseCode: string;
+    payeeNameBn: string;
+    businessDate: string;
+    status: string;
+    quantity: number;
+    unitCost: number;
+    landedUnitCost: number;
+  }[];
+  /** Which boxes consume this, and how much of it per box. */
+  usedBy: {
+    productId: string;
+    productNameBn: string;
+    variantId: string;
+    variantLabel: string;
+    perBox: number;
+  }[];
+  health: { ok: boolean; problems: string[] };
+};
+
+export type Payee = {
+  id: string;
+  nameBn: string;
+  kind: 'supplier' | 'labour' | 'courier' | 'transport' | 'landlord' | 'other';
+  phone: string | null;
+  address: string | null;
+  note: string | null;
+  /** Positive: the owner owes them. The opposite of a reseller's balance. */
+  due: number;
+  /** A negative due: the owner paid ahead and the payee owes goods. */
+  isAdvance: boolean;
+  advance: number;
+  isArchived: boolean;
+};
+
+export type PayeeLedgerEntry = {
+  id: string;
+  seq: number;
+  kind: string;
+  /** Signed: positive increased what the owner owes. */
+  amount: number;
+  dueAfter: number;
+  refType: string;
+  refId: string | null;
+  reversalOf: string | null;
+  note: string | null;
+  createdAt: string;
+};
+
+export type PayeeDetail = {
+  payee: Payee;
+  ledger: PayeeLedgerEntry[];
+  purchases: {
+    id: string;
+    purchaseCode: string;
+    businessDate: string;
+    status: string;
+    payeeTotal: number;
+    total: number;
+  }[];
+  expenses: {
+    id: string;
+    categoryNameBn: string;
+    businessDate: string;
+    amount: number;
+    paymentStatus: string;
+  }[];
+  health: { ok: boolean; problems: string[] };
+};
+
+export type PurchaseLine = {
+  id: string;
+  supply: string;
+  supplyNameBn: string;
+  unit: string;
+  quantity: number;
+  /** The rate agreed, before any charge is spread onto it. */
+  unitCost: number;
+  lineCost: number;
+  allocatedCharge: number;
+  /** What it really cost per unit. */
+  landedUnitCost: number;
+  landedLineCost: number;
+};
+
+export type PurchaseCharge = {
+  id: string;
+  kind: 'transport' | 'labour' | 'loading' | 'commission' | 'other';
+  amount: number;
+  /** `payee` enters their due; `other` was paid to somebody else on the spot. */
+  paidTo: 'payee' | 'other';
+  payeeName: string | null;
+  allocate: boolean;
+  note: string | null;
+};
+
+export type Purchase = {
+  id: string;
+  purchaseCode: string;
+  payee: string;
+  payeeNameBn: string;
+  businessDate: string;
+  invoiceNo: string | null;
+  status: 'received' | 'cancelled';
+  lines: PurchaseLine[];
+  charges: PurchaseCharge[];
+  allocationBasis: 'value' | 'quantity';
+  goodsCost: number;
+  chargeTotal: number;
+  /** What this seller is owed. Not `total`: see docs/adr/0023. */
+  payeeTotal: number;
+  otherCharge: number;
+  total: number;
+  cancelledAt: string | null;
+  cancelReason: string | null;
+  note: string | null;
+  createdAt: string;
+};
+
+export type ExpenseCategory = {
+  id: string;
+  nameBn: string;
+  scope: 'order' | 'period' | 'both';
+  note: string | null;
+  isArchived: boolean;
+  sortOrder: number;
+};
+
+export type Expense = {
+  id: string;
+  category: string;
+  categoryNameBn: string;
+  /** An order expense belongs to one parcel; a period one belongs to a day. */
+  scope: 'order' | 'period';
+  amount: number;
+  businessDate: string;
+  order: string | null;
+  orderCode: string | null;
+  payee: string | null;
+  payeeNameBn: string | null;
+  paymentStatus: 'paid' | 'unpaid';
+  paidFrom: string | null;
+  ledgerEntry: string | null;
+  isVoided: boolean;
+  voidedAt: string | null;
+  voidReason: string | null;
+  note: string | null;
+  createdAt: string;
+};
+
+/** What packing an order is expected to take, before anything is deducted. */
+export type PackagingEstimate = {
+  isEstimated: true;
+  isRecorded: boolean;
+  recordedCost: number;
+  rows: {
+    supply: string;
+    supplyNameBn: string;
+    quantity: number;
+    unitCost: number;
+    cost: number;
+  }[];
+  cost: number;
+  /** Information, never a refusal: a short count does not block a delivery. */
+  shortages: {
+    supply: string;
+    supplyNameBn: string;
+    need: number;
+    onHand: number;
+    short: number;
+  }[];
+};
+
+/** What one parcel cost the owner, and what it made. */
+export type OrderCost = {
+  goods: number;
+  packaging: number;
+  expenses: number;
+  total: number;
+  /** What the owner billed the reseller: goods at cost plus delivery. */
+  revenue: number;
+  margin: number;
+  /** Billed for delivery, to hold against the courier expense. Not the same number. */
+  deliveryCharged: number;
+  items: {
+    id: string;
+    categoryNameBn: string;
+    amount: number;
+    paymentStatus: string;
+    payeeNameBn: string | null;
+  }[];
+};
+
+export type ProfitReport = {
+  range: { from: string | null; to: string | null };
+  totals: {
+    orders: number;
+    revenue: number;
+    goods: number;
+    packaging: number;
+    orderExpenses: number;
+    orderCost: number;
+    /** Before period costs. Never called profit. */
+    grossMargin: number;
+    periodExpenses: number;
+    /** The one figure that may be called profit without a qualifier. */
+    netProfit: number;
+    deliveryCharged: number;
+  };
+  periodExpenses: { categoryId: string; nameBn: string; amount: number; count: number }[];
+  orders: {
+    orderId: string;
+    orderCode: string;
+    businessDate: string;
+    status: string;
+    revenue: number;
+    goods: number;
+    packaging: number;
+    expenses: number;
+    cost: number;
+    margin: number;
+  }[];
+};
+
+export type SupplyReport = {
+  range: { from: string | null; to: string | null };
+  totals: { items: number; value: number; lowCount: number; negativeCount: number };
+  supplies: {
+    supplyId: string;
+    nameBn: string;
+    unit: string;
+    onHand: number;
+    avgCost: number;
+    value: number;
+    reorderLevel: number;
+    isLow: boolean;
+    isNegative: boolean;
+    received: number;
+    used: number;
+    estimatedUsed: number;
+  }[];
+};
+
+export type PurchaseReport = {
+  range: { from: string | null; to: string | null };
+  totals: {
+    purchases: number;
+    goodsCost: number;
+    chargeTotal: number;
+    otherCharge: number;
+    spent: number;
+    billedByPayees: number;
+  };
+  byPayee: {
+    payeeId: string;
+    nameBn: string;
+    purchases: number;
+    goodsCost: number;
+    chargeTotal: number;
+    spent: number;
+    billed: number;
+  }[];
+  bySupply: {
+    supplyId: string;
+    nameBn: string;
+    unit: string;
+    quantity: number;
+    goodsCost: number;
+    landedCost: number;
+    avgLandedUnitCost: number;
+  }[];
+};
+
+export type PayablesRow = {
+  payeeId: string;
+  nameBn: string;
+  kind: string;
+  phone: string | null;
+  isArchived: boolean;
+  due: number;
+  entries: number;
+};
+
+export type PayablesReport = {
+  payables: PayablesRow[];
+  advances: (PayablesRow & { advance: number })[];
+  totals: { due: number; advance: number; payeeCount: number };
+};
+
+export type ExpenseReport = {
+  range: { from: string | null; to: string | null };
+  byCategory: {
+    categoryId: string;
+    nameBn: string;
+    scope: 'order' | 'period';
+    amount: number;
+    count: number;
+  }[];
+  totals: { order: number; period: number; all: number; unpaid: number };
+};
+
+/** How well a packaging recipe has been predicting reality. */
+export type VarianceReport = {
+  range: { from: string | null; to: string | null };
+  rows: {
+    supplyId: string;
+    nameBn: string;
+    unit: string;
+    estimated: number;
+    countedCorrection: number;
+    actual: number | null;
+    /** Above 1 means every box really uses more than its recipe claims. */
+    ratio: number | null;
+  }[];
+};
+
+export type Position = { receivable: number; payable: number };

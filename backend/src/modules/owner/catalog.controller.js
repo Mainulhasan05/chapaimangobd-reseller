@@ -10,8 +10,10 @@ const audit = require('../../services/audit');
 const { ok } = require('../../middleware/error');
 const { notFound, badRequest } = require('../../utils/errors');
 const { toPoisha, toTaka } = require('../../utils/money');
-const { toMilli } = require('../../utils/quantity');
-const { assertDistinctContents } = require('../../domain/variants');
+const { toMilli, fromMilli } = require('../../utils/quantity');
+const { assertDistinctContents, findVariant } = require('../../domain/variants');
+const { assertRecipe } = require('../../domain/packaging');
+const Supply = require('../../models/Supply');
 const { normalizeBdPhone } = require('../../utils/phone');
 const present = require('../../utils/present');
 
@@ -394,7 +396,80 @@ async function deleteZone(req, res) {
   return ok(res, { deleted: true });
 }
 
+/**
+ * Sets one variant's packaging recipe: what one box of it consumes.
+ *
+ * Its own route rather than part of the product update, because the product form
+ * is multipart (it carries photographs) and a nested array of objects has no
+ * honest multipart encoding — the same reason `variants` travels as a JSON string.
+ *
+ * An empty list is meaningful and allowed: it means this box is not counted.
+ * See domain/packaging.js and docs/adr/0026.
+ */
+async function setVariantRecipe(req, res) {
+  const product = await Product.findById(req.params.id);
+  if (!product) throw notFound('Product not found');
+
+  const variant = findVariant(product, req.params.variantId);
+  if (!variant) throw notFound('Box not found on this product');
+
+  const rows = (req.body.packaging || []).map((row) => ({
+    supply: row.supplyId,
+    qtyMilli: toMilli(row.quantity),
+  }));
+
+  // Shape, duplicates and positive quantities. Throws a field error the form shows.
+  assertRecipe(rows);
+
+  // Every supply has to exist and be live: a recipe naming an archived crate
+  // would silently consume nothing at delivery.
+  const ids = rows.map((r) => r.supply);
+  const supplies = await Supply.find({ _id: { $in: ids } });
+  const byId = new Map(supplies.map((s) => [String(s._id), s]));
+  rows.forEach((row, index) => {
+    const supply = byId.get(String(row.supply));
+    if (!supply) throw notFound(`Supply not found on row ${index + 1}`);
+    if (supply.isArchived) {
+      throw badRequest('SUPPLY_ARCHIVED', `${supply.nameBn} is archived`, {
+        [`packaging.${index}.supplyId`]: `${supply.nameBn} is archived`,
+      });
+    }
+  });
+
+  const before = (variant.packaging || []).map((r) => ({
+    supply: String(r.supply),
+    qtyMilli: r.qtyMilli,
+  }));
+
+  variant.packaging = rows;
+  await product.save();
+
+  await audit.record({
+    actor: req.user._id,
+    action: 'product.setRecipe',
+    targetType: 'Product',
+    targetId: product._id,
+    before: { variantId: String(variant._id), packaging: before },
+    after: {
+      variantId: String(variant._id),
+      packaging: rows.map((r) => ({ supply: String(r.supply), qtyMilli: r.qtyMilli })),
+    },
+    ip: req.ip,
+  });
+
+  return ok(res, {
+    variantId: variant._id,
+    packaging: rows.map((row) => ({
+      supplyId: row.supply,
+      supplyNameBn: byId.get(String(row.supply)).nameBn,
+      unit: byId.get(String(row.supply)).unit,
+      quantity: fromMilli(row.qtyMilli),
+    })),
+  });
+}
+
 module.exports = {
+  setVariantRecipe,
   listSources,
   createSource,
   updateSource,

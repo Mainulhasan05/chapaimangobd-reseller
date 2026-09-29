@@ -1259,6 +1259,278 @@ export const bn = {
   'owner.pickToday': 'আজ আনতে হবে',
   'owner.pickUndecided': 'বাগান ঠিক হয়নি',
   'owner.noMoneyToday': 'আজ এখনো কোনো বিক্রি হয়নি',
+
+  /* ------------------------------------------------------------- cost side */
+  /* PLAN-3: inventory, payees, purchases, expenses and the profit report. */
+
+  'nav.supplies': 'ইনভেন্টরি',
+  'nav.payees': 'পাওনাদার',
+  'nav.purchases': 'ক্রয়',
+  'nav.expenses': 'খরচ',
+
+  /* supplies */
+  'supply.title': 'ইনভেন্টরি',
+  'supply.help': 'যা কিনে ব্যবহার করা হয় — ক্যারেট, কাগজ, সুই। বিক্রির পণ্য নয়।',
+  'supply.new': 'নতুন আইটেম',
+  'supply.edit': 'আইটেম সম্পাদনা',
+  'supply.name': 'আইটেমের নাম',
+  'supply.unit': 'একক',
+  'supply.onHand': 'স্টকে আছে',
+  'supply.avgCost': 'গড় খরচ',
+  'supply.value': 'মোট মূল্য',
+  'supply.reorderLevel': 'সতর্কতার মাত্রা',
+  'supply.reorderHint': 'এই পরিমাণে নামলে সতর্ক করা হবে। ০ দিলে সতর্কতা বন্ধ।',
+  'supply.low': 'কম আছে',
+  'supply.negative': 'হিসাব মেলেনি',
+  'supply.negativeHint': 'রেকর্ডের চেয়ে বেশি ব্যবহার হয়েছে। গণনা করে ঠিক করুন।',
+  'supply.itemCount': 'আইটেম',
+  'supply.movements': 'স্টকের ইতিহাস',
+  'supply.movementsEmpty': 'এখনো কোনো নড়াচড়া নেই',
+  'supply.purchaseHistory': 'ক্রয়ের ইতিহাস',
+  'supply.usedBy': 'কোন বক্সে ব্যবহার হয়',
+  'supply.perBox': 'প্রতি বক্সে',
+  'supply.adjust': 'স্টক সমন্বয়',
+  'supply.stockTake': 'গণনা করুন',
+  'supply.stockTakeHelp': 'তাকে আসলে যত আছে সেই সংখ্যা লিখুন। পার্থক্যটা নিজে থেকেই হিসাব হবে।',
+  'supply.counted': 'গণনা করা সংখ্যা',
+  'supply.countedAgreed': 'হিসাব মিলে গেছে, কিছু বদলানো হয়নি',
+  'supply.adjustKind': 'কী ধরনের',
+  'supply.quantity': 'পরিমাণ',
+  'supply.unitCost': 'একক খরচ',
+  'supply.onHandAfter': 'এরপর স্টক',
+  'supply.estimated': 'অনুমান',
+  'supply.counted2': 'গণনা করা',
+  'supply.estimatedHint': 'রেসিপি থেকে হিসাব করা — কেউ গুনে দেখেনি',
+  'supply.archived': 'আর্কাইভ করা',
+  'supply.healthBad': 'এই আইটেমের হিসাবে গরমিল আছে',
+
+  /* movement kinds */
+  'movement.OPENING': 'প্রারম্ভিক স্টক',
+  'movement.PURCHASE': 'ক্রয়',
+  'movement.CONSUMED': 'ব্যবহৃত',
+  'movement.DAMAGED': 'নষ্ট',
+  'movement.LOST': 'হারানো',
+  'movement.RETURN_TO_PAYEE': 'ফেরত দেওয়া',
+  'movement.ADJUSTMENT': 'সমন্বয়',
+  'movement.REVERSAL': 'বাতিল',
+
+  /* packaging recipe */
+  'recipe.title': 'প্যাকেজিং রেসিপি',
+  'recipe.help': 'এই বক্স একবার পাঠাতে কী কী লাগে। ভগ্নাংশ দেওয়া যায় — যেমন ১.৫ শিট কাগজ।',
+  'recipe.add': 'আইটেম যোগ করুন',
+  'recipe.empty': 'কিছু যোগ করা হয়নি — এই বক্সের জন্য কিছু গোনা হবে না',
+  'recipe.perBox': 'প্রতি বক্সে',
+  'recipe.estimateNote': 'এটা একটা অনুমান। ডেলিভারি হলে এই হিসাবে স্টক কমবে।',
+  'recipe.duplicate': 'এই আইটেম আগেই যোগ করা হয়েছে',
+
+  /* packaging estimate on an order */
+  'packaging.title': 'প্যাকেজিং',
+  'packaging.estimate': 'অনুমান',
+  'packaging.estimateHint': 'ডেলিভারি হলে এই পরিমাণ স্টক থেকে কমবে',
+  'packaging.recorded': 'কমানো হয়েছে',
+  'packaging.cost': 'প্যাকেজিং খরচ',
+  'packaging.none': 'এই অর্ডারের বক্সে কোনো রেসিপি দেওয়া নেই',
+  'packaging.shortage': 'স্টকে কম আছে',
+  'packaging.shortageHint': 'ডেলিভারি আটকাবে না, তবে কিনে রাখা দরকার',
+  'packaging.need': 'দরকার',
+  'packaging.short': 'কম',
+
+  /* payees */
+  'payee.title': 'পাওনাদার',
+  'payee.help': 'যাদের টাকা দিতে হয় — ক্যারেট বিক্রেতা, লেবার, কুরিয়ার, ভ্যান।',
+  'payee.new': 'নতুন পাওনাদার',
+  'payee.edit': 'পাওনাদার সম্পাদনা',
+  'payee.name': 'নাম',
+  'payee.kind': 'ধরন',
+  'payee.due': 'বাকি',
+  'payee.dueHint': 'যত টাকা তাকে দিতে হবে',
+  'payee.advance': 'অগ্রিম দেওয়া',
+  'payee.advanceHint': 'তাকে আগেই টাকা দেওয়া হয়েছে, মাল পাওনা আছে',
+  'payee.totalDue': 'মোট বাকি',
+  'payee.totalAdvance': 'মোট অগ্রিম',
+  'payee.pay': 'টাকা দিন',
+  'payee.payAmount': 'কত টাকা',
+  'payee.paidFrom': 'কী দিয়ে',
+  'payee.ledger': 'হিসাবের খাতা',
+  'payee.ledgerEmpty': 'এখনো কোনো লেনদেন নেই',
+  'payee.manualEntry': 'হাতে এন্ট্রি',
+  'payee.manualHelp': 'আগের বাকি তোলা বা ভুল সংশোধনের জন্য।',
+  'payee.dueAfter': 'এরপর বাকি',
+  'payee.purchases': 'ক্রয়',
+  'payee.expenses': 'খরচ',
+  'payee.healthBad': 'এই পাওনাদারের হিসাবে গরমিল আছে',
+  'payee.owingOnly': 'শুধু বাকি আছে যাদের',
+  /*
+   * Which way a hand-typed entry moves the due, in the payee's own terms. The
+   * reseller wallet's `ledger.manualCredit`/`manualDebit` say "ব্যালেন্স" and run
+   * the opposite way, so borrowing them here would be exactly the confusion
+   * docs/adr/0025 exists to prevent.
+   */
+  'payee.dueUp': 'বাকি বাড়বে',
+  'payee.dueDown': 'বাকি কমবে',
+
+  'payeeKind.supplier': 'সরবরাহকারী',
+  'payeeKind.labour': 'লেবার',
+  'payeeKind.courier': 'কুরিয়ার',
+  'payeeKind.transport': 'পরিবহন',
+  'payeeKind.landlord': 'বাড়িওয়ালা',
+  'payeeKind.other': 'অন্যান্য',
+
+  'payeeLedger.PURCHASE': 'ক্রয়',
+  'payeeLedger.EXPENSE': 'খরচ',
+  'payeeLedger.PAYMENT': 'পরিশোধ',
+  'payeeLedger.RETURN': 'ফেরত',
+  'payeeLedger.DISCOUNT': 'ছাড়',
+  'payeeLedger.OPENING': 'প্রারম্ভিক বাকি',
+  'payeeLedger.ADJUSTMENT': 'সমন্বয়',
+  'payeeLedger.REVERSAL': 'বাতিল',
+
+  /* purchases */
+  'purchase.title': 'ক্রয়',
+  'purchase.help': 'কার কাছ থেকে কী কিনলেন, কত করে পড়ল।',
+  'purchase.new': 'ক্রয় লিখুন',
+  'purchase.code': 'ক্রয় নম্বর',
+  'purchase.payee': 'কার কাছ থেকে',
+  'purchase.date': 'তারিখ',
+  'purchase.invoiceNo': 'মেমো নম্বর',
+  'purchase.lines': 'যা কেনা হলো',
+  'purchase.addLine': 'আরেকটা আইটেম',
+  'purchase.item': 'আইটেম',
+  'purchase.quantity': 'পরিমাণ',
+  'purchase.rate': 'দর',
+  'purchase.lineCost': 'মোট',
+  'purchase.charges': 'অতিরিক্ত খরচ',
+  'purchase.addCharge': 'খরচ যোগ করুন',
+  'purchase.chargeKind': 'কী খরচ',
+  'purchase.chargeAmount': 'কত',
+  'purchase.paidTo': 'কাকে দেওয়া',
+  'purchase.paidToPayee': 'বিক্রেতাকে',
+  'purchase.paidToOther': 'অন্য কাউকে',
+  'purchase.paidToHint': 'বিক্রেতাকে দিলে তার বাকিতে যোগ হবে। অন্য কাউকে দিলে হবে না।',
+  'purchase.payeeName': 'কাকে',
+  'purchase.allocate': 'দামের সাথে যোগ করুন',
+  'purchase.allocateHint': 'বন্ধ রাখলে খরচটা থাকবে, কিন্তু প্রতি ইউনিটের দাম বাড়বে না।',
+  'purchase.basis': 'খরচ ভাগ করার নিয়ম',
+  'purchase.basisValue': 'দাম অনুযায়ী',
+  'purchase.basisQuantity': 'পরিমাণ অনুযায়ী',
+  'purchase.goodsCost': 'মালের দাম',
+  'purchase.chargeTotal': 'অতিরিক্ত খরচ',
+  'purchase.landedUnitCost': 'পড়ল প্রতি ইউনিট',
+  'purchase.landedHint': 'দর নয় — অতিরিক্ত খরচ ধরে আসল দাম',
+  'purchase.payeeTotal': 'বিক্রেতার পাওনা',
+  'purchase.otherCharge': 'অন্যকে দেওয়া',
+  'purchase.total': 'সব মিলিয়ে',
+  'purchase.spent': 'মোট খরচ',
+  'purchase.cancel': 'ক্রয় বাতিল',
+  'purchase.cancelHelp': 'বাতিল করলে স্টক আর বাকি — দুটোই ফিরে যাবে। সম্পাদনা করা যায় না, বাতিল করে আবার লিখতে হয়।',
+  'purchase.received': 'গৃহীত',
+  'purchase.cancelled': 'বাতিল করা',
+  'purchase.cancelReason': 'কেন বাতিল',
+  'purchase.recorded': 'ক্রয় লেখা হয়েছে',
+
+  'charge.transport': 'পরিবহন',
+  'charge.labour': 'লেবার',
+  'charge.loading': 'লোড-আনলোড',
+  'charge.commission': 'কমিশন',
+  'charge.other': 'অন্যান্য',
+
+  /* expenses */
+  'expense.title': 'খরচ',
+  'expense.help': 'যে টাকা বেরিয়ে যায় — লেবার, পরিবহন, কুরিয়ার, ভাড়া।',
+  'expense.new': 'খরচ লিখুন',
+  'expense.category': 'খাত',
+  'expense.amount': 'টাকা',
+  'expense.date': 'তারিখ',
+  'expense.scope': 'কোন হিসাবে',
+  'expense.scopeOrder': 'অর্ডারের',
+  'expense.scopePeriod': 'দিনের',
+  'expense.scopeOrderHint': 'একটা নির্দিষ্ট অর্ডারের খরচ — কুরিয়ার, হোম ডেলিভারি।',
+  'expense.scopePeriodHint': 'দিনের খরচ, কোনো এক অর্ডারের নয় — লেবার, ভ্যান ভাড়া।',
+  'expense.order': 'অর্ডার',
+  'expense.orderHint': 'অর্ডার কোড লিখুন',
+  'expense.payee': 'কাকে দেওয়া',
+  'expense.paymentStatus': 'পরিশোধ',
+  'expense.paid': 'দেওয়া হয়েছে',
+  'expense.unpaid': 'বাকি আছে',
+  'expense.unpaidHint': 'বাকি রাখলে পাওনাদারের খাতায় যোগ হবে।',
+  'expense.paidFrom': 'কী দিয়ে',
+  'expense.void': 'বাতিল করুন',
+  'expense.voided': 'বাতিল করা',
+  'expense.voidReason': 'কেন বাতিল',
+  'expense.voidHelp': 'মুছে ফেলা হয় না, বাতিল হিসেবে থাকে — ছাপানো হিসাব যাতে বদলে না যায়।',
+  'expense.includeVoided': 'বাতিলগুলোও দেখুন',
+  'expense.note': 'বিস্তারিত',
+  'expense.totalOrder': 'অর্ডারের খরচ',
+  'expense.totalPeriod': 'দিনের খরচ',
+  'expense.totalAll': 'মোট খরচ',
+  'expense.totalUnpaid': 'বাকি',
+  'expense.categories': 'খরচের খাত',
+  'expense.newCategory': 'নতুন খাত',
+  'expense.categoryName': 'খাতের নাম',
+  'expense.categoryScope': 'কোন হিসাবের জন্য',
+  'expense.scopeBoth': 'দুটোই',
+  'expense.seedCategories': 'সাধারণ খাতগুলো যোগ করুন',
+
+  'paidFrom.cash': 'নগদ',
+  'paidFrom.bkash': 'বিকাশ',
+  'paidFrom.nagad': 'নগদ (Nagad)',
+  'paidFrom.rocket': 'রকেট',
+  'paidFrom.bank': 'ব্যাংক',
+
+  /* cost on an order */
+  'cost.title': 'এই অর্ডারে খরচ',
+  'cost.goods': 'আমের দাম',
+  'cost.packaging': 'প্যাকেজিং',
+  'cost.expenses': 'অন্য খরচ',
+  'cost.total': 'মোট খরচ',
+  'cost.revenue': 'বিল করা হয়েছে',
+  'cost.margin': 'লাভ',
+  'cost.loss': 'ক্ষতি',
+  'cost.deliveryCharged': 'ডেলিভারি চার্জ নেওয়া',
+  'cost.addExpense': 'খরচ যোগ করুন',
+
+  /* reports */
+  'report.supplies': 'ইনভেন্টরি রিপোর্ট',
+  'report.suppliesHint': 'কী আছে, কত দাম, কী ফুরিয়ে আসছে',
+  'report.purchases': 'ক্রয় রিপোর্ট',
+  'report.purchasesHint': 'কার কাছ থেকে কত কেনা হলো, কত করে পড়ল',
+  'report.payables': 'পাওনা রিপোর্ট',
+  'report.payablesHint': 'এখন কাকে কত দিতে হবে',
+  'report.expenses': 'খরচ রিপোর্ট',
+  'report.expensesHint': 'কোন খাতে কত খরচ হলো',
+  'report.profit': 'লাভ-ক্ষতি',
+  'report.profitHint': 'আয় বাদ সব খরচ',
+  'report.variance': 'রেসিপি যাচাই',
+  'report.varianceHint': 'রেসিপির অনুমান আর গণনা কতটা মিলছে',
+
+  'profit.revenue': 'আয়',
+  'profit.revenueHint': 'রিসেলারকে যা বিল করা হয়েছে',
+  'profit.orderCost': 'অর্ডারের খরচ',
+  'profit.grossMargin': 'মোট মার্জিন',
+  'profit.grossMarginHint': 'দিনের খরচ বাদ দেওয়ার আগে',
+  'profit.periodExpenses': 'দিনের খরচ',
+  'profit.periodHint': 'কোনো এক অর্ডারে ভাগ করা হয় না',
+  'profit.net': 'নিট লাভ',
+  'profit.netLoss': 'নিট ক্ষতি',
+  'profit.perOrder': 'অর্ডার অনুযায়ী',
+  'profit.worstFirst': 'সবচেয়ে কম মার্জিন আগে',
+  'profit.deliveryGap': 'ডেলিভারি চার্জ নেওয়া হয়েছে',
+  'profit.deliveryGapHint': 'কুরিয়ারকে যা দেওয়া হয়েছে তার সাথে মিলিয়ে দেখুন',
+
+  'variance.estimated': 'রেসিপি বলছে',
+  'variance.counted': 'গণনায় সংশোধন',
+  'variance.actual': 'আসলে লেগেছে',
+  'variance.ratio': 'অনুপাত',
+  'variance.noData': 'যাচাই করার মতো তথ্য এখনো নেই',
+  'variance.understates': 'রেসিপি কম বলছে',
+  'variance.overstates': 'রেসিপি বেশি বলছে',
+  'variance.accurate': 'মিলে যাচ্ছে',
+
+  /* position */
+  'position.receivable': 'পাওয়া যাবে',
+  'position.receivableHint': 'রিসেলারদের কাছে',
+  'position.payable': 'দিতে হবে',
+  'position.payableHint': 'পাওনাদারদের',
 } as const;
 
 export type DictKey = keyof typeof bn;
@@ -1287,6 +1559,36 @@ export function tStatus(status: string): string {
 }
 
 /** What a customer said was wrong. Unknown kinds show as they are. */
+/** A stock movement kind: why the count moved. */
+export function tMovementKind(kind: string): string {
+  const key = `movement.${kind}` as DictKey;
+  return key in bn ? bn[key] : kind;
+}
+
+/** What a payee is to the business. Changes the label only, never the machinery. */
+export function tPayeeKind(kind: string): string {
+  const key = `payeeKind.${kind}` as DictKey;
+  return key in bn ? bn[key] : kind;
+}
+
+/** A movement of what the owner owes a payee. */
+export function tPayeeLedgerKind(kind: string): string {
+  const key = `payeeLedger.${kind}` as DictKey;
+  return key in bn ? bn[key] : kind;
+}
+
+/** An extra cost on a purchase. */
+export function tChargeKind(kind: string): string {
+  const key = `charge.${kind}` as DictKey;
+  return key in bn ? bn[key] : kind;
+}
+
+/** How something was paid. A label, not an account: there is no cash book. */
+export function tPaidFrom(method: string): string {
+  const key = `paidFrom.${method}` as DictKey;
+  return key in bn ? bn[key] : method;
+}
+
 export function tComplaintKind(kind: string): string {
   const key = `complaint.kind.${kind}` as DictKey;
   return key in bn ? bn[key] : kind;

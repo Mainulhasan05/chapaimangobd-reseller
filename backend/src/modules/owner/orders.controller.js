@@ -11,6 +11,9 @@ const { ok } = require('../../middleware/error');
 const { notFound } = require('../../utils/errors');
 const { toPoisha, toTaka } = require('../../utils/money');
 const present = require('../../utils/present');
+const packagingConsumption = require('../../services/packagingConsumption');
+const costing = require('../../services/costing');
+const { fromMilli } = require('../../utils/quantity');
 const { availableActions, assertDeliveryChargeEditable } = require('../../domain/orderStateMachine');
 const { ROLES, ORDER_STATUS } = require('../../domain/constants');
 
@@ -118,7 +121,82 @@ async function getOrder(req, res) {
   const order = await Order.findById(req.params.id).populate('reseller', 'shopName slug');
   if (!order) throw notFound('Order not found');
 
-  return ok(res, { order: present.orderFor(order, ROLES.OWNER) });
+  /*
+   * What this parcel cost the owner and what it made: goods at cost, plus the
+   * packaging consumed, plus the expenses filed against it.
+   *
+   * Beside the order rather than inside it, because none of it is a figure the
+   * reseller is party to — `order.totals` is. See docs/adr/0027.
+   */
+  const cost = await costing.costForOrder(order);
+
+  return ok(res, {
+    order: present.orderFor(order, ROLES.OWNER),
+    cost: {
+      goods: toTaka(cost.goodsPoisha),
+      packaging: toTaka(cost.packagingPoisha),
+      expenses: toTaka(cost.expensePoisha),
+      total: toTaka(cost.costPoisha),
+      // What the owner billed the reseller: goods at cost plus delivery.
+      revenue: toTaka(cost.revenuePoisha),
+      margin: toTaka(cost.marginPoisha),
+      /*
+       * Billed for delivery, to hold against the courier expense below it. These
+       * are two different numbers and the gap between them is the owner's margin
+       * on delivery, which nothing in the app recorded before now.
+       */
+      deliveryCharged: toTaka(cost.deliveryChargePoisha),
+      items: cost.expenses.map((e) => ({
+        id: e._id,
+        categoryNameBn: e.categoryNameBn,
+        amount: toTaka(e.amountPoisha),
+        paymentStatus: e.paymentStatus,
+        payeeNameBn: e.payeeNameBn || null,
+      })),
+    },
+  });
+}
+
+/**
+ * What packing this order is expected to take, and what it would cost.
+ *
+ * Its own endpoint rather than part of the order response, because it reads the
+ * live products and supplies and the order screen should not pay for that on
+ * every poll. Shown from accept onwards, well before anything is deducted, so a
+ * supply that has run out is visible while there is still time to buy more.
+ *
+ * Every figure is an estimate and says so: the recipe says "about one and a half
+ * sheets" and nobody counted. `shortages` is information, never a refusal — a
+ * short count does not block a delivery. See docs/adr/0026.
+ */
+async function packagingEstimate(req, res) {
+  const order = await Order.findById(req.params.id);
+  if (!order) throw notFound('Order not found');
+
+  const estimate = await packagingConsumption.estimate(order);
+
+  return ok(res, {
+    isEstimated: true,
+    // What the lines' own snapshots say, once the parcel's fate is settled. Until
+    // then this is empty and the estimate above is all there is.
+    isRecorded: (order.packagingCostPoisha || 0) > 0,
+    recordedCost: toTaka(order.packagingCostPoisha || 0),
+    rows: estimate.rows.map((row) => ({
+      supply: row.supply,
+      supplyNameBn: row.supplyNameBn,
+      quantity: fromMilli(row.qtyMilli),
+      unitCost: toTaka(row.unitCostPoisha),
+      cost: toTaka(row.costPoisha),
+    })),
+    cost: toTaka(estimate.totalCostPoisha),
+    shortages: estimate.shortages.map((s) => ({
+      supply: s.supply,
+      supplyNameBn: s.supplyNameBn,
+      need: fromMilli(s.needMilli),
+      onHand: fromMilli(s.onHandMilli),
+      short: fromMilli(s.shortMilli),
+    })),
+  });
 }
 
 /**
@@ -250,6 +328,7 @@ async function overrideDeliveryCharge(req, res) {
 }
 
 module.exports = {
+  packagingEstimate,
   listOrders,
   ordersSummary,
   getOrder,

@@ -126,18 +126,32 @@ const TEXT = {
 
   // Nightly reconciliation found a wallet whose ledger does not add up. Rare,
   // and serious: the owner should look before the day's money moves.
-  [EVENT_TYPE.ALERT_LEDGER_DRIFT]: (d) => ({
-    title: 'লেজারে গরমিল পাওয়া গেছে',
-    body:
-      d.driftedCount != null
-        ? [
-            `${d.driftedCount}টি রিসেলারের হিসাব মিলছে না`,
-            d.shops && d.shops.length ? d.shops.join(', ') : null,
-          ]
-            .filter(Boolean)
-            .join(' · ')
-        : 'রিসেলারের হিসাব মিলিয়ে দেখুন',
-  }),
+  /*
+   * One alert for all three books: reseller wallets, payee dues and supply
+   * counts. Each line appears only when that book actually drifted, so the
+   * common case of a single drifted wallet reads exactly as it did before the
+   * cost side existed.
+   */
+  [EVENT_TYPE.ALERT_LEDGER_DRIFT]: (d) => {
+    const parts = [];
+    if (d.driftedCount) {
+      parts.push(
+        [
+          `${d.driftedCount}টি রিসেলারের হিসাব মিলছে না`,
+          d.shops && d.shops.length ? d.shops.join(', ') : null,
+        ]
+          .filter(Boolean)
+          .join(' · ')
+      );
+    }
+    if (d.payeeDrift) parts.push(`${d.payeeDrift}টি পাওনাদারের হিসাব মিলছে না`);
+    if (d.supplyDrift) parts.push(`${d.supplyDrift}টি ইনভেন্টরি আইটেমের হিসাব মিলছে না`);
+
+    return {
+      title: 'লেজারে গরমিল পাওয়া গেছে',
+      body: parts.length ? parts.join(' · ') : 'হিসাব মিলিয়ে দেখুন',
+    };
+  },
 
   // The owner's morning list. Each line appears only when there is something to
   // say, so an empty morning produces no notification at all (see the job).

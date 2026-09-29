@@ -173,6 +173,142 @@ without saying whose is how a figure ends up overstated by the resellers' earnin
 collection credit only posts at deliver, so until then this is the owner's cash out with
 couriers, and it appears on no balance in the app.
 
+## Cost
+
+Everything above is what the owner **bills**. Everything here is what the owner **spends**,
+which the system did not record at all before PLAN-3. None of it is visible to a reseller and
+none of it touches a wallet.
+
+**Supply** — something the business buys and uses up but never sells: a ক্যারেট, a sheet of
+কাগজ, a সুই, a roll of tape. Carries a name, a unit, what is on hand and what it is worth. A
+**Product** is the other thing entirely: a Product is sold and is never consumed, a Supply is
+consumed and is never sold, and nothing is both. Never a Product with a flag. See
+docs/adr/0022.
+
+**On hand** — how many of a supply there are, in `qtyMilli` like every other quantity here.
+Denormalised on the Supply and moved only by `services/supplyStock.js`, exactly as a wallet
+balance is moved only by the ledger. The movements are the truth and a nightly reconciliation
+asserts they agree.
+
+**Negative on hand** — a supply consumed more than it was recorded bought. Allowed, and not an
+error to be blocked: it means the recording is behind reality, which the owner needs to see
+rather than something the system should refuse. Shown as "হিসাব মেলেনি". See docs/adr/0026.
+
+**Stock movement** — one immutable record of a change to a supply's on-hand quantity. Never
+updated, never deleted; a correction is a new movement. The same shape and the same promises
+as a **Ledger entry**, for the same reason: the question is never only "how many are there"
+but "where did four hundred go", and an overwritten number cannot answer the second one.
+
+**Landed cost** — what one unit actually cost once the extra charges are added in: "koto kore
+porlo". A hundred crates at 80 taka with 600 of van hire and 200 of loading cost 88 each, and
+88 is the number meant by the price of a crate. Never the rate alone. Charges are spread by
+**largest remainder**, so the shares sum to the charge exactly. See docs/adr/0023.
+
+**Average cost** — the moving weighted average landed cost of a supply, recomputed on each
+receipt, and what a consumed unit is valued at. Not FIFO. A consequence worth knowing:
+cancelling a purchase cannot restore the previous average, because a moving average has no
+memory and later movements were valued at the blended rate. A **stock take** is the remedy.
+
+**Packaging recipe** — what one box of a variant consumes: an eleven-kilo box takes one
+ক্যারেট, about one and a half sheets of কাগজ and two সুই. Held on the **variant**, because the
+box is what gets packed. Read once, when the parcel's fate is settled, and snapshotted onto
+the line; never read again.
+
+**An estimate, and never described as anything else.** Nobody counts sheets of paper into a
+crate. Every movement a recipe produces carries `isEstimated`, every screen that shows one
+says so, and the recipe is expected to be wrong until stock takes have corrected it. A figure
+inferred and then presented as a measurement is summed into a cost, then into a margin, then
+believed.
+
+**Estimated consumption** — a movement worked out from a recipe. **Counted** is its opposite:
+a stock take, where somebody looked at the shelf. Both are real records; only one is a
+measurement, and telling them apart is what makes a recipe improvable rather than merely
+plausible.
+
+**Stock take** — the owner counting a supply and entering the real number, not a difference:
+"there are ninety-four" is what somebody with a clipboard knows. The difference posts as a
+counted `ADJUSTMENT`, and nothing at all posts when the count already agrees. The only thing
+that corrects a drifting recipe.
+
+**Recipe variance** — what the recipes predicted against what the stock takes corrected, per
+supply, over a range. A ratio above one means every box really uses more than its recipe
+claims. `null`, never one, when nothing has been compared: no evidence is a different
+statement from no error, exactly as `complaintRate` is null for an orchard nobody has bought
+from. The system never rewrites a recipe from its own variance — one bad count would otherwise
+change every future cost with nobody deciding to.
+
+**Recognised** — the moment packaging becomes a cost: **deliver** or **return**, never pack. A
+returned parcel consumed its packaging too, because it travelled both ways; a **cancelled**
+one consumed none, from any status including `packed`, because nothing left the building and a
+crate on the table is reusable. All three outcomes are terminal, so a consumption is never
+reversed and there is no restore path at all. The consequence is a lag — the shelf runs down
+before the app does — and that is what a stock take closes. See docs/adr/0026.
+
+**Payee** — anyone the business owes money to or pays: the ক্যারেট seller, a labourer, the
+courier company, a van owner, a landlord. One model, because a due is a due; `kind` changes
+the label a reader sees and nothing else. Deliberately not a "supplier", since a labourer
+supplies nothing, and deliberately not a **Source**, which is an orchard carrying a quality
+record — the same person may be both and they stay two rows. See docs/adr/0025.
+
+**Due** — what the owner owes a payee, as `duePoisha`, **positive when the owner owes**.
+Deliberately not named `balancePoisha`: a reseller balance runs the other way, negative meaning
+they owe, and two fields that look alike and mean opposites is how a figure ends up backwards
+in a report. The name is the guard. What resellers owe and what the owner owes are never
+netted into one number.
+
+**Advance** — a negative due. The owner paid ahead (বায়না) and the payee owes goods. Legal,
+expected, and never guarded against.
+
+**Payee ledger entry** — one immutable movement of a payee's due, append-only with a monotonic
+sequence and a deterministic idempotency key, exactly like a **Ledger entry**. No entry is
+ever refused by a limit: a reseller debit is guarded because the owner is extending credit and
+chooses how much, while a payee due is a fact that already happened somewhere else and is
+merely being written down. That difference is why it is a separate service and not a flag on
+`services/ledger.js`.
+
+**Purchase** — one buying event from one payee on one day, recorded when the goods are in
+hand, so recording it moves the stock and posts the due in one transaction. **Cancelled and
+re-entered, never edited**: editing one would have to rewrite a stock movement, a landed cost
+and a ledger entry, all append-only on purpose. See docs/adr/0024.
+
+**Purchase charge** — an extra cost on a purchase: transport, labour, loading, commission. Two
+independent axes. `allocate` decides whether it raises what the goods cost; `paidTo` decides
+whether anyone is owed for it. Paying the van driver in cash at the gate makes the crates cost
+more without making the crate seller owed a paisa more, which is why `payeeTotalPoisha` and
+`totalPoisha` are different fields and neither is a substitute for the other.
+
+**Expense** — money that left the business and is not recorded anywhere else. The fruit's cost
+is a snapshot on an order line and the crate's cost is a stock movement; everything else —
+লেবার, পরিবহন, কুরিয়ার, rent — is one of these.
+
+**Expense scope** — **order** or **period**, and every expense is exactly one. An order
+expense belongs to one named parcel and counts toward its margin. A period expense belongs to
+a day and is **never** divided across orders: nobody measured লেবার per parcel, and a share
+invented to complete a per-order figure is a number that is not true and would then be summed
+into a margin and believed. See docs/adr/0027.
+
+**Expense category** — an owner-managed list, not a frozen enum, because this is where the
+system stops being about mangoes. Seeded with the owner's six. Each declares the scope it is
+for. Archived, never deleted: an expense snapshots its category's name.
+
+**Order cost** — goods at cost, plus the packaging consumed, plus the order's own expenses.
+What one parcel actually cost to put out.
+
+**Order margin** — `ownerRevenue − order cost`. Never confused with the reseller's margin,
+which is `customerTotal − ownerRevenue` and is not the owner's money at all.
+
+**Courier cost** — what the owner pays the courier. **Not** `deliveryChargePoisha`, which is
+what the owner *bills the reseller* and is revenue, already posted as `DELIVERY_DEBIT`. They
+are two different numbers, the app held only the second until PLAN-3, and the gap between them
+is the owner's margin on delivery. Never added together, never substituted for one another.
+
+**Gross margin** — the sum of order margins over a range, **before** period costs. Never
+called profit.
+
+**Period profit** — gross margin minus the period expenses in that range. The only figure in
+the system that answers "did we make money", and the only one that may be called profit
+without saying whose or before what.
+
 ## Reports
 
 **Report** — a screen that prints. There is no PDF renderer: the whole app is in Bengali,

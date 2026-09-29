@@ -32,7 +32,13 @@ export type ReportKind =
   | 'sources'
   | 'resellers'
   | 'customers'
-  | 'due';
+  | 'due'
+  // The cost side. See docs/PLAN-3.md.
+  | 'supplies'
+  | 'purchases'
+  | 'payables'
+  | 'expenses'
+  | 'profit';
 
 const REPORTS: { kind: ReportKind; labelKey: DictKey; hintKey: DictKey; ranged: boolean }[] = [
   { kind: 'orders', labelKey: 'report.orderSheet', hintKey: 'report.orderSheetHint', ranged: true },
@@ -46,6 +52,16 @@ const REPORTS: { kind: ReportKind; labelKey: DictKey; hintKey: DictKey; ranged: 
   { kind: 'customers', labelKey: 'report.customers', hintKey: 'report.customersHint', ranged: false },
   // A balance is where a wallet stands now, not over a period, so no dates.
   { kind: 'due', labelKey: 'report.due', hintKey: 'report.dueHint', ranged: false },
+  /*
+   * The cost side. `profit` is the one this whole plan exists for; the rest feed
+   * it. `payables` takes no dates for exactly the reason `due` does not — a due is
+   * where an account stands at the moment it is printed.
+   */
+  { kind: 'profit', labelKey: 'report.profit', hintKey: 'report.profitHint', ranged: true },
+  { kind: 'purchases', labelKey: 'report.purchases', hintKey: 'report.purchasesHint', ranged: true },
+  { kind: 'expenses', labelKey: 'report.expenses', hintKey: 'report.expensesHint', ranged: true },
+  { kind: 'supplies', labelKey: 'report.supplies', hintKey: 'report.suppliesHint', ranged: true },
+  { kind: 'payables', labelKey: 'report.payables', hintKey: 'report.payablesHint', ranged: false },
 ];
 
 /** The href for one report, carrying the range and anything else it filters on. */

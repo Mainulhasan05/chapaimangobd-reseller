@@ -25,6 +25,17 @@ const S = ORDER_STATUS;
  *   decrement          take it, inside the confirm transaction
  *   restore            put it back, whenever the order had taken it
  *   restoreIfRequested put it back only when the owner ticks "put back in stock"
+ *
+ * `packaging` names what the transition does to supply stock — the ক্যারেট, the
+ * কাগজ, the সুই:
+ *   consume            deduct what the variants' recipes say this order used
+ *
+ * Only `deliver` and `return` carry it, and neither is ever undone, because both
+ * are terminal. A parcel that was delivered used its packaging; a parcel that
+ * came back used it too, since it travelled both ways. A `cancel` carries none,
+ * from any status including `packed`: nothing left the building and a crate still
+ * on the table is reusable. There is deliberately no `restore` here at all.
+ * See docs/adr/0026.
  */
 const TRANSITIONS = {
   confirm: {
@@ -62,6 +73,9 @@ const TRANSITIONS = {
     to: S.DELIVERED,
     from: { [ROLES.OWNER]: [S.SHIPPED] },
     ledger: 'codCollection',
+    // The parcel arrived, so its packaging is spent. Recognised here rather than
+    // at pack: the cost belongs to the completed sale. docs/adr/0026.
+    packaging: 'consume',
     timestampField: 'deliveredAt',
   },
   cancel: {
@@ -88,6 +102,14 @@ const TRANSITIONS = {
     ledger: 'reverseOnReturn',
     // Travelled mangoes are usually gone, so the owner decides per return.
     stock: 'restoreIfRequested',
+    /*
+     * Consumed exactly as a delivery is, and never subject to the restock tick
+     * above: that choice is about the fruit. The crate went out with the parcel
+     * and came back travelled, which is the same reasoning ADR 0008 applies to
+     * the mangoes. Without this, every return would leave the count overstated
+     * for good.
+     */
+    packaging: 'consume',
     timestampField: 'closedAt',
   },
 };

@@ -8,6 +8,7 @@ const Source = require('../models/Source');
 
 const ledger = require('./ledger');
 const stock = require('./stock');
+const packagingConsumption = require('./packagingConsumption');
 const pricing = require('./pricing');
 const { getSettings } = require('./settings');
 const { notify } = require('./notify');
@@ -466,6 +467,25 @@ async function transitionOrder({
         (transition.stock === 'restoreIfRequested' && payload.restock === true));
     if (restock) await stock.restore(session, claimed.items);
     if (action === 'return') claimed.restockedOnReturn = restock;
+
+    /*
+     * The packaging this parcel used: the ক্যারেট, the কাগজ, the সুই.
+     *
+     * Only `deliver` and `return` declare it, and neither is ever undone, so
+     * there is no restoring counterpart to this line anywhere. A cancel declares
+     * nothing, from any status: nothing left the building.
+     *
+     * Deliberately not gated on `restock` above — that tick is about the fruit. A
+     * crate that came back travelled is gone, and one that genuinely survived is a
+     * counted adjustment the owner makes by hand.
+     *
+     * Never blocks the transition. A short supply count takes the count negative
+     * rather than refusing to record a parcel that has already gone out.
+     * See docs/adr/0026.
+     */
+    if (transition.packaging === 'consume') {
+      await packagingConsumption.consumeForOrder(session, claimed, actorUser ? actorUser._id : null);
+    }
 
     /*
      * The name is copied onto the line, not just the id. From here on the order
