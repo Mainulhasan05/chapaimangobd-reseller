@@ -93,4 +93,33 @@ async function resetDb() {
   require('../../src/services/settings').clearCache();
 }
 
-module.exports = { startDb, stopDb, resetDb, mongoose };
+/**
+ * Waits for something a request kicked off but did not wait for itself.
+ *
+ * A handler is allowed to answer the caller and then finish its own side
+ * effects — the owner's new-device SMS is queued *after* the login response is
+ * sent, so that signing in is never held up by an alert. Supertest resolves the
+ * moment the response arrives, so a test that reads the outbox on the next line
+ * is racing that work and will win or lose depending on how busy the machine is.
+ *
+ * Polling rather than sleeping a fixed amount: a fast machine spends a
+ * millisecond here, and a loaded one gets the time it actually needs.
+ *
+ * @param {() => Promise<T>} read Re-read the state each attempt.
+ * @param {(value: T) => boolean} done True once the state is what was expected.
+ * @returns {Promise<T>} The last value read, so the caller can assert on it.
+ */
+async function waitFor(read, done, { timeoutMs = 5000, everyMs = 25 } = {}) {
+  const until = Date.now() + timeoutMs;
+  let value = await read();
+  while (!done(value)) {
+    if (Date.now() > until) return value; // Let the caller's assertion report it.
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((resolve) => setTimeout(resolve, everyMs));
+    // eslint-disable-next-line no-await-in-loop
+    value = await read();
+  }
+  return value;
+}
+
+module.exports = { startDb, stopDb, resetDb, waitFor, mongoose };

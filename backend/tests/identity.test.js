@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const request = require('supertest');
 
-const { startDb, stopDb, resetDb } = require('./helpers/db');
+const { startDb, stopDb, resetDb, waitFor } = require('./helpers/db');
 const f = require('./helpers/factory');
 
 const app = require('../src/app');
@@ -451,8 +451,17 @@ test('the owner on a new device gets a code, not a session', async () => {
   // The alert: in-app now, and an owner-paid SMS queued for after the response.
   const alert = await Notification.findOne({ user: owner.user._id, eventType: EVENT_TYPE.ALERT_NEW_DEVICE });
   assert.ok(alert);
-  const queued = await OutboxMessage.find({ user: owner.user._id, eventType: EVENT_TYPE.ALERT_NEW_DEVICE }).lean();
-  assert.ok(queued.some((m) => m.channels.some((c) => (c.name || c) === NOTIFICATION_CHANNEL.SMS)));
+  /*
+   * Polled, because the login answers first and queues the alert afterwards: the
+   * owner is not made to wait for an SMS to be enqueued before being let in. Read
+   * on the next line, this passed on an idle machine and failed on a busy one.
+   */
+  const hasSms = (rows) => rows.some((m) => m.channels.some((c) => (c.name || c) === NOTIFICATION_CHANNEL.SMS));
+  const queued = await waitFor(
+    () => OutboxMessage.find({ user: owner.user._id, eventType: EVENT_TYPE.ALERT_NEW_DEVICE }).lean(),
+    hasSms
+  );
+  assert.ok(hasSms(queued));
 });
 
 test('a trusted device skips the code, and the owner alert SMS ignores the switch', async () => {
