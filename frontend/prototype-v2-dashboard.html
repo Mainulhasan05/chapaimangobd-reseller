@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="bn" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>চাঁপাই ম্যাঙ্গো — ড্যাশবোর্ড (নতুন ডিজাইন)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+/* ============================================================================
+   TOKENS
+   One accent, used sparingly. Everything else is neutral — that restraint is
+   what reads as premium, not more colour.
+   ========================================================================== */
+:root{
+  --canvas:#F1F2F4;
+  --surface:#FFFFFF;
+  --surface-2:#FAFAFB;
+  --surface-3:#F4F5F7;
+  --border:#E9EAEE;
+  --border-strong:#DDDFE4;
+
+  --text:#16181D;
+  --text-2:#646A76;
+  --text-3:#9AA0AC;
+
+  /* Mango. The business is mangoes; the accent may as well be one. */
+  --brand:#F5A400;
+  --brand-on:#2F1A07;   /* near-black label, 8.09:1 on --brand */
+  --brand-ink:#C2560A;
+  --brand-soft:#FFF2E7;
+  --brand-line:#FFD9BC;
+
+  --ok:#0F9D58;      --ok-soft:#E7F6EE;
+  --warn:#E08700;    --warn-soft:#FFF4E0;
+  --bad:#DC2F35;     --bad-soft:#FDEBEC;
+  --info:#2563EB;    --info-soft:#E8EFFD;
+
+  --r-lg:18px; --r-md:12px; --r-sm:9px;
+  --sh-1:0 1px 2px rgba(16,24,40,.04), 0 1px 3px rgba(16,24,40,.05);
+  --sh-2:0 4px 10px rgba(16,24,40,.05), 0 12px 28px rgba(16,24,40,.06);
+  --ring:0 0 0 3px rgba(242,112,15,.18);
+}
+:root[data-theme="dark"]{
+  --canvas:#0C0D10;
+  --surface:#15171C;
+  --surface-2:#1A1D23;
+  --surface-3:#20242B;
+  --border:#252932;
+  --border-strong:#323744;
+
+  --text:#F2F4F7;
+  --text-2:#9BA3B2;
+  --text-3:#6E7787;
+
+  --brand:#FF8A2B;
+  --brand-ink:#FFB066;
+  --brand-soft:#2A1B0D;
+  --brand-line:#4A2E13;
+
+  --ok:#3DD68C;      --ok-soft:#10261C;
+  --warn:#F5B544;    --warn-soft:#2A2010;
+  --bad:#FF6B6B;     --bad-soft:#2C1416;
+  --info:#6BA3FF;    --info-soft:#121E33;
+
+  --sh-1:0 1px 2px rgba(0,0,0,.5);
+  --sh-2:0 8px 24px rgba(0,0,0,.55);
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  font-family:'Hind Siliguri','Inter',system-ui,sans-serif;
+  background:var(--canvas); color:var(--text);
+  -webkit-font-smoothing:antialiased;
+  font-size:15px; line-height:1.55;
+  transition:background .2s,color .2s;
+}
+.num{font-family:'Inter',sans-serif;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+a{color:inherit;text-decoration:none}
+svg{display:block}
+.i{display:inline-flex;align-items:center;justify-content:center;flex:none}
+
+/* ============================ prototype chrome ========================== */
+.proto-bar{
+  position:sticky;top:0;z-index:100;display:flex;align-items:center;gap:10px;
+  padding:10px 16px;background:var(--surface);border-bottom:1px solid var(--border);
+  flex-wrap:wrap;
+}
+.proto-bar b{font-size:13px}
+.proto-bar .sp{flex:1}
+.seg{display:inline-flex;background:var(--surface-3);border-radius:999px;padding:3px;gap:2px}
+.seg button{padding:6px 14px;border-radius:999px;font-size:12.5px;font-weight:600;color:var(--text-2)}
+.seg button[aria-pressed="true"]{background:var(--surface);color:var(--text);box-shadow:var(--sh-1)}
+.note{font-size:12px;color:var(--text-3)}
+
+/* ============================ device frame ============================== */
+.stage{padding:24px 16px 60px;display:flex;justify-content:center}
+.frame{width:100%;max-width:1240px;transition:max-width .25s ease}
+body[data-device="phone"] .frame{
+  max-width:392px;border:10px solid #222; border-radius:40px; overflow:hidden;
+  box-shadow:0 24px 60px rgba(0,0,0,.28);
+}
+body[data-device="phone"] .desktop-only{display:none !important}
+body[data-device="desktop"] .phone-only{display:none !important}
+
+/* ============================ app shell ================================= */
+.app{
+  background:var(--surface);border-radius:22px;border:1px solid var(--border);
+  box-shadow:var(--sh-2); overflow:hidden; display:flex; min-height:760px;
+}
+body[data-device="phone"] .app{border-radius:0;border:0;box-shadow:none;min-height:760px}
+
+/* sidebar */
+.side{width:232px;flex:0 0 232px;border-right:1px solid var(--border);padding:14px 12px;background:var(--surface)}
+.brand{display:flex;align-items:center;gap:10px;padding:6px 8px 16px}
+.brand .mark{width:34px;height:34px;border-radius:11px;background:linear-gradient(140deg,var(--brand),#EA7E00);display:grid;place-items:center;color:var(--brand-on);font-weight:700;box-shadow:0 4px 12px rgba(245,164,0,.38)}
+.brand .nm{font-weight:700;font-size:15px;letter-spacing:-.01em}
+.nav-grp{margin:14px 0 6px;padding:0 10px;font-size:11px;font-weight:600;color:var(--text-3);letter-spacing:.04em}
+.nav a{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:var(--r-md);color:var(--text-2);font-size:14px;font-weight:500;margin-bottom:2px;position:relative}
+.nav a:hover{background:var(--surface-3);color:var(--text)}
+.nav a.on{background:var(--brand);color:var(--brand-on);font-weight:650;box-shadow:0 4px 12px rgba(245,164,0,.38)}
+.nav a.on svg{stroke:var(--brand-on)}
+.nav .pip{margin-left:auto;font-size:11px;font-weight:700;padding:1px 7px;border-radius:999px;background:var(--bad-soft);color:var(--bad)}
+.nav a.on .pip{background:rgba(0,0,0,.14);color:var(--brand-on)}
+
+/* main */
+.main{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--surface-2)}
+.top{display:flex;align-items:center;gap:12px;padding:12px 20px;background:var(--surface);border-bottom:1px solid var(--border)}
+.search{flex:1;max-width:400px;display:flex;align-items:center;gap:9px;background:var(--surface-3);border:1px solid transparent;border-radius:var(--r-md);padding:8px 12px;color:var(--text-3);font-size:13.5px}
+.search:focus-within{border-color:var(--brand-line);background:var(--surface);box-shadow:var(--ring)}
+.search input{flex:1;border:0;background:none;outline:none;color:var(--text);font:inherit}
+.kbd{font-family:'Inter';font-size:10.5px;font-weight:600;padding:2px 6px;border-radius:6px;background:var(--surface);border:1px solid var(--border);color:var(--text-3)}
+.iconbtn{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;color:var(--text-2);border:1px solid var(--border)}
+.iconbtn:hover{background:var(--surface-3);color:var(--text)}
+.who{display:flex;align-items:center;gap:9px;padding:4px 10px 4px 4px;border:1px solid var(--border);border-radius:999px}
+.who .av{width:30px;height:30px;border-radius:50%;background:linear-gradient(140deg,var(--brand),#EA7E00);display:grid;place-items:center;color:var(--brand-on);font-weight:700;font-size:13px}
+.who .t1{font-size:13px;font-weight:600;line-height:1.1}
+.who .t2{font-size:11px;color:var(--text-3);line-height:1.2}
+
+.page{padding:20px;display:grid;gap:16px;overflow:auto}
+body[data-device="phone"] .page{padding:14px 12px 96px}
+
+.h-row{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap}
+h1{font-size:23px;font-weight:700;letter-spacing:-.02em}
+.sub{font-size:13px;color:var(--text-2)}
+.pick{display:inline-flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-md);padding:8px 12px;font-size:13px;font-weight:500;box-shadow:var(--sh-1)}
+
+/* ============================ cards ===================================== */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);box-shadow:var(--sh-1)}
+.card-h{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:16px 18px 0}
+.card-t{font-size:14.5px;font-weight:650;letter-spacing:-.01em}
+.card-s{font-size:12px;color:var(--text-3);margin-top:1px}
+.card-b{padding:14px 18px 18px}
+
+/* KPI */
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+@media(max-width:1100px){.kpis{grid-template-columns:repeat(2,1fr)}}
+body[data-device="phone"] .kpis{grid-template-columns:repeat(2,1fr);gap:10px}
+.kpi{padding:16px 16px 14px;position:relative;overflow:hidden}
+.kpi .lab{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12.5px;color:var(--text-2);font-weight:500}
+.kpi .ic{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;background:var(--surface-3);color:var(--text-2);flex:none}
+.kpi .val{font-size:27px;font-weight:700;letter-spacing:-.025em;margin-top:10px;line-height:1.15}
+body[data-device="phone"] .kpi .val{font-size:22px}
+.kpi .foot{display:flex;align-items:center;gap:7px;margin-top:8px;font-size:11.5px;color:var(--text-3);flex-wrap:wrap}
+.delta{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:999px;font-size:11px;font-weight:700}
+.delta.up{background:var(--ok-soft);color:var(--ok)}
+.delta.dn{background:var(--bad-soft);color:var(--bad)}
+.kpi.accent{background:linear-gradient(160deg,var(--brand-soft),var(--surface) 62%);border-color:var(--brand-line)}
+.kpi.accent .ic{background:var(--brand);color:var(--brand-on)}
+
+/* grid */
+.two{display:grid;grid-template-columns:1.55fr 1fr;gap:16px}
+@media(max-width:1100px){.two{grid-template-columns:1fr}}
+body[data-device="phone"] .two{grid-template-columns:1fr;gap:12px}
+.two-b{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:1100px){.two-b{grid-template-columns:1fr}}
+body[data-device="phone"] .two-b{grid-template-columns:1fr;gap:12px}
+
+/* chart */
+.legend{display:flex;gap:14px;font-size:11.5px;color:var(--text-2);align-items:center}
+.legend i{width:9px;height:9px;border-radius:3px;display:inline-block;margin-right:5px;vertical-align:-1px}
+.chart{width:100%;height:230px}
+body[data-device="phone"] .chart{height:190px}
+.bar{transition:opacity .15s}
+.chartwrap:hover .bar{opacity:.45}
+.chartwrap .bargrp:hover .bar{opacity:1}
+.tip{
+  position:absolute;pointer-events:none;background:var(--text);color:var(--surface);
+  padding:7px 10px;border-radius:9px;font-size:11.5px;font-weight:600;white-space:nowrap;
+  opacity:0;transition:opacity .12s;box-shadow:var(--sh-2);
+}
+
+/* profit block */
+.pl-row{display:flex;align-items:baseline;justify-content:space-between;padding:9px 0;border-bottom:1px dashed var(--border)}
+.pl-row:last-child{border:0}
+.pl-row .k{font-size:13px;color:var(--text-2)}
+.pl-row .v{font-size:14px;font-weight:650}
+.pl-net{margin-top:10px;padding:13px 14px;border-radius:var(--r-md);background:var(--ok-soft);display:flex;align-items:center;justify-content:space-between}
+.pl-net.loss{background:var(--bad-soft)}
+.pl-net .k{font-size:13px;font-weight:600;color:var(--ok)}
+.pl-net.loss .k{color:var(--bad)}
+.pl-net .v{font-size:20px;font-weight:700;color:var(--ok)}
+.pl-net.loss .v{color:var(--bad)}
+
+/* alert list */
+.alist{display:grid;gap:9px}
+.arow{display:flex;align-items:center;gap:11px;padding:11px 12px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface-2)}
+.arow .dot{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;flex:none;font-size:15px}
+.arow.bad .dot{background:var(--bad-soft)}
+.arow.warn .dot{background:var(--warn-soft)}
+.arow .g{flex:1;min-width:0}
+.arow .n{font-size:13.5px;font-weight:600}
+.arow .m{font-size:11.5px;color:var(--text-3)}
+.arow .r{text-align:right;flex:none}
+.arow .q{font-size:14px;font-weight:700}
+.chip{display:inline-block;padding:2px 8px;border-radius:999px;font-size:10.5px;font-weight:700}
+.chip.bad{background:var(--bad-soft);color:var(--bad)}
+.chip.warn{background:var(--warn-soft);color:var(--warn)}
+.chip.ok{background:var(--ok-soft);color:var(--ok)}
+.chip.info{background:var(--info-soft);color:var(--info)}
+
+/* pipeline */
+.pipe{display:grid;gap:10px}
+.pipe .p{display:flex;align-items:center;gap:10px}
+.pipe .p .nm{font-size:13px;width:74px;flex:none;color:var(--text-2)}
+.pipe .track{flex:1;height:9px;border-radius:999px;background:var(--surface-3);overflow:hidden}
+.pipe .fill{height:100%;border-radius:999px}
+.pipe .ct{font-size:13px;font-weight:700;width:34px;text-align:right}
+
+/* table */
+table{width:100%;border-collapse:collapse}
+th{text-align:left;font-size:11.5px;font-weight:600;color:var(--text-3);padding:10px 14px;border-bottom:1px solid var(--border);background:var(--surface-2)}
+td{padding:13px 14px;border-bottom:1px solid var(--border);font-size:13.5px}
+tr:last-child td{border-bottom:0}
+tbody tr:hover{background:var(--surface-2)}
+.tsc{overflow:auto}
+
+/* order cards (phone) */
+.ocard{padding:13px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface-2);display:grid;gap:7px}
+.ocard .l1{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.ocard .code{font-size:12.5px;font-weight:700;font-family:'Inter'}
+.ocard .l2{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12.5px;color:var(--text-2)}
+
+/* bottom nav (phone) */
+.bnav{
+  position:sticky;bottom:0;display:grid;grid-template-columns:repeat(5,1fr);
+  background:var(--surface);border-top:1px solid var(--border);padding:7px 4px 9px;
+}
+.bnav a{display:grid;justify-items:center;gap:3px;font-size:10.5px;color:var(--text-3);font-weight:500;padding:4px 0;border-radius:10px}
+.bnav a.on{color:var(--brand)}
+.bnav a.on svg{stroke:var(--brand)}
+
+/* why button — the provenance affordance */
+.why{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:var(--brand);margin-top:6px}
+.why:hover{text-decoration:underline}
+</style>
+</head>
+<body data-device="desktop">
+
+<div class="proto-bar">
+  <b>প্রোটোটাইপ</b>
+  <span class="note">ডেমো ডেটা — কোনো API যুক্ত নেই</span>
+  <span class="sp"></span>
+  <div class="seg" role="group" aria-label="ডিভাইস">
+    <button aria-pressed="true" onclick="setDevice('desktop',this)">ডেস্কটপ</button>
+    <button aria-pressed="false" onclick="setDevice('phone',this)">ফোন ৩৬০</button>
+  </div>
+  <div class="seg" role="group" aria-label="থিম">
+    <button aria-pressed="true" onclick="setTheme('light',this)">লাইট</button>
+    <button aria-pressed="false" onclick="setTheme('dark',this)">ডার্ক</button>
+  </div>
+</div>
+
+<div class="stage">
+<div class="frame">
+<div class="app">
+
+  <!-- ============================ SIDEBAR ============================ -->
+  <aside class="side desktop-only">
+    <div class="brand">
+      <div class="mark">চ</div>
+      <div>
+        <div class="nm">চাঁপাই ম্যাঙ্গো</div>
+        <div style="font-size:11px;color:var(--text-3)">মালিক প্যানেল</div>
+      </div>
+    </div>
+
+    <div class="nav-grp">প্রতিদিনের কাজ</div>
+    <nav class="nav">
+      <a class="on" href="#"><span class="i" data-ic="grid"></span> ড্যাশবোর্ড</a>
+      <a href="#"><span class="i" data-ic="list"></span> অর্ডার <span class="pip">১২</span></a>
+      <a href="#"><span class="i" data-ic="box"></span> পণ্য</a>
+      <a href="#"><span class="i" data-ic="wallet"></span> জমা ও উত্তোলন <span class="pip">৩</span></a>
+    </nav>
+
+    <div class="nav-grp">টাকার হিসাব</div>
+    <nav class="nav">
+      <a href="#"><span class="i" data-ic="cart"></span> ক্রয়</a>
+      <a href="#"><span class="i" data-ic="hand"></span> পার্টি <span class="pip">৫</span></a>
+      <a href="#"><span class="i" data-ic="receipt"></span> খরচ</a>
+      <a href="#"><span class="i" data-ic="chart"></span> রিপোর্ট</a>
+    </nav>
+
+    <div class="nav-grp">সেটআপ</div>
+    <nav class="nav">
+      <a href="#"><span class="i" data-ic="boxes"></span> মালামাল <span class="pip">২</span></a>
+      <a href="#"><span class="i" data-ic="store"></span> বাগান</a>
+      <a href="#"><span class="i" data-ic="gear"></span> সেটিংস</a>
+    </nav>
+  </aside>
+
+  <!-- ============================== MAIN ============================== -->
+  <div class="main">
+
+    <header class="top">
+      <div class="brand phone-only" style="padding:0;gap:8px">
+        <div class="mark" style="width:30px;height:30px;border-radius:9px;font-size:13px">চ</div>
+        <div class="nm" style="font-size:14px">চাঁপাই ম্যাঙ্গো</div>
+      </div>
+      <label class="search desktop-only">
+        <span class="i" data-ic="search"></span>
+        <input placeholder="অর্ডার, ক্রেতা বা পার্টি খুঁজুন" />
+        <span class="kbd">Ctrl K</span>
+      </label>
+      <span class="sp" style="flex:1"></span>
+      <button class="iconbtn" aria-label="নোটিফিকেশন" style="position:relative">
+        <span class="i" data-ic="bell"></span>
+        <span style="position:absolute;top:6px;right:7px;width:7px;height:7px;border-radius:50%;background:var(--bad);border:2px solid var(--surface)"></span>
+      </button>
+      <div class="who desktop-only">
+        <div class="av">ম</div>
+        <div>
+          <div class="t1">মাইনুল হাসান</div>
+          <div class="t2">মালিক</div>
+        </div>
+      </div>
+      <div class="who phone-only" style="padding:3px"><div class="av">ম</div></div>
+    </header>
+
+    <div class="page">
+
+      <div class="h-row">
+        <div>
+          <h1>আজকের হিসাব</h1>
+          <div class="sub">৩০ সেপ্টেম্বর ২০২৬, মঙ্গলবার · শেষ আপডেট ২ মিনিট আগে</div>
+        </div>
+        <button class="pick"><span class="i" data-ic="cal"></span> ১ – ৩০ সেপ্টেম্বর <span class="i" data-ic="down"></span></button>
+      </div>
+
+      <!-- ============================ KPI ============================ -->
+      <section class="kpis">
+        <article class="card kpi accent">
+          <div class="lab">আজকের বিক্রি <span class="ic"><span class="i" data-ic="cart"></span></span></div>
+          <div class="val num">৳ ৮২,৪০০</div>
+          <div class="foot"><span class="delta up"><span class="i" data-ic="up"></span> ১২.৪%</span> গতকাল ৳ ৭৩,৩০০</div>
+        </article>
+
+        <article class="card kpi">
+          <div class="lab">আজকের অর্ডার <span class="ic"><span class="i" data-ic="list"></span></span></div>
+          <div class="val num">৩৪</div>
+          <div class="foot"><span class="delta up"><span class="i" data-ic="up"></span> ৬.২%</span> গতকাল ৩২</div>
+        </article>
+
+        <article class="card kpi">
+          <div class="lab">পাওয়া যাবে <span class="ic"><span class="i" data-ic="in"></span></span></div>
+          <div class="val num">৳ ১,৪৫,২০০</div>
+          <div class="foot">১৮ জন রিসেলারের কাছে</div>
+        </article>
+
+        <article class="card kpi">
+          <div class="lab">দিতে হবে <span class="ic"><span class="i" data-ic="out"></span></span></div>
+          <div class="val num">৳ ৩৮,৬০০</div>
+          <div class="foot"><span class="chip bad">২ জনের মেয়াদ পার</span></div>
+        </article>
+      </section>
+
+      <!-- ====================== CHART + PROFIT ====================== -->
+      <section class="two">
+        <article class="card chartwrap" style="position:relative">
+          <div class="card-h">
+            <div>
+              <div class="card-t">আয় ও খরচ</div>
+              <div class="card-s">প্রতিদিন কত এলো, কত গেলো</div>
+            </div>
+            <div class="legend">
+              <span><i style="background:var(--brand)"></i>আয়</span>
+              <span><i style="background:var(--text-3)"></i>খরচ</span>
+            </div>
+          </div>
+          <div class="card-b">
+            <div id="chart"></div>
+            <div class="tip" id="tip"></div>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="card-h">
+            <div>
+              <div class="card-t">লাভ-ক্ষতি</div>
+              <div class="card-s">এই মাসে</div>
+            </div>
+          </div>
+          <div class="card-b">
+            <div class="pl-row"><span class="k">আয় (রিসেলারকে বিল)</span><span class="v num">৳ ৯,৮৪,০০০</span></div>
+            <div class="pl-row"><span class="k">আমের দাম</span><span class="v num">− ৳ ৬,২০,০০০</span></div>
+            <div class="pl-row"><span class="k">প্যাকেজিং</span><span class="v num">− ৳ ৭৮,৪০০</span></div>
+            <div class="pl-row"><span class="k">কুরিয়ার</span><span class="v num">− ৳ ৯৪,০০০</span></div>
+            <div class="pl-row"><span class="k">দিনের খরচ (লেবার, ভ্যান)</span><span class="v num">− ৳ ৬২,০০০</span></div>
+            <div class="pl-net">
+              <span class="k">নিট লাভ</span>
+              <span class="v num">৳ ১,২৯,৬০০</span>
+            </div>
+            <button class="why"><span class="i" data-ic="help"></span> এই সংখ্যাটা কীভাবে এলো?</button>
+          </div>
+        </article>
+      </section>
+
+      <!-- ================== STOCK ALERTS + PIPELINE ================== -->
+      <section class="two-b">
+        <article class="card">
+          <div class="card-h">
+            <div>
+              <div class="card-t">মালামাল ফুরিয়ে আসছে</div>
+              <div class="card-s">কিনে না রাখলে প্যাকিং আটকাবে</div>
+            </div>
+            <span class="chip bad">২টি জরুরি</span>
+          </div>
+          <div class="card-b">
+            <div class="alist">
+              <div class="arow bad">
+                <div class="dot">📦</div>
+                <div class="g">
+                  <div class="n">ক্যারেট</div>
+                  <div class="m">হিসাবে গরমিল — খাতার চেয়ে কম</div>
+                </div>
+                <div class="r"><div class="q num" style="color:var(--bad)">−১২</div><span class="chip bad">গরমিল</span></div>
+              </div>
+              <div class="arow warn">
+                <div class="dot">📄</div>
+                <div class="g">
+                  <div class="n">কাগজ</div>
+                  <div class="m">১০০ শিটে নামলে জানাবে</div>
+                </div>
+                <div class="r"><div class="q num">৮৪</div><span class="chip warn">কম</span></div>
+              </div>
+              <div class="arow warn">
+                <div class="dot">🪡</div>
+                <div class="g">
+                  <div class="n">সুই</div>
+                  <div class="m">১৫০টায় নামলে জানাবে</div>
+                </div>
+                <div class="r"><div class="q num">১৩৮</div><span class="chip warn">কম</span></div>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="card-h">
+            <div>
+              <div class="card-t">অর্ডার কোথায় আটকে</div>
+              <div class="card-s">যেগুলোতে আপনার হাত লাগবে</div>
+            </div>
+          </div>
+          <div class="card-b">
+            <div class="pipe">
+              <div class="p"><span class="nm">নতুন</span><span class="track"><span class="fill" style="width:22%;background:var(--info)"></span></span><span class="ct num">৮</span></div>
+              <div class="p"><span class="nm">কনফার্ম</span><span class="track"><span class="fill" style="width:34%;background:var(--brand)"></span></span><span class="ct num">১২</span></div>
+              <div class="p"><span class="nm">গ্রহণ করা</span><span class="track"><span class="fill" style="width:17%;background:var(--warn)"></span></span><span class="ct num">৬</span></div>
+              <div class="p"><span class="nm">প্যাক</span><span class="track"><span class="fill" style="width:11%;background:var(--warn)"></span></span><span class="ct num">৪</span></div>
+              <div class="p"><span class="nm">পাঠানো</span><span class="track"><span class="fill" style="width:42%;background:var(--ok)"></span></span><span class="ct num">১৫</span></div>
+            </div>
+            <div style="margin-top:14px;padding:11px 12px;border-radius:var(--r-md);background:var(--warn-soft);display:flex;gap:9px;align-items:flex-start">
+              <span style="font-size:15px">⏱</span>
+              <div style="font-size:12.5px;color:var(--text)">
+                <b>৩টি অর্ডার</b> ২৪ ঘণ্টার বেশি কনফার্ম হয়ে বসে আছে।
+              </div>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <!-- ========================= RECENT ORDERS ===================== -->
+      <article class="card">
+        <div class="card-h">
+          <div>
+            <div class="card-t">সাম্প্রতিক অর্ডার</div>
+            <div class="card-s">শেষ ২৪ ঘণ্টা</div>
+          </div>
+          <button class="pick" style="padding:6px 11px;font-size:12.5px">সব দেখুন <span class="i" data-ic="right"></span></button>
+        </div>
+        <div class="card-b" style="padding:0">
+          <!-- desktop table -->
+          <div class="tsc desktop-only">
+            <table>
+              <thead><tr>
+                <th>অর্ডার</th><th>ক্রেতা</th><th>রিসেলার</th><th>অবস্থা</th>
+                <th style="text-align:right">বক্স</th><th style="text-align:right">টাকা</th><th style="text-align:right">লাভ</th>
+              </tr></thead>
+              <tbody>
+                <tr><td class="num" style="font-weight:600">#8K2M4Q</td><td>রহিমা বেগম</td><td>আম বাজার</td><td><span class="chip warn">প্যাক হচ্ছে</span></td><td class="num" style="text-align:right">৩</td><td class="num" style="text-align:right;font-weight:600">৳ ৩,৯০০</td><td class="num" style="text-align:right;color:var(--ok);font-weight:600">+৳ ৬২০</td></tr>
+                <tr><td class="num" style="font-weight:600">#7R9P1X</td><td>করিম শেখ</td><td>ম্যাঙ্গো হাব</td><td><span class="chip info">পাঠানো</span></td><td class="num" style="text-align:right">২</td><td class="num" style="text-align:right;font-weight:600">৳ ২,৬০০</td><td class="num" style="text-align:right;color:var(--ok);font-weight:600">+৳ ৪১০</td></tr>
+                <tr><td class="num" style="font-weight:600">#5T3N8B</td><td>সালমা আক্তার</td><td>ফ্রেশ ফ্রুটস</td><td><span class="chip ok">ডেলিভারি হয়েছে</span></td><td class="num" style="text-align:right">৫</td><td class="num" style="text-align:right;font-weight:600">৳ ৬,৫০০</td><td class="num" style="text-align:right;color:var(--ok);font-weight:600">+৳ ৯৮০</td></tr>
+                <tr><td class="num" style="font-weight:600">#2W6L7C</td><td>জাহিদ হাসান</td><td>আম বাজার</td><td><span class="chip bad">ফেরত এসেছে</span></td><td class="num" style="text-align:right">১</td><td class="num" style="text-align:right;font-weight:600">৳ ১,৩০০</td><td class="num" style="text-align:right;color:var(--bad);font-weight:600">−৳ ২১০</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <!-- phone cards -->
+          <div class="phone-only" style="display:grid;gap:9px;padding:14px">
+            <div class="ocard">
+              <div class="l1"><span class="code">#8K2M4Q</span><span class="chip warn">প্যাক হচ্ছে</span></div>
+              <div class="l2"><span>রহিমা বেগম · ৩ বক্স</span><b class="num" style="color:var(--text)">৳ ৩,৯০০</b></div>
+              <div class="l2" style="font-size:11.5px"><span>আম বাজার</span><span style="color:var(--ok);font-weight:700">লাভ +৳ ৬২০</span></div>
+            </div>
+            <div class="ocard">
+              <div class="l1"><span class="code">#7R9P1X</span><span class="chip info">পাঠানো</span></div>
+              <div class="l2"><span>করিম শেখ · ২ বক্স</span><b class="num" style="color:var(--text)">৳ ২,৬০০</b></div>
+              <div class="l2" style="font-size:11.5px"><span>ম্যাঙ্গো হাব</span><span style="color:var(--ok);font-weight:700">লাভ +৳ ৪১০</span></div>
+            </div>
+            <div class="ocard">
+              <div class="l1"><span class="code">#2W6L7C</span><span class="chip bad">ফেরত এসেছে</span></div>
+              <div class="l2"><span>জাহিদ হাসান · ১ বক্স</span><b class="num" style="color:var(--text)">৳ ১,৩০০</b></div>
+              <div class="l2" style="font-size:11.5px"><span>আম বাজার</span><span style="color:var(--bad);font-weight:700">ক্ষতি −৳ ২১০</span></div>
+            </div>
+          </div>
+        </div>
+      </article>
+    </div>
+
+    <!-- bottom nav, phone only -->
+    <nav class="bnav phone-only">
+      <a class="on" href="#"><span class="i" data-ic="grid"></span> ড্যাশবোর্ড</a>
+      <a href="#"><span class="i" data-ic="list"></span> অর্ডার</a>
+      <a href="#"><span class="i" data-ic="box"></span> পণ্য</a>
+      <a href="#"><span class="i" data-ic="wallet"></span> টাকা</a>
+      <a href="#"><span class="i" data-ic="more"></span> আরও</a>
+    </nav>
+  </div>
+</div>
+</div>
+</div>
+
+<script>
+/* ---------------------------------------------------------------- icons ---
+   Inline so the prototype is one file with no network dependency beyond the
+   font. Stroke icons at 1.7 read better than filled ones at this size. */
+function ic(n){
+  const p={
+    grid:'<rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/>',
+    list:'<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="3.5" cy="6" r="1.2"/><circle cx="3.5" cy="12" r="1.2"/><circle cx="3.5" cy="18" r="1.2"/>',
+    box:'<path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/>',
+    boxes:'<rect x="2" y="9" width="9" height="9" rx="2"/><rect x="13" y="9" width="9" height="9" rx="2"/><rect x="7.5" y="2" width="9" height="6" rx="2"/>',
+    wallet:'<rect x="2.5" y="5.5" width="19" height="14" rx="3"/><path d="M17 12h2.5"/>',
+    cart:'<circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2 3h3l2.5 12h11L21 7H6"/>',
+    hand:'<path d="M12 11V4.5a1.5 1.5 0 013 0V11"/><path d="M15 11V6a1.5 1.5 0 013 0v6"/><path d="M9 11V7a1.5 1.5 0 013 0v4"/><path d="M9 11v3l-1.5-1.5a1.6 1.6 0 00-2.3 2.2L9 19a5 5 0 009-3v-4"/>',
+    receipt:'<path d="M5 3v18l2.5-1.5L10 21l2.5-1.5L15 21l2.5-1.5L20 21V3z"/><line x1="9" y1="8" x2="16" y2="8"/><line x1="9" y1="13" x2="16" y2="13"/>',
+    chart:'<line x1="4" y1="20" x2="20" y2="20"/><rect x="6" y="11" width="3" height="7" rx="1"/><rect x="11" y="6" width="3" height="12" rx="1"/><rect x="16" y="14" width="3" height="4" rx="1"/>',
+    store:'<path d="M4 9h16v11H4z"/><path d="M3 9l1.5-5h15L21 9"/>',
+    gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.6 1.6 0 00-2.7 1.1V21a2 2 0 11-4 0v-.1A1.6 1.6 0 007 19.4l-.1.1a2 2 0 11-2.8-2.8l.1-.1A1.6 1.6 0 003 15a2 2 0 110-4 1.6 1.6 0 001.1-2.7L4 8.2a2 2 0 112.8-2.8l.1.1A1.6 1.6 0 009 4.6V4a2 2 0 114 0v.1A1.6 1.6 0 0017 4.6l.1-.1a2 2 0 112.8 2.8l-.1.1A1.6 1.6 0 0021 11a2 2 0 110 4z"/>',
+    search:'<circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/>',
+    bell:'<path d="M18 8a6 6 0 10-12 0c0 7-3 8-3 8h18s-3-1-3-8"/><path d="M13.7 21a2 2 0 01-3.4 0"/>',
+    cal:'<rect x="3" y="5" width="18" height="16" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="3" x2="8" y2="7"/><line x1="16" y1="3" x2="16" y2="7"/>',
+    down:'<polyline points="6 9 12 15 18 9"/>',
+    right:'<polyline points="9 6 15 12 9 18"/>',
+    up:'<polyline points="17 11 12 6 7 11"/><line x1="12" y1="6" x2="12" y2="18"/>',
+    in:'<path d="M12 3v12"/><polyline points="7 10 12 15 17 10"/><path d="M4 20h16"/>',
+    out:'<path d="M12 21V9"/><polyline points="7 14 12 9 17 14"/><path d="M4 4h16"/>',
+    help:'<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 114 2c-.8.6-1.5 1.1-1.5 2"/><circle cx="12" cy="17" r=".6"/>',
+    more:'<circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/>'
+  }[n]||'';
+  return '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">'+p+'</svg>';
+}
+
+/* Fill the icon placeholders in place. Rewriting body.innerHTML would have been
+   shorter and would have silently dropped every listener attached below. */
+document.querySelectorAll('[data-ic]').forEach(el => { el.innerHTML = ic(el.dataset.ic); });
+
+/* ------------------------------------------------------------- the chart ---
+   Hand-drawn SVG rather than a library: seven bars need no 90 KB of Chart.js,
+   and rounded caps plus a hover group are easier to control directly. */
+const DATA = [
+  { d:'শনি', inc: 62000, exp: 41000 },
+  { d:'রবি', inc: 78000, exp: 49000 },
+  { d:'সোম', inc: 54000, exp: 38000 },
+  { d:'মঙ্গল', inc: 91000, exp: 57000 },
+  { d:'বুধ', inc: 73000, exp: 46000 },
+  { d:'বৃহ', inc: 118000, exp: 68000 },
+  { d:'শুক্র', inc: 82400, exp: 51000 },
+];
+const bn = n => n.toLocaleString('bn-BD');
+
+function drawChart(){
+  const host = document.getElementById('chart');
+  if(!host) return;
+  const W = host.clientWidth || 640, H = host.clientWidth < 420 ? 190 : 230;
+  const padL = 40, padB = 26, padT = 12;
+  const max = 130000, plotH = H - padB - padT, plotW = W - padL - 8;
+  const step = plotW / DATA.length, bw = Math.min(16, step*0.26);
+
+  let g = '';
+  // grid + y labels
+  [0, 32500, 65000, 97500, 130000].forEach(v=>{
+    const y = padT + plotH - (v/max)*plotH;
+    g += `<line x1="${padL}" y1="${y}" x2="${W-8}" y2="${y}" stroke="var(--border)" stroke-width="1" stroke-dasharray="${v?'3 4':'0'}"/>`;
+    g += `<text x="${padL-9}" y="${y+4}" text-anchor="end" font-size="10" fill="var(--text-3)" font-family="Inter">${v?bn(v/1000)+'k':'০'}</text>`;
+  });
+  // bars
+  DATA.forEach((r,i)=>{
+    const cx = padL + step*i + step/2;
+    const hi = (r.inc/max)*plotH, he = (r.exp/max)*plotH;
+    const x1 = cx - bw - 3, x2 = cx + 3;
+    g += `<g class="bargrp" data-i="${i}">
+      <rect x="${padL+step*i}" y="${padT}" width="${step}" height="${plotH}" fill="transparent"/>
+      <rect class="bar" x="${x1}" y="${padT+plotH-hi}" width="${bw}" height="${hi}" rx="${bw/2}" fill="var(--brand)"/>
+      <rect class="bar" x="${x2}" y="${padT+plotH-he}" width="${bw}" height="${he}" rx="${bw/2}" fill="var(--text-3)" opacity=".38"/>
+      <text x="${cx}" y="${H-7}" text-anchor="middle" font-size="11" fill="var(--text-3)">${r.d}</text>
+    </g>`;
+  });
+
+  host.innerHTML = `<svg class="chart" viewBox="0 0 ${W} ${H}" width="100%" height="${H}">${g}</svg>`;
+
+  const tip = document.getElementById('tip');
+  host.querySelectorAll('.bargrp').forEach(el=>{
+    el.addEventListener('mouseenter', e=>{
+      const r = DATA[+el.dataset.i];
+      tip.innerHTML = `${r.d} · আয় ৳${bn(r.inc)} · খরচ ৳${bn(r.exp)}`;
+      tip.style.opacity = 1;
+      const b = el.getBoundingClientRect(), h = host.getBoundingClientRect();
+      tip.style.left = Math.max(0, Math.min(b.left-h.left+b.width/2-70, h.width-150))+'px';
+      tip.style.top = '0px';
+    });
+    el.addEventListener('mouseleave', ()=> tip.style.opacity = 0);
+  });
+}
+
+function setDevice(d, btn){
+  document.body.dataset.device = d;
+  btn.parentNode.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed', b===btn));
+  setTimeout(drawChart, 260);
+}
+function setTheme(t, btn){
+  document.documentElement.dataset.theme = t;
+  btn.parentNode.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed', b===btn));
+  setTimeout(drawChart, 50);
+}
+drawChart();
+addEventListener('resize', drawChart);
+</script>
+</body>
+</html>

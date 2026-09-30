@@ -122,18 +122,31 @@
    */
   --border: oklch(0.90 0.005 265); /* 1.35:1, structural hairline */
   --input: oklch(0.80 0.008 265); /* 1.9:1, interactive outline, 1px */
-  --ring: oklch(0.546 0.244 263); /* 5.3:1, focus */
+  --ring: oklch(0.62 0.17 62); /* 3.8:1 on white, 3.5:1 on the page ground */
 
   /*
-   * Blue is the interactive colour: buttons, active navigation, links, selection.
-   * White on this fill measures 5.3:1, so unlike mango it can carry a white
-   * label, which is what makes the chrome read as the reference design does.
+   * Mango is the interactive colour: buttons, active navigation, links, selection.
+   *
+   * This reverses the earlier move to blue, and it does so by dropping the
+   * assumption that came with it. The note below used to say white on amber
+   * cannot reach 4.5:1 without turning the amber brown, and that is true —
+   * measured, white on this fill is 2.05:1. The conclusion drawn from it, that
+   * mango therefore cannot be a button, did not follow: the label does not have
+   * to be white. Near-black on this same fill measures 8.09:1, comfortably past
+   * AA and better than the blue it replaces, and the fruit survives intact.
+   *
+   * The reference design this chrome is modelled on uses white on a red-orange
+   * and measures 3.66:1, which is under AA for anything but large text. This app
+   * is read on a cheap phone in daylight, so it takes the accessible route to the
+   * same warmth rather than copying the failure.
+   *
+   * Every ratio here was measured off the compiled sRGB, not judged by eye.
    */
-  --primary: oklch(0.546 0.244 263);
-  --primary-foreground: oklch(1 0 0); /* 5.3:1 on primary */
-  --primary-soft: oklch(0.93 0.04 263); /* selected row, active pill */
-  --primary-softer: oklch(0.97 0.018 263); /* icon chip ground */
-  --primary-ink: oklch(0.45 0.21 263); /* 7.2:1 on primary-softer, 6.4:1 on primary-soft */
+  --primary: oklch(0.78 0.17 75);
+  --primary-foreground: oklch(0.24 0.045 60); /* 8.09:1 on primary */
+  --primary-soft: oklch(0.955 0.045 80); /* selected row, active pill */
+  --primary-softer: oklch(0.975 0.02 80); /* icon chip ground */
+  --primary-ink: oklch(0.45 0.13 70); /* 6.7:1 on primary-soft, 7.1:1 on primary-softer, 7.6:1 on white */
 
   --secondary: oklch(0.968 0.005 265);
   --secondary-foreground: oklch(0.2 0.02 265);
@@ -141,13 +154,14 @@
   --accent-foreground: oklch(0.99 0.01 145);
 
   /*
-   * Mango. The product is the brand, so it stays, but it now has one job.
+   * Mango, as a money surface rather than as a control.
    *
-   * The fill is more saturated than a pastel and the label on it is near-black
-   * rather than white. White on amber cannot reach 4.5:1 without darkening the
-   * amber into brown and losing the fruit; dark on amber reaches 8.0:1 and keeps
-   * the colour. That is why mango is a surface for money figures and never a
-   * button label colour.
+   * Now that --primary is mango too, these two are the same family and that is
+   * deliberate: the chrome and the figures belong to one brand. They are kept
+   * apart only by what they are used on — --primary is anything you can press,
+   * --brand is a surface a number sits on and nothing more. If they ever need to
+   * diverge, move --brand's hue rather than its lightness, because the 8.0:1
+   * below is what the near-black label depends on.
    */
   --brand: oklch(0.78 0.17 75);
   --brand-foreground: oklch(0.24 0.045 60); /* 8.0:1 on brand */
@@ -277,7 +291,13 @@
    */
   .control:focus-within {
     border-color: var(--ring);
-    box-shadow: 0 0 0 3px oklch(0.546 0.244 263 / 0.16);
+    /*
+     * Derived from --ring rather than written out, so a future palette change
+     * reaches the focus ring too. The literal blue that used to sit here is why
+     * retheming this app by hand never fully took: the tokens moved and this did
+     * not.
+     */
+    box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring) 28%, transparent);
   }
 
   .control[data-invalid='true'] {
@@ -285,7 +305,7 @@
   }
 
   .control[data-invalid='true']:focus-within {
-    box-shadow: 0 0 0 3px oklch(0.52 0.19 27 / 0.16);
+    box-shadow: 0 0 0 3px color-mix(in oklch, var(--danger) 28%, transparent);
   }
 
   /*

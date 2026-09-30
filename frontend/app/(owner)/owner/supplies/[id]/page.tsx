@@ -1,20 +1,5 @@
 'use client';
 
-/**
- * One supply, and whether the book still agrees with the shelf.
- *
- * Most of what moves this count was never typed by a person. A delivery draws
- * packaging down from a recipe on the box — about one and a half sheets of কাগজ,
- * two সুই — and nobody stood at the table counting. Those movements are marked
- * `isEstimated` and the history says so on every row, because an estimate that
- * is presented as a measurement gets summed into a cost, then into a margin, and
- * then believed. See docs/adr/0026.
- *
- * A stock take is the answer to all of it, which is why it is the primary button
- * and the generic adjustment is the quiet one beside it: the shelf is the truth
- * and the book follows it.
- */
-
 import { use, useState } from 'react';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -22,93 +7,70 @@ import {
   ArrowLeft,
   Boxes,
   ClipboardCheck,
-  Layers,
   ShoppingCart,
+  SlidersHorizontal,
   TriangleAlert,
-  Wallet,
 } from 'lucide-react';
 import { api, errorMessage, fieldErrors } from '@/lib/api';
 import { t, tMovementKind, tUnit } from '@/lib/i18n/bn';
-import { businessDate, formatDate, formatMoney, formatNumber } from '@/lib/format';
-import { checkMoney, moneyError } from '@/lib/money';
-import type { StockMovement, SupplyDetail } from '@/lib/types';
-import {
-  Alert,
-  Badge,
-  Card,
-  CardHeader,
-  EmptyState,
-  ErrorState,
-  PageHeader,
-  Stat,
-} from '@/components/ui/layout';
-import { Button } from '@/components/ui/button';
+import { formatMoney, formatNumber, formatDate } from '@/lib/format';
+import type { SupplyDetail } from '@/lib/types';
+import { Alert, Badge, Card, CardHeader, ErrorState, PageHeader, Stat } from '@/components/ui/layout';
+import { Td, Th, Tr, TableWrap } from '@/components/ui/table';
 import { Field, Input, Select, Textarea } from '@/components/ui/form';
+import { Button } from '@/components/ui/button';
 import { Modal } from '@/components/ui/modal';
 import { ListSkeleton, StatSkeleton } from '@/components/ui/skeleton';
-
-/** The kinds a person is allowed to write. `CONSUMED` and `REVERSAL` are the
- *  system's own, and `PURCHASE` belongs to a purchase. */
-const ADJUST_KINDS = ['ADJUSTMENT', 'DAMAGED', 'LOST', 'RETURN_TO_PAYEE', 'OPENING'] as const;
-
-type AdjustKind = (typeof ADJUST_KINDS)[number];
-
-/** One page of the append-only log, for the "load more" under the history. */
-type MovementPage = {
-  movements: StockMovement[];
-  page: number;
-  limit: number;
-  total: number;
-};
-
-const PAGE_SIZE = 20;
+import { useToast } from '@/components/ui/toast';
+import {
+  AvgCostWhyModal,
+  ExplainedStat,
+  OnHandWhyModal,
+  useWhy,
+  type AvgCostWhy,
+  type OnHandWhy,
+} from '@/components/why';
 
 /**
- * A quantity as typed, checked the same way a taka amount is.
+ * One item of মালামাল: what is on the shelf, what it cost, and where both of
+ * those figures came from.
  *
- * `checkMoney` refuses a sign, which is right for money and wrong for an
- * `ADJUSTMENT`: a recount may go either way. The magnitude goes through the same
- * gate so the digit rules and the ceiling stay in one place.
+ * This screen is the pattern for the rest of the cost side, and it is built
+ * against four complaints about the first version of it:
+ *
+ * 1. **The words were office Bengali.** Every label here is what the owner says
+ *    out loud — "প্রতিটা পড়েছে", not "গড় খরচ"; "পার্সেলে গেছে", not "ব্যবহৃত".
+ * 2. **Nothing said what to do next.** A supply with no purchase and no recipe is
+ *    inert, and the screen now says so and links to the two places that fix it.
+ * 3. **Worked-out numbers had no provenance.** The two figures the system computes
+ *    carry a "কীভাবে?" that opens the arithmetic. See components/why.tsx.
+ * 4. **The screens were islands.** Every purchase row, every box that consumes
+ *    this, and the reason behind every movement now links somewhere.
  */
-function quantityError(raw: string, signed: boolean): string | undefined {
-  if (raw.trim() === '') return undefined;
-  const magnitude = signed ? raw.trim().replace(/^-/, '') : raw;
-  return moneyError(magnitude);
-}
 
-function quantityOk(raw: string, signed: boolean): boolean {
-  if (raw.trim() === '') return false;
-  const magnitude = signed ? raw.trim().replace(/^-/, '') : raw;
-  return checkMoney(magnitude).ok;
-}
+type Provenance = {
+  onHand: OnHandWhy;
+  avgCost: AvgCostWhy;
+};
 
 export default function SupplyDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const why = useWhy();
   const [counting, setCounting] = useState(false);
   const [adjusting, setAdjusting] = useState(false);
-  const [limit, setLimit] = useState(PAGE_SIZE);
 
   const query = useQuery({
     queryKey: ['owner', 'supply', id],
-    queryFn: () => api.get<SupplyDetail>(`/owner/supplies/${id}`),
-  });
-
-  /*
-   * The log is its own query rather than only what the detail carried, so that
-   * "load more" does not refetch the purchases and the recipes with it.
-   */
-  const log = useQuery({
-    queryKey: ['owner', 'supply', id, 'movements', limit],
-    queryFn: () => api.get<MovementPage>(`/owner/supplies/${id}/movements?page=1&limit=${limit}`),
+    queryFn: () => api.get<SupplyDetail & { provenance: Provenance }>(`/owner/supplies/${id}`),
   });
 
   const back = (
     <Link
       href="/owner/supplies"
-      className="mb-3 inline-flex items-center gap-1.5 text-sm font-semibold text-muted-foreground hover:text-foreground"
+      className="mb-3 inline-flex items-center gap-1 text-sm text-[var(--muted-fg)] hover:underline"
     >
       <ArrowLeft className="h-4 w-4" />
-      {t('app.back')}
+      {t('supply.title')}
     </Link>
   );
 
@@ -135,9 +97,12 @@ export default function SupplyDetailPage({ params }: { params: Promise<{ id: str
     );
   }
 
-  const { supply, purchases, usedBy, health } = query.data!;
-  const movements = log.data?.movements ?? query.data!.movements;
-  const total = log.data?.total ?? movements.length;
+  const { supply, movements, purchases, usedBy, health, provenance } = query.data!;
+
+  // What is missing before this item actually does anything. Both are common on a
+  // fresh install and neither is an error, so they read as instructions.
+  const neverBought = purchases.length === 0;
+  const noRecipe = usedBy.length === 0;
 
   return (
     <>
@@ -145,33 +110,43 @@ export default function SupplyDetailPage({ params }: { params: Promise<{ id: str
 
       <PageHeader
         title={supply.nameBn}
-        subtitle={supply.note || tUnit(supply.unit)}
+        subtitle={`${t('supply.unit')}: ${tUnit(supply.unit)}`}
         action={
           <div className="flex flex-wrap items-center gap-2">
             {/*
-             * The count comes first. It is the only action here that makes the
-             * book agree with the shelf again, and everything else on this page
-             * is a reason to reach for it.
-             */}
+              * Counting is the primary action, not the generic adjust. It is the
+              * only thing that corrects a drifting recipe, and it is what somebody
+              * standing in the godown with a phone actually wants.
+              */}
             <Button onClick={() => setCounting(true)}>
               <ClipboardCheck className="h-4 w-4" />
               {t('supply.stockTake')}
             </Button>
-            <Button variant="outline" onClick={() => setAdjusting(true)}>
+            <Button variant="quiet" onClick={() => setAdjusting(true)}>
+              <SlidersHorizontal className="h-4 w-4" />
               {t('supply.adjust')}
             </Button>
           </div>
         }
       />
 
-      {/*
-       * Not a business event. The append-only log and the cached count are two
-       * views of one number, and when they differ something in the code is
-       * wrong — so it is said plainly rather than shown as a total.
-       */}
+      {/* --- what is wrong, loudest first --- */}
+
+      {supply.isNegative && (
+        <Alert tone="danger" icon={TriangleAlert} title={t('supply.negative')}>
+          {t('supply.negativeHint')}
+        </Alert>
+      )}
+
+      {!supply.isNegative && supply.isLow && (
+        <Alert tone="warning" title={t('supply.low')}>
+          {t('supply.reorderHint')}
+        </Alert>
+      )}
+
       {!health.ok && (
-        <Alert tone="danger" title={t('supply.healthBad')} icon={TriangleAlert}>
-          <ul className="mt-1 list-inside list-disc">
+        <Alert tone="danger" icon={TriangleAlert} title={t('supply.healthBad')}>
+          <ul className="mt-1 space-y-0.5 text-xs">
             {health.problems.map((problem) => (
               <li key={problem}>{problem}</li>
             ))}
@@ -179,357 +154,358 @@ export default function SupplyDetailPage({ params }: { params: Promise<{ id: str
         </Alert>
       )}
 
-      {supply.isNegative && (
-        <Alert tone="danger" title={t('supply.negative')} icon={TriangleAlert}>
-          {t('supply.negativeHint')}
+      {supply.isArchived && <Alert tone="neutral">{t('supply.archived')}</Alert>}
+
+      {/* --- what to do next, when this item is not doing anything yet --- */}
+
+      {(neverBought || noRecipe) && (
+        <Alert tone="primary" title={t('costSetup.next')}>
+          <ul className="mt-1 space-y-2 text-sm">
+            {neverBought && (
+              <li className="flex flex-wrap items-center gap-2">
+                <span>{t('costSetup.noPurchaseYet')}</span>
+                <Link href="/owner/purchases" className="font-semibold underline">
+                  {t('costSetup.recordPurchase')}
+                </Link>
+              </li>
+            )}
+            {noRecipe && (
+              <li className="flex flex-wrap items-center gap-2">
+                <span>{t('costSetup.noRecipeYet')}</span>
+                <Link href="/owner/products" className="font-semibold underline">
+                  {t('costSetup.setRecipe')}
+                </Link>
+              </li>
+            )}
+          </ul>
         </Alert>
       )}
 
-      {supply.isLow && !supply.isNegative && (
-        <Alert tone="warning" title={t('supply.low')}>
-          {`${t('supply.reorderLevel')}: ${formatNumber(supply.reorderLevel)} ${tUnit(supply.unit)}`}
-        </Alert>
-      )}
+      {/* --- the numbers. The two the system worked out explain themselves. --- */}
 
-      {supply.isArchived && <Alert tone="warning">{t('supply.archived')}</Alert>}
-
-      <div className="mb-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat
-          icon={Boxes}
+      <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <ExplainedStat
           label={t('supply.onHand')}
-          value={formatNumber(supply.onHand)}
-          hint={tUnit(supply.unit)}
-          tone={supply.isNegative ? 'danger' : supply.isLow ? 'warning' : 'primary'}
+          value={`${formatNumber(supply.onHand)} ${tUnit(supply.unit)}`}
+          onWhy={why.openOnHand}
         />
-        <Stat icon={Wallet} label={t('supply.avgCost')} value={formatMoney(supply.avgCost)} />
-        <Stat label={t('supply.value')} value={formatMoney(supply.value)} />
+        <ExplainedStat
+          label={t('supply.avgCost')}
+          value={formatMoney(supply.avgCost)}
+          onWhy={why.openAvgCost}
+        />
+        {/* Typed or trivially derived, so no working to show. */}
+        <Stat label={t('supply.value')} value={formatMoney(supply.value)} icon={Boxes} />
         <Stat
           label={t('supply.reorderLevel')}
-          value={supply.reorderLevel > 0 ? formatNumber(supply.reorderLevel) : '—'}
-          hint={supply.reorderLevel > 0 ? tUnit(supply.unit) : t('supply.reorderHint')}
+          value={
+            supply.reorderLevel > 0
+              ? `${formatNumber(supply.reorderLevel)} ${tUnit(supply.unit)}`
+              : '—'
+          }
         />
       </div>
 
       <div className="grid gap-5 lg:grid-cols-2">
+        {/* --- which boxes drain this, which is the answer to "why is it going down" --- */}
         <Card>
-          {/*
-           * The subtitle is the whole point of the card: every row says whether
-           * anybody actually counted, and the reader needs to know that the
-           * distinction exists before reading the first badge.
-           */}
-          <CardHeader title={t('supply.movements')} subtitle={t('supply.estimatedHint')} />
-
-          {movements.length === 0 ? (
-            <EmptyState icon={Boxes} title={t('supply.movementsEmpty')} />
+          <CardHeader title={t('supply.usedBy')} subtitle={t('recipe.estimateNote')} />
+          {noRecipe ? (
+            <div className="text-sm">
+              <p className="mb-2 text-[var(--muted-fg)]">{t('costSetup.noRecipeYet')}</p>
+              <Link href="/owner/products" className="font-semibold text-[var(--primary)] underline">
+                {t('costSetup.goToProducts')}
+              </Link>
+            </div>
           ) : (
-            <>
-              <ul className="-my-1 divide-y divide-border">
-                {movements.map((movement) => (
-                  <li key={movement.id} className="py-2.5">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold">
-                          {tMovementKind(movement.kind)}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {formatDate(movement.businessDate)}
-                        </p>
-                        {movement.note && (
-                          <p className="mt-0.5 break-words text-xs text-muted-foreground">
-                            {movement.note}
-                          </p>
-                        )}
-                      </div>
-
-                      <div className="shrink-0 text-right">
-                        <p
-                          className={
-                            movement.quantity < 0
-                              ? 'tabular text-sm font-bold text-danger-ink'
-                              : 'tabular text-sm font-bold text-success-ink'
-                          }
-                        >
-                          {`${movement.quantity < 0 ? '−' : '+'}${formatNumber(Math.abs(movement.quantity))}`}
-                        </p>
-                        <p className="tabular text-xs text-muted-foreground">
-                          {`${t('supply.onHandAfter')} ${formatNumber(movement.onHandAfter)}`}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                      <Badge tone={movement.isEstimated ? 'warning' : 'success'} dot>
-                        {movement.isEstimated ? t('supply.estimated') : t('supply.counted2')}
-                      </Badge>
-                      {movement.unitCost > 0 && (
-                        <span className="tabular text-xs text-muted-foreground">
-                          {`${t('supply.unitCost')} ${formatMoney(movement.unitCost)}`}
-                        </span>
-                      )}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-
-              {movements.length < total ? (
-                <Button
-                  variant="outline"
-                  full
-                  className="mt-4"
-                  loading={log.isFetching}
-                  onClick={() => setLimit((prev) => prev + PAGE_SIZE)}
+            <ul className="space-y-2">
+              {usedBy.map((row) => (
+                <li
+                  key={`${row.productId}-${row.variantId}`}
+                  className="flex items-baseline justify-between gap-3 text-sm"
                 >
-                  {t('app.loadMore')}
-                </Button>
-              ) : (
-                <p className="mt-4 text-center text-xs text-muted-foreground">
-                  {t('app.allLoaded')}
-                </p>
-              )}
-            </>
+                  <span>
+                    {row.productNameBn}
+                    <span className="text-[var(--muted-fg)]"> · {row.variantLabel}</span>
+                  </span>
+                  <span className="tabular whitespace-nowrap">
+                    {t('supply.perBox')} {formatNumber(row.perBox)} {tUnit(supply.unit)}
+                  </span>
+                </li>
+              ))}
+            </ul>
           )}
         </Card>
 
-        <div className="flex flex-col gap-5">
-          <Card>
-            {/*
-             * Two figures per row on purpose. The rate is what was agreed; the
-             * landed cost is what the crate actually cost once the van and the
-             * labour were spread over it, and that second number is the one the
-             * average on this page is built from. See docs/adr/0023.
-             */}
-            <CardHeader title={t('supply.purchaseHistory')} subtitle={t('purchase.landedHint')} />
-
-            {purchases.length === 0 ? (
-              <EmptyState icon={ShoppingCart} title={t('app.none')} />
-            ) : (
-              <ul className="-my-1 divide-y divide-border">
-                {purchases.map((purchase) => (
-                  <li key={purchase.id} className="py-2.5">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="tabular truncate text-sm font-semibold">
-                          {purchase.purchaseCode}
-                        </p>
-                        <p className="truncate text-xs text-muted-foreground">
-                          {purchase.payeeNameBn}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {formatDate(purchase.businessDate)}
-                        </p>
-                      </div>
-
-                      <div className="shrink-0 text-right">
-                        <p className="tabular text-sm font-semibold">
-                          {`${formatNumber(purchase.quantity)} ${tUnit(supply.unit)}`}
-                        </p>
-                        <p className="tabular text-xs text-muted-foreground">
-                          {`${t('purchase.rate')} ${formatMoney(purchase.unitCost)}`}
-                        </p>
-                        <p className="tabular text-xs font-semibold">
-                          {`${t('purchase.landedUnitCost')} ${formatMoney(purchase.landedUnitCost)}`}
-                        </p>
-                      </div>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Card>
-
-          <Card>
-            {/* Why the count moves on its own: these are the boxes whose recipe
-              * draws this supply down at delivery. */}
-            <CardHeader title={t('supply.usedBy')} subtitle={t('recipe.estimateNote')} />
-
-            {usedBy.length === 0 ? (
-              <EmptyState icon={Layers} title={t('app.none')} />
-            ) : (
-              <ul className="-my-1 divide-y divide-border">
-                {usedBy.map((row) => (
-                  <li
-                    key={`${row.variantId}`}
-                    className="flex items-start justify-between gap-3 py-2.5"
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold">{row.productNameBn}</p>
-                      <p className="truncate text-xs text-muted-foreground">{row.variantLabel}</p>
-                    </div>
-                    <div className="shrink-0 text-right">
-                      <p className="tabular text-sm font-semibold">
-                        {`${formatNumber(row.perBox)} ${tUnit(supply.unit)}`}
-                      </p>
-                      <p className="text-xs text-muted-foreground">{t('supply.perBox')}</p>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Card>
-        </div>
+        {/* --- where it came from, with the rate and the real cost side by side --- */}
+        <Card>
+          <CardHeader
+            title={t('supply.purchaseHistory')}
+            subtitle={t('purchase.landedHint')}
+            action={
+              <Link
+                href="/owner/purchases"
+                className="inline-flex items-center gap-1 text-sm text-[var(--primary)] hover:underline"
+              >
+                <ShoppingCart className="h-4 w-4" />
+                {t('costSetup.recordPurchase')}
+              </Link>
+            }
+          />
+          {neverBought ? (
+            <p className="text-sm text-[var(--muted-fg)]">{t('costSetup.noPurchaseYet')}</p>
+          ) : (
+            <ul className="space-y-2">
+              {purchases.map((row) => (
+                <li key={row.id} className="text-sm">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span>{row.payeeNameBn}</span>
+                    <span className="tabular whitespace-nowrap">
+                      {formatNumber(row.quantity)} {tUnit(supply.unit)}
+                    </span>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-3 text-xs text-[var(--muted-fg)]">
+                    <span>{formatDate(row.businessDate)}</span>
+                    <span className="tabular">
+                      {/*
+                        * The rate and what it actually cost, together. The gap
+                        * between them is the whole reason this feature exists.
+                        */}
+                      {t('why.rate')} {formatMoney(row.unitCost)} →{' '}
+                      <span className="font-semibold text-[var(--fg)]">
+                        {formatMoney(row.landedUnitCost)}
+                      </span>
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
       </div>
 
-      {counting && (
-        <StockTakeModal id={id} unit={supply.unit} onClose={() => setCounting(false)} />
-      )}
-      {adjusting && <AdjustModal id={id} unit={supply.unit} onClose={() => setAdjusting(false)} />}
+      {/* --- everything that ever moved, and whether anybody counted it --- */}
+      <Card className="mt-5">
+        <CardHeader title={t('supply.movements')} />
+        {movements.length === 0 ? (
+          <p className="text-sm text-[var(--muted-fg)]">{t('supply.movementsEmpty')}</p>
+        ) : (
+          <>
+            {/* Phone: a card each, because six columns in a sideways scroller
+                hides the one that matters. */}
+            <ul className="space-y-2 lg:hidden">
+              {movements.map((m) => (
+                <li key={m.id} className="rounded-md border border-[var(--border)] p-2 text-sm">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="font-medium">{tMovementKind(m.kind)}</span>
+                    <span className={`tabular ${m.quantity < 0 ? 'text-[var(--danger)]' : ''}`}>
+                      {m.quantity > 0 ? '+' : ''}
+                      {formatNumber(m.quantity)}
+                    </span>
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[var(--muted-fg)]">
+                    <span>{formatDate(m.businessDate)}</span>
+                    <Badge tone={m.isEstimated ? 'warning' : 'success'}>
+                      {m.isEstimated ? t('supply.estimated') : t('supply.counted2')}
+                    </Badge>
+                    <span>
+                      {t('supply.onHandAfter')} {formatNumber(m.onHandAfter)}
+                    </span>
+                  </div>
+                  {m.note && <p className="mt-1 text-xs">{m.note}</p>}
+                </li>
+              ))}
+            </ul>
+
+            <TableWrap from="lg" minWidth="44rem">
+              <thead>
+                <tr>
+                  <Th>{t('supply.adjustKind')}</Th>
+                  <Th>{t('app.date')}</Th>
+                  <Th align="right">{t('supply.quantity')}</Th>
+                  <Th align="right">{t('supply.onHandAfter')}</Th>
+                  <Th>{t('supply.estimatedHint')}</Th>
+                  <Th>{t('expense.note')}</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {movements.map((m) => (
+                  <Tr key={m.id}>
+                    <Td>{tMovementKind(m.kind)}</Td>
+                    <Td>{formatDate(m.businessDate)}</Td>
+                    <Td
+                      align="right"
+                      className={`tabular ${m.quantity < 0 ? 'text-[var(--danger)]' : ''}`}
+                    >
+                      {m.quantity > 0 ? '+' : ''}
+                      {formatNumber(m.quantity)}
+                    </Td>
+                    <Td align="right" className="tabular">
+                      {formatNumber(m.onHandAfter)}
+                    </Td>
+                    <Td>
+                      <Badge tone={m.isEstimated ? 'warning' : 'success'}>
+                        {m.isEstimated ? t('supply.estimated') : t('supply.counted2')}
+                      </Badge>
+                    </Td>
+                    <Td className="text-xs text-[var(--muted-fg)]">{m.note ?? '—'}</Td>
+                  </Tr>
+                ))}
+              </tbody>
+            </TableWrap>
+          </>
+        )}
+      </Card>
+
+      <OnHandWhyModal
+        open={why.which === 'onHand'}
+        onClose={why.close}
+        rows={provenance.onHand}
+        onHand={supply.onHand}
+      />
+      <AvgCostWhyModal
+        open={why.which === 'avgCost'}
+        onClose={why.close}
+        from={provenance.avgCost}
+      />
+      <CountModal id={id} supply={supply} open={counting} onClose={() => setCounting(false)} />
+      <AdjustModal id={id} supply={supply} open={adjusting} onClose={() => setAdjusting(false)} />
     </>
   );
 }
 
-/* ----------------------------------------------------------- stock take -- */
-
-type StockTakeResult = { movement: StockMovement | null; agreed: boolean };
-
 /**
- * The count, which is the one thing on this screen that can make a wrong number
- * right. It takes the total on the shelf, not a difference: "there are ninety
- * four" is what a person holding a clipboard knows, and "six went missing" is
- * arithmetic they should not have to do.
+ * গুনে দেখুন — a stock take.
  *
- * The box starts empty rather than seeded with the current figure. A pre-filled
- * count that somebody taps past is a stock take that confirms the book against
- * itself, which is worse than no stock take at all.
+ * Takes the counted total, never a difference: "there are ninety-four" is what
+ * somebody with a clipboard knows, and making them work out "six went missing" is
+ * asking them to do arithmetic the computer is for.
  */
-function StockTakeModal({
+function CountModal({
   id,
-  unit,
+  supply,
+  open,
   onClose,
 }: {
   id: string;
-  unit: string;
+  supply: SupplyDetail['supply'];
+  open: boolean;
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [counted, setCounted] = useState('');
   const [note, setNote] = useState('');
-  const [date, setDate] = useState(businessDate());
-  /*
-   * One key per open sheet, not per tap. A phone on one bar sends the same
-   * request twice and the server has to be able to tell that it is the same
-   * count, not two of them.
-   */
+  // Held per open sheet, so a double tap or a retry on a bad connection cannot
+  // post the same count twice.
   const [nonce] = useState(() => crypto.randomUUID());
 
   const save = useMutation({
     mutationFn: () =>
-      api.post<StockTakeResult>(`/owner/supplies/${id}/stock-take`, {
+      api.post<{ agreed: boolean }>(`/owner/supplies/${id}/stock-take`, {
         counted: Number(counted),
         nonce,
-        ...(note.trim() ? { note } : {}),
-        ...(date ? { date } : {}),
+        ...(note ? { note } : {}),
       }),
-    onSuccess: async (result) => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['owner', 'supplies'] }),
-        queryClient.invalidateQueries({ queryKey: ['owner', 'supply', id] }),
-      ]);
-      /*
-       * When the count already matched, nothing moved and closing would land on
-       * a page that looks exactly as it did before — which reads as a failed
-       * save. The sheet stays open to say the two agreed.
-       */
-      if (!result.agreed) onClose();
+    onSuccess: async (data) => {
+      await queryClient.invalidateQueries({ queryKey: ['owner'] });
+      toast(data.agreed ? t('supply.countedAgreed') : t('app.saved'));
+      onClose();
+      setCounted('');
+      setNote('');
     },
   });
 
   const errors = fieldErrors(save.error);
-  // Zero is a real count. An empty shelf is the answer the report needs most.
-  const countError = errors.counted ?? moneyError(counted, { allowZero: true });
-  const agreed = save.data?.agreed === true;
+  const valid = counted !== '' && Number(counted) >= 0;
+  const difference = valid ? Number(counted) - supply.onHand : null;
+
+  if (!open) return null;
 
   return (
     <Modal
       open
       onClose={onClose}
-      dirty={counted.trim() !== '' && !agreed}
       title={t('supply.stockTake')}
       footer={
         <>
           <Button variant="outline" onClick={onClose}>
-            {agreed ? t('app.close') : t('app.cancel')}
+            {t('app.cancel')}
           </Button>
-          {!agreed && (
-            <Button
-              loading={save.isPending}
-              disabled={!checkMoney(counted, { allowZero: true }).ok}
-              onClick={() => save.mutate()}
-            >
-              {t('app.save')}
-            </Button>
-          )}
+          <Button loading={save.isPending} disabled={!valid} onClick={() => save.mutate()}>
+            {t('app.save')}
+          </Button>
         </>
       }
     >
-      {agreed && <Alert tone="success">{t('supply.countedAgreed')}</Alert>}
+      <p className="mb-3 text-sm text-[var(--muted-fg)]">{t('supply.stockTakeHelp')}</p>
 
       {save.error && !Object.keys(errors).length && (
         <Alert tone="danger">{errorMessage(save.error)}</Alert>
       )}
 
-      <Field
-        label={t('supply.counted')}
-        htmlFor="counted"
-        hint={t('supply.stockTakeHelp')}
-        error={countError}
-        required
-      >
+      <div className="mb-3 rounded-md bg-[var(--muted)] p-2 text-sm">
+        {t('supply.onHand')}:{' '}
+        <span className="tabular font-semibold">
+          {formatNumber(supply.onHand)} {tUnit(supply.unit)}
+        </span>
+      </div>
+
+      <Field label={t('supply.counted')} error={errors.counted} required>
         <Input
-          id="counted"
           type="number"
           inputMode="decimal"
-          step="0.01"
+          step="0.001"
           min="0"
-          className="tabular"
-          trailing={<span className="text-sm text-muted-foreground">{tUnit(unit)}</span>}
           value={counted}
-          onChange={(event) => setCounted(event.target.value)}
+          onChange={(e) => setCounted(e.target.value)}
+          className="tabular"
           autoFocus
         />
       </Field>
 
-      <Field label={t('app.date')} htmlFor="count-date" error={errors.date}>
-        <Input
-          id="count-date"
-          type="date"
-          className="tabular"
-          value={date}
-          onChange={(event) => setDate(event.target.value)}
-        />
-      </Field>
+      {/*
+        * The subtraction, shown as it is typed, so the owner sees what they are
+        * about to record before they record it rather than after.
+        */}
+      {difference !== null && difference !== 0 && (
+        <p className="mb-3 text-sm">
+          <span className={difference < 0 ? 'text-[var(--danger)]' : 'text-[var(--success)]'}>
+            {difference > 0 ? '+' : ''}
+            {formatNumber(difference)} {tUnit(supply.unit)}
+          </span>{' '}
+          <span className="text-[var(--muted-fg)]">{t('movement.ADJUSTMENT')}</span>
+        </p>
+      )}
+      {difference === 0 && (
+        <p className="mb-3 text-sm text-[var(--muted-fg)]">{t('supply.countedAgreed')}</p>
+      )}
 
-      <Field label={t('app.notes')} htmlFor="count-note" hint={t('app.optional')} error={errors.note}>
-        <Textarea
-          id="count-note"
-          rows={2}
-          value={note}
-          onChange={(event) => setNote(event.target.value)}
-        />
+      <Field label={t('expense.note')}>
+        <Textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} />
       </Field>
     </Modal>
   );
 }
 
-/* --------------------------------------------------------------- adjust -- */
-
-/**
- * Everything else that moves a count and has a name: crates that broke, crates
- * that walked off, crates sent back to the supplier, and the plain correction.
- *
- * `RETURN_TO_PAYEE` is the one the server will refuse rather than let the count
- * go negative — sending crates back is a promise to somebody, so it cannot be
- * made out of stock that is not there.
- */
-function AdjustModal({ id, unit, onClose }: { id: string; unit: string; onClose: () => void }) {
+/** হাতে হিসাব ঠিক করুন — breakage, a loss, an opening balance, a return. */
+function AdjustModal({
+  id,
+  supply,
+  open,
+  onClose,
+}: {
+  id: string;
+  supply: SupplyDetail['supply'];
+  open: boolean;
+  onClose: () => void;
+}) {
   const queryClient = useQueryClient();
-  const [kind, setKind] = useState<AdjustKind>('ADJUSTMENT');
+  const toast = useToast();
+  const [kind, setKind] = useState('DAMAGED');
   const [quantity, setQuantity] = useState('');
   const [note, setNote] = useState('');
-  const [date, setDate] = useState(businessDate());
   const [nonce] = useState(() => crypto.randomUUID());
-
-  // A recount may go either way; a loss only ever goes one way.
-  const signed = kind === 'ADJUSTMENT';
 
   const save = useMutation({
     mutationFn: () =>
@@ -537,26 +513,33 @@ function AdjustModal({ id, unit, onClose }: { id: string; unit: string; onClose:
         kind,
         quantity: Number(quantity),
         nonce,
-        ...(note.trim() ? { note } : {}),
-        ...(date ? { date } : {}),
+        ...(note ? { note } : {}),
       }),
     onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['owner', 'supplies'] }),
-        queryClient.invalidateQueries({ queryKey: ['owner', 'supply', id] }),
-      ]);
+      await queryClient.invalidateQueries({ queryKey: ['owner'] });
+      toast(t('app.saved'));
       onClose();
+      setQuantity('');
+      setNote('');
     },
   });
 
   const errors = fieldErrors(save.error);
-  const qtyError = errors.quantity ?? quantityError(quantity, signed);
+
+  if (!open) return null;
+
+  /*
+   * `ADJUSTMENT` is the only kind whose direction the owner chooses; the rest have
+   * one obvious direction and the server normalises the sign, so a typed minus on
+   * "নষ্ট হয়েছে" cannot accidentally add stock.
+   */
+  const KINDS = ['DAMAGED', 'LOST', 'OPENING', 'RETURN_TO_PAYEE', 'ADJUSTMENT'];
+  const signed = kind === 'ADJUSTMENT';
 
   return (
     <Modal
       open
       onClose={onClose}
-      dirty={quantity.trim() !== ''}
       title={t('supply.adjust')}
       footer={
         <>
@@ -565,7 +548,7 @@ function AdjustModal({ id, unit, onClose }: { id: string; unit: string; onClose:
           </Button>
           <Button
             loading={save.isPending}
-            disabled={!quantityOk(quantity, signed)}
+            disabled={!quantity || Number(quantity) === 0}
             onClick={() => save.mutate()}
           >
             {t('app.save')}
@@ -577,15 +560,11 @@ function AdjustModal({ id, unit, onClose }: { id: string; unit: string; onClose:
         <Alert tone="danger">{errorMessage(save.error)}</Alert>
       )}
 
-      <Field label={t('supply.adjustKind')} htmlFor="kind" error={errors.kind} required>
-        <Select
-          id="kind"
-          value={kind}
-          onChange={(event) => setKind(event.target.value as AdjustKind)}
-        >
-          {ADJUST_KINDS.map((option) => (
-            <option key={option} value={option}>
-              {tMovementKind(option)}
+      <Field label={t('supply.adjustKind')} error={errors.kind} required>
+        <Select value={kind} onChange={(e) => setKind(e.target.value)}>
+          {KINDS.map((k) => (
+            <option key={k} value={k}>
+              {tMovementKind(k)}
             </option>
           ))}
         </Select>
@@ -593,49 +572,29 @@ function AdjustModal({ id, unit, onClose }: { id: string; unit: string; onClose:
 
       <Field
         label={t('supply.quantity')}
-        htmlFor="quantity"
-        // A minus sign is meaningful for a correction and meaningless for a
-        // loss, so the hint changes with the kind rather than explaining both.
-        hint={signed ? t('supply.stockTakeHelp') : undefined}
-        error={qtyError}
+        error={errors.quantity}
+        hint={signed ? t('movement.ADJUSTMENT') : undefined}
         required
       >
         <Input
-          id="quantity"
           type="number"
           inputMode="decimal"
-          step="0.01"
-          min={signed ? undefined : '0'}
-          className="tabular"
-          trailing={<span className="text-sm text-muted-foreground">{tUnit(unit)}</span>}
+          step="0.001"
+          {...(signed ? {} : { min: '0' })}
           value={quantity}
-          onChange={(event) => setQuantity(event.target.value)}
-          autoFocus
-        />
-      </Field>
-
-      <Field label={t('app.date')} htmlFor="adjust-date" error={errors.date}>
-        <Input
-          id="adjust-date"
-          type="date"
+          onChange={(e) => setQuantity(e.target.value)}
           className="tabular"
-          value={date}
-          onChange={(event) => setDate(event.target.value)}
         />
       </Field>
 
-      <Field
-        label={t('app.notes')}
-        htmlFor="adjust-note"
-        hint={t('app.optional')}
-        error={errors.note}
-      >
-        <Textarea
-          id="adjust-note"
-          rows={2}
-          value={note}
-          onChange={(event) => setNote(event.target.value)}
-        />
+      {kind === 'RETURN_TO_PAYEE' && (
+        <p className="mb-3 text-xs text-[var(--muted-fg)]">
+          {t('supply.onHand')}: {formatNumber(supply.onHand)} {tUnit(supply.unit)}
+        </p>
+      )}
+
+      <Field label={t('expense.note')}>
+        <Textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} />
       </Field>
     </Modal>
   );

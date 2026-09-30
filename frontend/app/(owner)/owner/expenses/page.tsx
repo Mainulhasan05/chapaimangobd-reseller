@@ -17,9 +17,16 @@
  *   payee is a due, and that is what makes a month of courier bills add up.
  *
  * Voiding is not deleting. A printed month's total must not change behind it.
+ *
+ * Built to the same four rules as the supplies screens: the words are the owner's
+ * own ("সারা দিনের", "এই টাকাটা কাকে দিলেন"), the three totals carry a "কীভাবে?"
+ * that says what each one does and does not include, an account with no categories
+ * is told what to do rather than shown "কিছু নেই", and every row links out to the
+ * order and the party it belongs to.
  */
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Wallet } from 'lucide-react';
 import { api, errorMessage, fieldErrors } from '@/lib/api';
@@ -54,6 +61,7 @@ import { Field, Input, MoneyInput, Select, Textarea } from '@/components/ui/form
 import { Switch } from '@/components/ui/switch';
 import { Modal } from '@/components/ui/modal';
 import { LoadMore } from '@/components/ui/load-more';
+import { WhyButton } from '@/components/why';
 
 const PAGE_SIZE = 20;
 
@@ -82,6 +90,86 @@ function MoneyCell({ label, value, hint }: { label: string; value: string; hint?
   );
 }
 
+/* ------------------------------------------------- where the numbers came from -- */
+
+/** One line of the working. `strong` marks the answer. */
+function WhyLine({
+  label,
+  value,
+  note,
+  strong,
+}: {
+  label: string;
+  value: string;
+  note?: string;
+  strong?: boolean;
+}) {
+  return (
+    <div
+      className={`flex items-baseline justify-between gap-3 py-1.5 ${
+        strong ? 'border-t border-border pt-2 font-semibold' : ''
+      }`}
+    >
+      <span className="text-sm">
+        {label}
+        {note && <span className="mt-0.5 block text-xs text-muted-foreground">{note}</span>}
+      </span>
+      <span className="tabular shrink-0 text-sm font-semibold">{value}</span>
+    </div>
+  );
+}
+
+/**
+ * "এই তিনটা সংখ্যা কোথা থেকে এলো" — and, more to the point, why they are three.
+ *
+ * Modelled on the working in `components/why.tsx`, kept local because what wants
+ * explaining here is not one arithmetic chain but a refusal to add two figures up.
+ * A day's labour and one parcel's courier bill answer different questions, and a
+ * single "মোট খরচ" would let the day's labour be charged to one mango parcel.
+ */
+function TotalsWhyModal({
+  totals,
+  onClose,
+}: {
+  totals: { order: number; period: number; unpaid: number };
+  onClose: () => void;
+}) {
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={t('why.title')}
+      footer={<Button onClick={onClose}>{t('why.close')}</Button>}
+    >
+      <WhyLine
+        label={t('expense.totalOrder')}
+        note={t('expense.scopeOrderHint')}
+        value={formatMoney(totals.order)}
+      />
+      <WhyLine
+        label={t('expense.totalPeriod')}
+        note={t('expense.scopePeriodHint')}
+        value={formatMoney(totals.period)}
+      />
+
+      {/*
+       * Not a sum of the two above, and shown without a subtotal rule so it cannot
+       * be read as one. It cuts across both: some of each is still owed.
+       * See docs/adr/0027.
+       */}
+      <div className="mt-3 border-t border-border pt-2">
+        <WhyLine
+          label={t('expense.totalUnpaid')}
+          note={t('expense.unpaidHint')}
+          value={formatMoney(totals.unpaid)}
+        />
+      </div>
+
+      <p className="mt-3 rounded-md bg-muted p-2 text-xs">{t('expense.voidHelp')}</p>
+    </Modal>
+  );
+}
+
 export default function OwnerExpensesPage() {
   const [creating, setCreating] = useState(false);
   const [managing, setManaging] = useState(false);
@@ -90,12 +178,28 @@ export default function OwnerExpensesPage() {
   const [scope, setScope] = useState('');
   const [paymentStatus, setPaymentStatus] = useState('');
   const [includeVoided, setIncludeVoided] = useState(false);
+  const [explaining, setExplaining] = useState(false);
   const [preset, setPreset] = useState<PresetKey | 'custom'>('thisMonth');
   const [range, setRange] = useState<DateRange>(rangeOf('thisMonth'));
+
+  const queryClient = useQueryClient();
 
   const categories = useQuery({
     queryKey: ['owner', 'expense-categories'],
     queryFn: () => api.get<{ categories: ExpenseCategory[] }>('/owner/expense-categories'),
+  });
+
+  /*
+   * The six defaults, one tap from the screen that needs them. Nothing can be
+   * recorded until a category exists, so this is the primary action on an empty
+   * account rather than something buried in the manage sheet.
+   */
+  const seed = useMutation({
+    mutationFn: () =>
+      api.post<{ created: number; categories: ExpenseCategory[] }>(
+        '/owner/expense-categories/seed'
+      ),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['owner', 'expense-categories'] }),
   });
 
   const filters =
@@ -142,12 +246,25 @@ export default function OwnerExpensesPage() {
         }
       />
 
-      {/* Nothing can be recorded without a category, so the six defaults are one tap. */}
+      {/*
+       * Nothing can be recorded without a category, which makes this the one thing
+       * worth interrupting for. It says what a category is for in the owner's own
+       * examples, then offers the whole set in one tap.
+       */}
       {noCategories && (
-        <Alert tone="warning" title={t('expense.categories')}>
-          <Button size="sm" variant="outline" onClick={() => setManaging(true)}>
-            {t('expense.seedCategories')}
-          </Button>
+        <Alert tone="primary" title={t('costSetup.next')}>
+          <p className="mb-3">{t('expense.help')}</p>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" loading={seed.isPending} onClick={() => seed.mutate()}>
+              {t('expense.seedCategories')}
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setManaging(true)}>
+              {t('expense.newCategory')}
+            </Button>
+          </div>
+          {seed.error && (
+            <p className="mt-2 text-xs text-danger-ink">{errorMessage(seed.error)}</p>
+          )}
         </Alert>
       )}
 
@@ -203,23 +320,30 @@ export default function OwnerExpensesPage() {
        * differently by the P&L, and one headline figure would hide that.
        */}
       {totals && rows.length > 0 && (
-        <div className="mb-4 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-3">
-          <MoneyCell
-            label={t('expense.totalOrder')}
-            value={formatMoney(totals.order)}
-            hint={t('expense.scopeOrderHint')}
-          />
-          <MoneyCell
-            label={t('expense.totalPeriod')}
-            value={formatMoney(totals.period)}
-            hint={t('expense.scopePeriodHint')}
-          />
-          <MoneyCell
-            label={t('expense.totalUnpaid')}
-            value={formatMoney(totals.unpaid)}
-            hint={t('expense.unpaidHint')}
-          />
-        </div>
+        <>
+          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-3">
+            <MoneyCell
+              label={t('expense.totalOrder')}
+              value={formatMoney(totals.order)}
+              hint={t('expense.scopeOrderHint')}
+            />
+            <MoneyCell
+              label={t('expense.totalPeriod')}
+              value={formatMoney(totals.period)}
+              hint={t('expense.scopePeriodHint')}
+            />
+            <MoneyCell
+              label={t('expense.totalUnpaid')}
+              value={formatMoney(totals.unpaid)}
+              hint={t('expense.unpaidHint')}
+            />
+          </div>
+          {/* Three figures where somebody expects one is a question, so it is
+              answered here rather than left to be guessed at. */}
+          <div className="mb-4 mt-2">
+            <WhyButton onClick={() => setExplaining(true)} />
+          </div>
+        </>
       )}
 
       {expenses.isLoading && (
@@ -236,8 +360,60 @@ export default function OwnerExpensesPage() {
         />
       )}
 
-      {expenses.isSuccess && rows.length === 0 && (
-        <EmptyState icon={Wallet} title={t('app.none')} description={t('expense.help')} />
+      {/* A filter that matched nothing. Nothing to teach: the account works. */}
+      {expenses.isSuccess &&
+        rows.length === 0 &&
+        !noCategories &&
+        Boolean(categoryId || scope || paymentStatus) && (
+          <EmptyState icon={Wallet} title={t('app.none')} />
+        )}
+
+      {/*
+       * Nothing recorded. The screen says what belongs here with the two kinds of
+       * expense spelled out in the trade's own examples — a day's labour against
+       * one parcel's courier bill — because picking the wrong one is the mistake
+       * the API refuses with WRONG_EXPENSE_SCOPE.
+       */}
+      {expenses.isSuccess && rows.length === 0 && !(categoryId || scope || paymentStatus) && (
+        <EmptyState
+          icon={Wallet}
+          title={t('expense.title')}
+          description={t('expense.help')}
+          action={
+            <div className="flex flex-col items-center gap-3">
+              {noCategories ? (
+                <Button loading={seed.isPending} onClick={() => seed.mutate()}>
+                  {t('expense.seedCategories')}
+                </Button>
+              ) : (
+                <Button onClick={() => setCreating(true)}>
+                  <Plus className="h-4 w-4" />
+                  {t('expense.new')}
+                </Button>
+              )}
+              <ul className="max-w-sm space-y-1.5 text-left text-xs text-muted-foreground">
+                <li>
+                  <span className="font-semibold text-foreground">
+                    {t('expense.scopeOrder')}:
+                  </span>{' '}
+                  {t('expense.scopeOrderHint')}
+                </li>
+                <li>
+                  <span className="font-semibold text-foreground">
+                    {t('expense.scopePeriod')}:
+                  </span>{' '}
+                  {t('expense.scopePeriodHint')}
+                </li>
+                <li>
+                  <Link href="/owner/payees" className="font-semibold text-primary-ink underline">
+                    {t('costSetup.thenPayee')}
+                  </Link>{' '}
+                  {t('expense.unpaidHint')}
+                </li>
+              </ul>
+            </div>
+          }
+        />
       )}
 
       {rows.length > 0 && (
@@ -251,13 +427,35 @@ export default function OwnerExpensesPage() {
                       <p className={`truncate font-semibold ${expense.isVoided ? 'line-through' : ''}`}>
                         {expense.categoryNameBn}
                       </p>
+                      {/* The parcel this was spent on, and the party still owed
+                          for it. Neither is a dead end. */}
                       <p className="text-xs text-muted-foreground">
-                        {formatDate(expense.businessDate)}
-                        {expense.orderCode && ` · ${expense.orderCode}`}
+                        <span className="tabular">{formatDate(expense.businessDate)}</span>
+                        {expense.order && expense.orderCode && (
+                          <>
+                            {' · '}
+                            <Link
+                              href={`/owner/orders/${expense.order}`}
+                              className="tabular font-semibold text-primary-ink underline"
+                            >
+                              {expense.orderCode}
+                            </Link>
+                          </>
+                        )}
                       </p>
                       {expense.payeeNameBn && (
                         <p className="truncate text-xs text-muted-foreground">
-                          {t('expense.payee')}: {expense.payeeNameBn}
+                          {t('expense.payee')}:{' '}
+                          {expense.payee ? (
+                            <Link
+                              href={`/owner/payees/${expense.payee}`}
+                              className="font-semibold text-primary-ink underline"
+                            >
+                              {expense.payeeNameBn}
+                            </Link>
+                          ) : (
+                            expense.payeeNameBn
+                          )}
                         </p>
                       )}
                     </div>
@@ -343,8 +541,30 @@ export default function OwnerExpensesPage() {
                       </Badge>
                     )}
                   </Td>
-                  <Td className="tabular text-xs">{expense.orderCode ?? '—'}</Td>
-                  <Td className="text-sm">{expense.payeeNameBn ?? '—'}</Td>
+                  <Td className="tabular text-xs">
+                    {expense.order && expense.orderCode ? (
+                      <Link
+                        href={`/owner/orders/${expense.order}`}
+                        className="font-semibold hover:underline"
+                      >
+                        {expense.orderCode}
+                      </Link>
+                    ) : (
+                      '—'
+                    )}
+                  </Td>
+                  <Td className="text-sm">
+                    {expense.payee && expense.payeeNameBn ? (
+                      <Link
+                        href={`/owner/payees/${expense.payee}`}
+                        className="font-medium hover:underline"
+                      >
+                        {expense.payeeNameBn}
+                      </Link>
+                    ) : (
+                      (expense.payeeNameBn ?? '—')
+                    )}
+                  </Td>
                   <Td className="tabular text-right font-semibold">
                     {formatMoney(expense.amount)}
                   </Td>
@@ -396,6 +616,10 @@ export default function OwnerExpensesPage() {
       )}
 
       {voiding && <VoidExpenseModal expense={voiding} onClose={() => setVoiding(null)} />}
+
+      {explaining && totals && (
+        <TotalsWhyModal totals={totals} onClose={() => setExplaining(false)} />
+      )}
     </>
   );
 }
@@ -587,7 +811,11 @@ function ExpenseModal({
           category
             ? category.scope === 'period'
               ? t('expense.scopePeriodHint')
-              : t('expense.scopeOrderHint')
+              : category.scope === 'order'
+                ? t('expense.scopeOrderHint')
+                : // `both` may go either way, so it gets the rule for the case
+                  // that has a field attached to it.
+                  `${t('expense.scopeBoth')} — ${t('expense.scopeOrderHint')}`
             : undefined
         }
         error={errors.categoryId ?? errors.scope}
@@ -653,6 +881,19 @@ function ExpenseModal({
           <option value="unpaid">{t('expense.unpaid')}</option>
         </Select>
       </Field>
+
+      {/*
+       * Unpaid without a payee is a 400 (PAYEE_REQUIRED), and on an account with
+       * no parties at all the select below cannot fix it. So it links out.
+       */}
+      {unpaid && payees.isSuccess && payees.data.payees.length === 0 && (
+        <Alert tone="primary" title={t('costSetup.next')}>
+          {t('costSetup.thenPayee')}{' '}
+          <Link href="/owner/payees" className="font-semibold underline">
+            {t('nav.payees')}
+          </Link>
+        </Alert>
+      )}
 
       <Field
         label={t('expense.payee')}

@@ -11,17 +11,31 @@ import {
   ClipboardList,
   Clock,
   MessageSquareWarning,
+  HandCoins,
   Package,
   ShoppingBag,
+  TrendingDown,
+  TrendingUp,
   Truck,
   TriangleAlert,
   Wallet,
 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { cn } from '@/lib/utils';
 import { useSession } from '@/lib/session';
 import { t, tUnit } from '@/lib/i18n/bn';
 import { businessDate, formatMoney, formatNumber, formatAge } from '@/lib/format';
-import type { Order, OwnerDashboard, PickList, Paged, ResellerSummary } from '@/lib/types';
+import { startOfMonth } from '@/components/ui/date-range';
+import type {
+  Order,
+  OwnerDashboard,
+  PickList,
+  Paged,
+  Position,
+  ProfitReport,
+  ResellerSummary,
+  SupplyReport,
+} from '@/lib/types';
 import {
   Badge,
   Card,
@@ -106,7 +120,56 @@ export default function OwnerDashboardPage() {
     staleTime: 5 * 60_000,
   });
 
+  /*
+   * The cost side, which this screen did not show at all.
+   *
+   * Every figure above is revenue: what was ordered, what is owed to us, what the
+   * couriers are carrying. None of it answers the question the owner actually
+   * asks at the end of a month, which is whether any of it was worth doing. These
+   * three are the cheapest honest answer — what is owed both ways, what the month
+   * made after every cost, and what is about to run out and stop the packing.
+   */
+  const position = useQuery({
+    queryKey: ['owner', 'position'],
+    queryFn: () => api.get<Position>('/owner/reports/position'),
+    staleTime: 5 * 60_000,
+  });
+
+  const profit = useQuery({
+    queryKey: ['owner', 'profit', 'month'],
+    queryFn: () =>
+      api.get<ProfitReport>(
+        `/owner/reports/profit?${rangeParams({ from: startOfMonth(), to: businessDate() })}`
+      ),
+    staleTime: 5 * 60_000,
+  });
+
+  const supplies = useQuery({
+    queryKey: ['owner', 'supplies-report'],
+    queryFn: () => api.get<SupplyReport>('/owner/reports/supplies'),
+    staleTime: 5 * 60_000,
+  });
+
   const data = dashboard.data;
+
+  /*
+   * Today against yesterday, taken from the seven days the trend chart already
+   * fetched rather than from a field the dashboard endpoint does not have. A
+   * delta invented from a single day's number would be a decoration; this one is
+   * two real days being compared.
+   */
+  const days = trend.data?.days ?? [];
+  const todayRow = days[days.length - 1];
+  const yesterdayRow = days[days.length - 2];
+  const orderDelta =
+    todayRow && yesterdayRow && yesterdayRow.orders > 0
+      ? {
+          value: `${formatNumber(
+            Math.abs(Math.round(((todayRow.orders - yesterdayRow.orders) / yesterdayRow.orders) * 100))
+          )}%`,
+          direction: (todayRow.orders >= yesterdayRow.orders ? 'up' : 'down') as 'up' | 'down',
+        }
+      : undefined;
 
   if (dashboard.isLoading) {
     return (
@@ -189,6 +252,7 @@ export default function OwnerDashboardPage() {
           tone="primary"
           label={t('owner.ordersToday')}
           value={formatNumber(data?.ordersToday ?? 0)}
+          delta={orderDelta}
           hint={
             (data?.closedToday.cancelled ?? 0) > 0
               ? `${t('order.cancelled')} ${formatNumber(data?.closedToday.cancelled ?? 0)}`
@@ -225,6 +289,102 @@ export default function OwnerDashboardPage() {
           href="/owner/orders"
         />
       </div>
+
+      {/*
+       * Where the money stands, and whether the month is working.
+       *
+       * Receivable and payable sit side by side and are never netted: what
+       * resellers owe the owner and what the owner owes parties are different
+       * people's money, and one figure hiding both would describe nobody's
+       * position. See docs/adr/0025 and docs/adr/0027.
+       */}
+      <section className="mb-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <Stat
+          icon={ArrowDownToLine}
+          label={t('position.receivable')}
+          value={formatMoney(position.data?.receivable ?? 0)}
+          hint={t('position.receivableHint')}
+          href="/owner/resellers"
+        />
+        <Stat
+          icon={HandCoins}
+          label={t('position.payable')}
+          value={formatMoney(position.data?.payable ?? 0)}
+          hint={t('position.payableHint')}
+          tone={(position.data?.payable ?? 0) > 0 ? 'warning' : 'neutral'}
+          href="/owner/payees"
+        />
+        {/*
+         * The only figure in the system that may be called profit without saying
+         * whose or before what, so it is labelled as loss when it is one rather
+         * than shown as a negative profit.
+         */}
+        <Stat
+          icon={(profit.data?.totals.netProfit ?? 0) < 0 ? TrendingDown : TrendingUp}
+          label={
+            (profit.data?.totals.netProfit ?? 0) < 0 ? t('profit.netLoss') : t('profit.net')
+          }
+          value={formatMoney(Math.abs(profit.data?.totals.netProfit ?? 0))}
+          hint={t('report.profitHint')}
+          tone={(profit.data?.totals.netProfit ?? 0) < 0 ? 'danger' : 'success'}
+          href="/owner/reports"
+        />
+      </section>
+
+      {/*
+       * What is about to stop the packing table.
+       *
+       * Only rendered when something is actually wrong. A card that is always
+       * present and usually empty teaches the reader to skip it, and this is the
+       * one that must not be skipped. A negative count outranks a low one: the
+       * first is a wrong number, the second is a correct number that is small.
+       */}
+      {(() => {
+        const rows = supplies.data?.supplies ?? [];
+        const bad = rows.filter((r) => r.isNegative);
+        const low = rows.filter((r) => r.isLow && !r.isNegative);
+        if (bad.length === 0 && low.length === 0) return null;
+
+        return (
+          <Card className="mb-5 p-5">
+            <CardHeader
+              title={t('supply.low')}
+              subtitle={t('packaging.shortageHint')}
+              href="/owner/supplies"
+            />
+            <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+              {[...bad, ...low].slice(0, 4).map((r) => (
+                <li key={r.supplyId}>
+                  <Link
+                    href={`/owner/supplies/${r.supplyId}`}
+                    className="flex items-center justify-between gap-3 rounded-xl border border-border bg-muted px-3 py-2.5 transition-colors hover:bg-subtle"
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-semibold">{r.nameBn}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {r.isNegative ? t('supply.negativeHint') : t('supply.reorderHint')}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-right">
+                      <span
+                        className={cn(
+                          'tabular block text-sm font-bold',
+                          r.isNegative ? 'text-danger-ink' : 'text-warning-ink'
+                        )}
+                      >
+                        {formatNumber(r.onHand)} {tUnit(r.unit)}
+                      </span>
+                      <Badge tone={r.isNegative ? 'danger' : 'warning'}>
+                        {r.isNegative ? t('supply.negative') : t('supply.low')}
+                      </Badge>
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        );
+      })()}
 
       {/*
        * What to do next, directly under what is happening. Placed above the fold

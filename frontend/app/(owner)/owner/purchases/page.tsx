@@ -13,16 +13,29 @@
  * owed to nobody and still raises the cost. That is why the footer carries
  * `payeeTotal` and `total` as two separate figures rather than one. See
  * docs/adr/0023, and docs/adr/0024 for why there is no edit button.
+ *
+ * Built to the same four rules as the supplies screens:
+ *
+ * 1. **Spoken business Bengali**, all of it from the dictionary — "দর কত",
+ *    "প্রতিটা পড়েছে", "এই টাকাটা কাকে দিলেন".
+ * 2. **Every worked-out number explains itself.** The rate is struck through
+ *    beside the landed cost, and a "কীভাবে?" on each line opens the addition laid
+ *    out the way it would be done on paper.
+ * 3. **An inert screen says what to do next.** With nothing recorded, this page
+ *    names the two lists a purchase needs and links to both.
+ * 4. **Nothing is a dead end.** Each line links to its shelf, each purchase to
+ *    the seller whose due it moved.
  */
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, ShoppingBasket } from 'lucide-react';
+import { Boxes, Plus, ShoppingBasket, Users } from 'lucide-react';
 import { api, errorMessage, fieldErrors } from '@/lib/api';
 import { t, tChargeKind, tUnit } from '@/lib/i18n/bn';
 import { businessDate, formatDate, formatMoney, formatNumber } from '@/lib/format';
 import { checkMoney, moneyError } from '@/lib/money';
-import type { Paged, Payee, Purchase, Supply } from '@/lib/types';
+import type { Paged, Payee, Purchase, PurchaseLine, Supply } from '@/lib/types';
 import {
   Alert,
   Badge,
@@ -30,6 +43,7 @@ import {
   EmptyState,
   ErrorState,
   PageHeader,
+  Stat,
   TableWrap,
   Td,
   Th,
@@ -49,6 +63,7 @@ import { Field, Input, MoneyInput, Select, Textarea } from '@/components/ui/form
 import { Switch } from '@/components/ui/switch';
 import { Modal } from '@/components/ui/modal';
 import { LoadMore } from '@/components/ui/load-more';
+import { WhyButton } from '@/components/why';
 
 const PAGE_SIZE = 20;
 
@@ -58,17 +73,151 @@ type PurchasePage = Paged<'purchases', Purchase> & {
   totals: { goodsCost: number; chargeTotal: number; spent: number; billedByPayees: number };
 };
 
-/** One figure in the strip under the date filter. */
-function MoneyCell({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+/** One figure in the breakdown strip under the two headline cards. */
+function MoneyCell({ label, value }: { label: string; value: string }) {
   return (
     <div className="bg-surface px-3 py-2">
       <p className="text-[0.6875rem] font-medium uppercase tracking-wide text-muted-foreground">
         {label}
       </p>
-      <p className={`tabular mt-0.5 leading-tight ${strong ? 'text-base font-bold' : 'text-sm font-semibold'}`}>
-        {value}
-      </p>
+      <p className="tabular mt-0.5 text-sm font-semibold leading-tight">{value}</p>
     </div>
+  );
+}
+
+/* ------------------------------------------------- where the number came from -- */
+
+/**
+ * One line of the working. `strong` marks a subtotal or the answer.
+ *
+ * Modelled on the working inside `components/why.tsx`, kept local because what is
+ * being explained here is one purchase line rather than a supply's average, and
+ * the two take different inputs.
+ */
+function WhyLine({
+  label,
+  value,
+  note,
+  strong,
+  muted,
+}: {
+  label: string;
+  value: string;
+  note?: string;
+  strong?: boolean;
+  muted?: boolean;
+}) {
+  return (
+    <div
+      className={`flex items-baseline justify-between gap-3 py-1 ${
+        strong ? 'border-t border-border pt-2 font-semibold' : ''
+      }`}
+    >
+      <span className={`text-sm ${muted ? 'text-muted-foreground' : ''}`}>
+        {label}
+        {note && <span className="block text-xs text-muted-foreground">{note}</span>}
+      </span>
+      <span className={`tabular text-sm ${muted ? 'text-muted-foreground' : ''}`}>{value}</span>
+    </div>
+  );
+}
+
+/**
+ * "প্রতিটা ৳৮৮ পড়ল — কীভাবে?"
+ *
+ * Laid out the way it would be added on paper, because that is what the owner is
+ * checking it against: the goods, then each charge as its own line, then the
+ * division. Every charge appears, including the ones that were not added into the
+ * cost, because a slip lists all of them and a missing line reads as an error.
+ *
+ * On a purchase with more than one line, a charge's row shows this line's share of
+ * it rather than the whole charge, and the basis that split it is named below.
+ */
+function LandedCostWhyModal({
+  purchase,
+  line,
+  onClose,
+}: {
+  purchase: Purchase;
+  line: PurchaseLine;
+  onClose: () => void;
+}) {
+  const allocatable = purchase.charges
+    .filter((charge) => charge.allocate)
+    .reduce((sum, charge) => sum + charge.amount, 0);
+
+  /*
+   * This line's share of one charge. The total is the API's own
+   * `allocatedCharge`, so the rows below always add up to the figure on the
+   * screen behind this sheet; only the split between charges is worked out here.
+   */
+  const shareOf = (amount: number) =>
+    allocatable > 0 ? (line.allocatedCharge * amount) / allocatable : 0;
+
+  const split = purchase.lines.length > 1;
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={t('why.avgCost')}
+      footer={<Button onClick={onClose}>{t('why.close')}</Button>}
+    >
+      <p className="mb-3 text-sm text-muted-foreground">{t('why.avgCostNote')}</p>
+
+      <p className="mb-2 text-xs text-muted-foreground">
+        <span className="font-semibold text-foreground">{line.supplyNameBn}</span> ·{' '}
+        {purchase.payeeNameBn} · {formatDate(purchase.businessDate)} ·{' '}
+        <span className="tabular">{purchase.purchaseCode}</span>
+      </p>
+
+      <WhyLine
+        label={`${formatNumber(line.quantity)} ${tUnit(line.unit)} × ${formatMoney(line.unitCost)}`}
+        note={t('why.rate')}
+        value={formatMoney(line.lineCost)}
+      />
+
+      {purchase.charges.map((charge) => (
+        <WhyLine
+          key={charge.id}
+          // The plus belongs only to the charges that actually get added on.
+          label={charge.allocate ? `+ ${tChargeKind(charge.kind)}` : tChargeKind(charge.kind)}
+          note={
+            !charge.allocate
+              ? t('why.notAllocated')
+              : charge.paidTo === 'other'
+                ? `${t('why.paidToOther')}${charge.payeeName ? ` · ${charge.payeeName}` : ''}`
+                : undefined
+          }
+          // A charge that never entered the cost is shown, but greyed at its own
+          // full amount, so the sum below still reads correctly.
+          value={charge.allocate ? formatMoney(shareOf(charge.amount)) : formatMoney(charge.amount)}
+          muted={!charge.allocate}
+        />
+      ))}
+
+      <WhyLine label={t('why.goods')} value={formatMoney(line.landedLineCost)} strong />
+      <WhyLine
+        label={`${formatMoney(line.landedLineCost)} ÷ ${formatNumber(line.quantity)}`}
+        note={t('why.divide')}
+        value={formatMoney(line.landedUnitCost)}
+        strong
+      />
+
+      {/*
+       * Said out loud, because otherwise the owner adds up the whole van hire
+       * against this one line, gets a bigger figure than the screen shows, and
+       * concludes the software is wrong.
+       */}
+      {split && (
+        <p className="mt-3 rounded-md bg-muted p-2 text-xs">
+          {t('purchase.basis')}:{' '}
+          {purchase.allocationBasis === 'value'
+            ? t('purchase.basisValue')
+            : t('purchase.basisQuantity')}
+        </p>
+      )}
+    </Modal>
   );
 }
 
@@ -76,18 +225,33 @@ function MoneyCell({ label, value, strong }: { label: string; value: string; str
  * The lines of a saved purchase, rate beside landed cost.
  *
  * This is the payoff of the whole feature, so it is a stacked list rather than a
- * nested table: it has to read the same on a 360px phone as on a desktop.
+ * nested table: it has to read the same on a 360px phone as on a desktop. The
+ * rate is struck through and the landed cost carries the weight, because the rate
+ * is what was agreed and the landed cost is what happened.
  */
-function PurchaseLines({ purchase }: { purchase: Purchase }) {
+function PurchaseLines({
+  purchase,
+  onWhy,
+}: {
+  purchase: Purchase;
+  onWhy: (line: PurchaseLine) => void;
+}) {
   return (
     <div className="rounded-xl border border-border bg-muted/40 p-3">
       <ul className="space-y-2">
         {purchase.lines.map((line) => (
           <li key={line.id} className="rounded-lg bg-surface p-3">
             <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-              <span className="font-semibold">{line.supplyNameBn}</span>
+              {/* Never a dead end: this is the shelf the purchase landed on. */}
+              <Link
+                href={`/owner/supplies/${line.supply}`}
+                className="inline-flex items-center gap-1.5 font-semibold hover:underline"
+              >
+                <Boxes className="h-3.5 w-3.5 text-muted-foreground" />
+                {line.supplyNameBn}
+              </Link>
               <span className="tabular text-sm text-muted-foreground">
-                {formatNumber(line.quantity)} {tUnit(line.unit)} × {formatMoney(line.unitCost)}
+                {formatNumber(line.quantity)} {tUnit(line.unit)} · {formatMoney(line.lineCost)}
               </span>
             </div>
             <div className="mt-2 grid grid-cols-2 gap-2 border-t border-border pt-2">
@@ -95,16 +259,22 @@ function PurchaseLines({ purchase }: { purchase: Purchase }) {
                 <p className="text-[0.6875rem] font-medium text-muted-foreground">
                   {t('purchase.rate')}
                 </p>
-                <p className="tabular text-sm">{formatMoney(line.unitCost)}</p>
+                <p className="tabular text-sm text-muted-foreground line-through decoration-muted-foreground/60">
+                  {formatMoney(line.unitCost)}
+                </p>
               </div>
               <div>
                 <p className="text-[0.6875rem] font-medium text-muted-foreground">
                   {t('purchase.landedUnitCost')}
                 </p>
-                <p className="tabular text-sm font-bold text-primary-ink">
+                <p className="tabular text-base font-bold text-primary-ink">
                   {formatMoney(line.landedUnitCost)}
                 </p>
               </div>
+            </div>
+            {/* The arithmetic, one tap away. Nobody can derive this by looking. */}
+            <div className="mt-2">
+              <WhyButton onClick={() => onWhy(line)} />
             </div>
           </li>
         ))}
@@ -122,16 +292,21 @@ function PurchaseLines({ purchase }: { purchase: Purchase }) {
                   {charge.paidTo === 'payee'
                     ? t('purchase.paidToPayee')
                     : charge.payeeName || t('purchase.paidToOther')}
-                  {!charge.allocate && ` · ${t('purchase.allocate')}: ${t('app.no')}`}
+                  {!charge.allocate && ` · ${t('why.notAllocated')}`}
                 </span>
               </span>
               <span className="tabular">{formatMoney(charge.amount)}</span>
             </li>
           ))}
+          <li className="pt-1 text-xs text-muted-foreground">{t('purchase.allocateHint')}</li>
         </ul>
       )}
 
-      <div className="mt-3 grid grid-cols-2 gap-2 border-t border-border pt-3">
+      {/*
+       * Three figures, and the middle one is why the outer two differ: what was
+       * handed over at the gate is spent and is owed to nobody. See docs/adr/0023.
+       */}
+      <div className="mt-3 grid grid-cols-2 gap-3 border-t border-border pt-3 sm:grid-cols-3">
         <div>
           <p className="text-[0.6875rem] font-medium text-muted-foreground">
             {t('purchase.payeeTotal')}
@@ -140,11 +315,21 @@ function PurchaseLines({ purchase }: { purchase: Purchase }) {
         </div>
         <div>
           <p className="text-[0.6875rem] font-medium text-muted-foreground">
+            {t('purchase.otherCharge')}
+          </p>
+          <p className="tabular text-base font-semibold text-muted-foreground">
+            {formatMoney(purchase.otherCharge)}
+          </p>
+        </div>
+        <div>
+          <p className="text-[0.6875rem] font-medium text-muted-foreground">
             {t('purchase.total')}
           </p>
           <p className="tabular text-base font-bold">{formatMoney(purchase.total)}</p>
         </div>
       </div>
+
+      <p className="mt-2 text-xs text-muted-foreground">{t('purchase.paidToHint')}</p>
     </div>
   );
 }
@@ -153,6 +338,8 @@ export default function OwnerPurchasesPage() {
   const [creating, setCreating] = useState(false);
   const [cancelling, setCancelling] = useState<Purchase | null>(null);
   const [open, setOpen] = useState<string | null>(null);
+  /** The one line whose arithmetic is being read, with the purchase it sits on. */
+  const [why, setWhy] = useState<{ purchase: Purchase; line: PurchaseLine } | null>(null);
   const [payeeId, setPayeeId] = useState('');
   const [status, setStatus] = useState('');
   /*
@@ -244,16 +431,37 @@ export default function OwnerPurchasesPage() {
       </Toolbar>
 
       {/*
-       * What was spent, and what of it the sellers are owed. Two numbers, not
-       * one: a charge paid at the gate is spent and is owed to nobody.
+       * What was spent, and what of it the sellers are owed. Two figures side by
+       * side and never one: a charge handed over at the gate is spent and is owed
+       * to nobody, so adding them together overstates a due. docs/adr/0023.
        */}
       {totals && rows.length > 0 && (
-        <div className="mb-4 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-4">
-          <MoneyCell label={t('purchase.goodsCost')} value={formatMoney(totals.goodsCost)} />
-          <MoneyCell label={t('purchase.chargeTotal')} value={formatMoney(totals.chargeTotal)} />
-          <MoneyCell label={t('purchase.spent')} value={formatMoney(totals.spent)} strong />
-          <MoneyCell label={t('purchase.payeeTotal')} value={formatMoney(totals.billedByPayees)} />
-        </div>
+        <>
+          <div className="mb-3 grid gap-3 sm:grid-cols-2">
+            <Stat
+              label={t('purchase.spent')}
+              value={formatMoney(totals.spent)}
+              hint={t('purchase.total')}
+              icon={ShoppingBasket}
+            />
+            <Stat
+              label={t('purchase.payeeTotal')}
+              value={formatMoney(totals.billedByPayees)}
+              hint={t('payee.dueHint')}
+              tone="primary"
+              icon={Users}
+            />
+          </div>
+
+          {/* The breakdown of the left-hand figure above, in the same order the
+              purchase itself is built: the goods, then getting them here. */}
+          <div className="mb-3 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border">
+            <MoneyCell label={t('purchase.goodsCost')} value={formatMoney(totals.goodsCost)} />
+            <MoneyCell label={t('purchase.chargeTotal')} value={formatMoney(totals.chargeTotal)} />
+          </div>
+
+          <p className="mb-4 text-xs text-muted-foreground">{t('purchase.paidToHint')}</p>
+        </>
       )}
 
       {purchases.isLoading && (
@@ -270,16 +478,42 @@ export default function OwnerPurchasesPage() {
         />
       )}
 
-      {purchases.isSuccess && rows.length === 0 && (
+      {/* A filter that found nothing is not an empty account, so it says so and
+          stops there rather than teaching somebody who already knows. */}
+      {purchases.isSuccess && rows.length === 0 && (payeeId || status) && (
+        <EmptyState icon={ShoppingBasket} title={t('app.none')} />
+      )}
+
+      {/*
+       * Nothing recorded at all. This screen is inert until two other lists have
+       * something in them, so it names them in order and links to both instead of
+       * shrugging with "কিছু নেই".
+       */}
+      {purchases.isSuccess && rows.length === 0 && !payeeId && !status && (
         <EmptyState
           icon={ShoppingBasket}
-          title={t('app.none')}
-          description={t('purchase.help')}
+          title={t('purchase.title')}
+          description={`${t('costSetup.noPurchaseYet')} ${t('purchase.landedHint')}`}
           action={
-            <Button onClick={() => setCreating(true)}>
-              <Plus className="h-4 w-4" />
-              {t('purchase.new')}
-            </Button>
+            <div className="flex flex-col items-center gap-3">
+              <Button onClick={() => setCreating(true)}>
+                <Plus className="h-4 w-4" />
+                {t('purchase.new')}
+              </Button>
+              <ol className="max-w-sm space-y-1.5 text-left text-xs text-muted-foreground">
+                <li>
+                  <Link href="/owner/supplies" className="font-semibold text-primary-ink underline">
+                    {t('costSetup.supplyFirst')}
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/owner/payees" className="font-semibold text-primary-ink underline">
+                    {t('costSetup.thenPayee')}
+                  </Link>
+                </li>
+                <li>{t('costSetup.thenPurchase')}</li>
+              </ol>
+            </div>
           }
         />
       )}
@@ -298,7 +532,14 @@ export default function OwnerPurchasesPage() {
                         <p className={`tabular truncate font-bold ${cancelled ? 'line-through' : ''}`}>
                           {purchase.purchaseCode}
                         </p>
-                        <p className="truncate text-sm">{purchase.payeeNameBn}</p>
+                        {/* The seller's own page, where this purchase's share of
+                            their due is waiting to be paid. */}
+                        <Link
+                          href={`/owner/payees/${purchase.payee}`}
+                          className="block truncate text-sm font-medium hover:underline"
+                        >
+                          {purchase.payeeNameBn}
+                        </Link>
                         <p className="text-xs text-muted-foreground">
                           {formatDate(purchase.businessDate)}
                           {purchase.invoiceNo && ` · ${purchase.invoiceNo}`}
@@ -333,7 +574,10 @@ export default function OwnerPurchasesPage() {
 
                     {open === purchase.id && (
                       <div className="mt-3">
-                        <PurchaseLines purchase={purchase} />
+                        <PurchaseLines
+                          purchase={purchase}
+                          onWhy={(line) => setWhy({ purchase, line })}
+                        />
                       </div>
                     )}
 
@@ -388,7 +632,12 @@ export default function OwnerPurchasesPage() {
                       )}
                     </Td>
                     <Td>
-                      {purchase.payeeNameBn}
+                      <Link
+                        href={`/owner/payees/${purchase.payee}`}
+                        className="font-medium hover:underline"
+                      >
+                        {purchase.payeeNameBn}
+                      </Link>
                       <div className="tabular text-xs text-muted-foreground">
                         {formatNumber(purchase.lines.length)} · {t('purchase.item')}
                         {purchase.invoiceNo && ` · ${purchase.invoiceNo}`}
@@ -430,7 +679,15 @@ export default function OwnerPurchasesPage() {
            */}
           {open && rows.some((purchase) => purchase.id === open) && (
             <div className="mt-3 hidden xl:block">
-              <PurchaseLines purchase={rows.find((purchase) => purchase.id === open)!} />
+              {(() => {
+                const purchase = rows.find((row) => row.id === open)!;
+                return (
+                  <PurchaseLines
+                    purchase={purchase}
+                    onWhy={(line) => setWhy({ purchase, line })}
+                  />
+                );
+              })()}
             </div>
           )}
 
@@ -442,6 +699,12 @@ export default function OwnerPurchasesPage() {
             shown={rows.length}
             total={total}
           />
+
+          {/*
+           * Why there is no edit button on any row, said once at the foot of the
+           * list rather than in a tooltip nobody opens. docs/adr/0024.
+           */}
+          <p className="mt-4 text-xs text-muted-foreground">{t('purchase.cancelHelp')}</p>
         </>
       )}
 
@@ -449,6 +712,14 @@ export default function OwnerPurchasesPage() {
 
       {cancelling && (
         <CancelPurchaseModal purchase={cancelling} onClose={() => setCancelling(null)} />
+      )}
+
+      {why && (
+        <LandedCostWhyModal
+          purchase={why.purchase}
+          line={why.line}
+          onClose={() => setWhy(null)}
+        />
       )}
     </>
   );
@@ -653,6 +924,29 @@ function PurchaseModal({ onClose }: { onClose: () => void }) {
 
       {/* A purchase cannot be edited afterwards, so the sheet says so up front. */}
       <Alert tone="warning">{t('purchase.cancelHelp')}</Alert>
+
+      {/*
+       * Both dropdowns below are fed by other screens, and an empty one is a dead
+       * end rather than an error. So the sheet says which list is missing and
+       * links straight to it.
+       */}
+      {supplies.isSuccess && supplies.data.supplies.length === 0 && (
+        <Alert tone="primary" title={t('costSetup.next')}>
+          {t('costSetup.emptySupply')}{' '}
+          <Link href="/owner/supplies" className="font-semibold underline">
+            {t('nav.supplies')}
+          </Link>
+        </Alert>
+      )}
+
+      {payees.isSuccess && payees.data.payees.length === 0 && (
+        <Alert tone="primary" title={t('costSetup.next')}>
+          {t('costSetup.thenPayee')}{' '}
+          <Link href="/owner/payees" className="font-semibold underline">
+            {t('nav.payees')}
+          </Link>
+        </Alert>
+      )}
 
       <Field label={t('purchase.payee')} htmlFor="payeeId" error={errors.payeeId} required>
         <Select id="payeeId" value={payeeId} onChange={(event) => setPayeeId(event.target.value)}>

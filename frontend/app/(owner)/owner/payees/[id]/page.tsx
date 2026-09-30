@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * One payee, and what is owed to them.
+ * One পার্টি, and what is owed to them.
  *
  * `due` is positive when the owner owes (docs/adr/0025), the opposite of a
  * reseller's balance, so the figure is always said in words next to the number.
@@ -12,12 +12,34 @@
  *
  * Paying more than the due is legitimate and the API never refuses it, so
  * nothing here caps the amount at the balance.
+ *
+ * Rebuilt to the same brief as `owner/supplies/[id]`:
+ *
+ * 1. **Spoken Bengali.** "দিতে হবে", "টাকা দিন", "লেনদেনের খাতা" — every string
+ *    comes from the dictionary, none of it from an accountant.
+ * 2. **The due explains itself.** It is a running total of an append-only ledger,
+ *    which is exactly the kind of number somebody disbelieves while holding a
+ *    paper slip, so it carries a "কীভাবে?" that opens the working: every entry,
+ *    its amount, and where the balance stood after it.
+ * 3. **An inert account says what to do.** A payee with no ledger, no purchase and
+ *    no খরচ is doing nothing, and the screen says so and links to the places that
+ *    change that.
+ * 4. **Nothing is a dead end.** A ledger row posted by a purchase or an expense
+ *    links to that screen, and both side cards carry the arrow to their list.
  */
 
 import { use, useState } from 'react';
 import Link from 'next/link';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, HandCoins, Phone, ShoppingBasket, Wallet } from 'lucide-react';
+import {
+  ArrowLeft,
+  HandCoins,
+  Phone,
+  Receipt,
+  ShoppingBasket,
+  TriangleAlert,
+  Wallet,
+} from 'lucide-react';
 import { api, errorMessage, fieldErrors } from '@/lib/api';
 import { t, tPaidFrom, tPayeeKind, tPayeeLedgerKind } from '@/lib/i18n/bn';
 import {
@@ -35,7 +57,6 @@ import {
   Badge,
   Card,
   CardHeader,
-  EmptyState,
   ErrorState,
   PageHeader,
   Stat,
@@ -46,6 +67,7 @@ import { Segmented } from '@/components/ui/toolbar';
 import { Modal } from '@/components/ui/modal';
 import { LoadMore } from '@/components/ui/load-more';
 import { ListSkeleton, StatSkeleton } from '@/components/ui/skeleton';
+import { ExplainedStat } from '@/components/why';
 
 const PAGE_SIZE = 20;
 
@@ -59,10 +81,15 @@ type ManualKind = (typeof MANUAL_KINDS)[number];
 /**
  * Where an account stands, in words rather than in a sign.
  *
- * Zero and a due both read as "বাকি"; a negative due is not that sentence with a
- * minus in it, so it gets the advance wording and a different tone.
+ * Zero and a due both read as "দিতে হবে"; a negative due is not that sentence
+ * with a minus in it, so it gets the advance wording and a different tone.
  */
-function stateOf(due: number): { label: string; value: string; hint: string; tone: 'warning' | 'primary' | 'neutral' } {
+function stateOf(due: number): {
+  label: string;
+  value: string;
+  hint: string;
+  tone: 'warning' | 'primary' | 'neutral';
+} {
   if (due < 0) {
     return {
       label: t('payee.advance'),
@@ -79,6 +106,13 @@ function stateOf(due: number): { label: string; value: string; hint: string; ton
   };
 }
 
+/** The ink a due or an advance is written in. Never the same colour as the other. */
+function inkOf(tone: 'warning' | 'primary' | 'neutral'): string {
+  if (tone === 'primary') return 'text-primary-ink';
+  if (tone === 'warning') return 'text-warning-ink';
+  return 'text-muted-foreground';
+}
+
 /** A running figure on a ledger row, which may have crossed into advance. */
 function runningText(dueAfter: number): string {
   return dueAfter < 0
@@ -86,15 +120,50 @@ function runningText(dueAfter: number): string {
     : `${t('payee.dueAfter')} ${formatMoney(dueAfter)}`;
 }
 
+/**
+ * Where a ledger row came from, so no row is a dead end.
+ *
+ * A payment and a hand entry were made on this screen and have nowhere else to
+ * go; a purchase and an unpaid খরচ were written somewhere else, and that is where
+ * somebody who disputes the row needs to look.
+ */
+function refHref(entry: PayeeLedgerEntry): '/owner/purchases' | '/owner/expenses' | null {
+  if (entry.refType === 'purchase') return '/owner/purchases';
+  if (entry.refType === 'expense') return '/owner/expenses';
+  return null;
+}
+
 export default function PayeeDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const [paying, setPaying] = useState(false);
   const [manual, setManual] = useState(false);
+  const [whyDue, setWhyDue] = useState(false);
 
   const query = useQuery({
     queryKey: ['owner', 'payee', id],
     queryFn: () => api.get<PayeeDetail>(`/owner/payees/${id}`),
   });
+
+  /*
+   * The ledger is paged, and it is read twice: once as the খাতা itself and once
+   * as the working behind the due. One query, so the two can never disagree and
+   * a "load more" fills both.
+   */
+  const ledger = useInfiniteQuery({
+    queryKey: ['owner', 'payee', id, 'ledger'],
+    queryFn: ({ pageParam }) =>
+      api.get<Paged<'ledger', PayeeLedgerEntry>>(
+        `/owner/payees/${id}/ledger?limit=${PAGE_SIZE}&page=${pageParam}`
+      ),
+    initialPageParam: 1,
+    getNextPageParam: (last, pages) => {
+      const loaded = pages.reduce((count, page) => count + page.ledger.length, 0);
+      return loaded < last.total ? pages.length + 1 : undefined;
+    },
+  });
+
+  const entries = ledger.data?.pages.flatMap((page) => page.ledger) ?? [];
+  const entryTotal = ledger.data?.pages[0]?.total ?? 0;
 
   const back = (
     <Link
@@ -102,7 +171,7 @@ export default function PayeeDetailPage({ params }: { params: Promise<{ id: stri
       className="mb-3 inline-flex items-center gap-1.5 text-sm font-semibold text-muted-foreground hover:text-foreground"
     >
       <ArrowLeft className="h-4 w-4" />
-      {t('app.back')}
+      {t('payee.title')}
     </Link>
   );
 
@@ -132,6 +201,14 @@ export default function PayeeDetailPage({ params }: { params: Promise<{ id: stri
   const { payee, purchases, expenses, health } = query.data!;
   const state = stateOf(payee.due);
 
+  /*
+   * Nothing has ever been written against this পার্টি. Not an error — it is the
+   * normal state of a row somebody added this morning — so it reads as
+   * instructions rather than as a warning.
+   */
+  const inert =
+    Boolean(ledger.data) && entryTotal === 0 && purchases.length === 0 && expenses.length === 0;
+
   return (
     <>
       {back}
@@ -148,18 +225,30 @@ export default function PayeeDetailPage({ params }: { params: Promise<{ id: stri
             <Button variant="outline" onClick={() => setManual(true)}>
               {t('payee.manualEntry')}
             </Button>
+            {/* On a phone a number is for calling, not for reading. */}
+            {payee.phone && (
+              <a href={`tel:${payee.phone}`}>
+                <Button variant="outline">
+                  <Phone className="h-4 w-4" />
+                  <span className="tabular">{payee.phone}</span>
+                </Button>
+              </a>
+            )}
           </div>
         }
       />
 
-      {payee.isArchived && <Alert tone="warning">{t('supply.archived')}</Alert>}
+      {payee.address && <p className="-mt-4 mb-5 text-sm text-muted-foreground">{payee.address}</p>}
+
+      {/* --- what is wrong, loudest first --- */}
 
       {/*
-       * The append-only ledger disagrees with the cached due. That is a bug, not
-       * a number to reconcile by hand, so it is said in full and in red.
+       * The append-only ledger disagrees with the cached due. That is a bug in
+       * our software, not a number to reconcile by hand, so it is said in full
+       * and in red.
        */}
       {!health.ok && (
-        <Alert tone="danger" title={t('payee.healthBad')}>
+        <Alert tone="danger" icon={TriangleAlert} title={t('payee.healthBad')}>
           <ul className="mt-1 list-inside list-disc space-y-0.5 text-xs">
             {health.problems.map((problem) => (
               <li key={problem}>{problem}</li>
@@ -168,50 +257,208 @@ export default function PayeeDetailPage({ params }: { params: Promise<{ id: stri
         </Alert>
       )}
 
+      {/*
+       * An advance is its own fact, announced in its own words. The stat below
+       * already carries the figure; this is here so nobody reads the screen as
+       * "৳500 owed" when the ৳500 is already in the other man's pocket.
+       */}
+      {payee.isAdvance && (
+        <Alert tone="primary" icon={Wallet} title={t('payee.advance')}>
+          {t('payee.advanceHint')}
+        </Alert>
+      )}
+
+      {payee.isArchived && <Alert tone="neutral">{t('supply.archived')}</Alert>}
+
+      {/* --- what to do next, when nothing has been written against this পার্টি --- */}
+
+      {inert && (
+        <Alert tone="primary" title={t('costSetup.next')}>
+          <ul className="mt-1 space-y-2 text-sm">
+            <li className="flex flex-wrap items-center gap-2">
+              <span>{t('costSetup.thenPurchase')}</span>
+              <Link href="/owner/purchases" className="font-semibold underline">
+                {t('costSetup.recordPurchase')}
+              </Link>
+            </li>
+            <li className="flex flex-wrap items-center gap-2">
+              <span>{t('expense.unpaidHint')}</span>
+              <Link href="/owner/expenses" className="font-semibold underline">
+                {t('expense.new')}
+              </Link>
+            </li>
+            <li className="flex flex-wrap items-center gap-2">
+              <span>{t('payee.manualHelp')}</span>
+              <button
+                type="button"
+                onClick={() => setManual(true)}
+                className="font-semibold underline"
+              >
+                {t('payee.manualEntry')}
+              </button>
+            </li>
+          </ul>
+        </Alert>
+      )}
+
+      {/* --- the numbers. The one the system worked out explains itself. --- */}
+
       <div className="mb-5 grid gap-4 sm:grid-cols-3">
-        <Stat
-          icon={state.tone === 'primary' ? Wallet : HandCoins}
+        {/*
+         * A due is not typed by anybody: it is every entry in the খাতা added up.
+         * So it is the one figure here that carries its working, the way
+         * প্রতিটা পড়েছে does on a supply.
+         *
+         * No `delta`: there is no prior-period due in the API, and inventing one
+         * would be a number somebody pays money against.
+         */}
+        <ExplainedStat
           label={state.label}
-          value={state.value}
+          value={<span className={inkOf(state.tone)}>{state.value}</span>}
           hint={state.hint}
-          tone={state.tone}
+          onWhy={() => setWhyDue(true)}
         />
         <Stat
           icon={ShoppingBasket}
           label={t('payee.purchases')}
           value={formatNumber(purchases.length)}
+          href="/owner/purchases"
         />
-        <Stat icon={Phone} label={t('auth.phone')} value={payee.phone ?? '—'} hint={payee.address ?? undefined} />
+        <Stat
+          icon={Receipt}
+          label={t('payee.ledger')}
+          value={formatNumber(entryTotal)}
+          hint={t('payee.dueHint')}
+        />
       </div>
 
-      {payee.phone && (
-        <div className="mb-5">
-          <a href={`tel:${payee.phone}`}>
-            <Button variant="outline" size="sm">
-              <Phone className="h-4 w-4" />
-              <span className="tabular">{payee.phone}</span>
-            </Button>
-          </a>
-        </div>
-      )}
-
       <div className="grid gap-5 lg:grid-cols-2">
-        <LedgerCard payeeId={id} />
+        <Card>
+          <CardHeader title={t('payee.ledger')} />
+
+          {ledger.isLoading && <ListSkeleton rows={4} />}
+
+          {ledger.isError && entries.length === 0 && (
+            <ErrorState
+              onRetry={() => ledger.refetch()}
+              isRetrying={ledger.isFetching}
+              error={ledger.error}
+            />
+          )}
+
+          {/* Empty, and the way out of empty. Nothing here says "কিছু নেই". */}
+          {ledger.data && entries.length === 0 && (
+            <div className="text-sm">
+              <p className="mb-2 text-muted-foreground">{t('payee.ledgerEmpty')}</p>
+              <p className="mb-2 text-muted-foreground">{t('costSetup.thenPurchase')}</p>
+              <Link
+                href="/owner/purchases"
+                className="font-semibold text-primary-ink underline"
+              >
+                {t('costSetup.recordPurchase')}
+              </Link>
+            </div>
+          )}
+
+          {entries.length > 0 && (
+            <>
+              <ul className="-my-1 divide-y divide-border">
+                {entries.map((entry) => {
+                  const href = refHref(entry);
+                  return (
+                    <li
+                      key={entry.id}
+                      /* A reversal is muted: the original row is never edited, so
+                       * both stay, and the one that cancels should not shout as
+                       * loudly. */
+                      className={cn(
+                        'flex items-start justify-between gap-3 py-2.5',
+                        entry.reversalOf && 'opacity-60'
+                      )}
+                    >
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {href ? (
+                            <Link
+                              href={href}
+                              className="truncate text-sm font-semibold text-primary-ink hover:underline"
+                            >
+                              {tPayeeLedgerKind(entry.kind)}
+                            </Link>
+                          ) : (
+                            <span className="truncate text-sm font-semibold">
+                              {tPayeeLedgerKind(entry.kind)}
+                            </span>
+                          )}
+                          {entry.reversalOf && <Badge>{tPayeeLedgerKind('REVERSAL')}</Badge>}
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {formatDateTime(entry.createdAt)}
+                        </p>
+                        {entry.note && (
+                          <p className="mt-0.5 break-words text-xs text-muted-foreground">
+                            {entry.note}
+                          </p>
+                        )}
+                      </div>
+                      <div className="shrink-0 text-right">
+                        {/* Positive increased what we owe. */}
+                        <p
+                          className={cn(
+                            'tabular font-semibold',
+                            entry.amount < 0 ? 'text-success-ink' : 'text-warning-ink'
+                          )}
+                        >
+                          {formatSignedMoney(entry.amount)}
+                        </p>
+                        <p className="tabular text-xs text-muted-foreground">
+                          {runningText(entry.dueAfter)}
+                        </p>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+
+              <LoadMore
+                compact
+                hasMore={Boolean(ledger.hasNextPage)}
+                loading={ledger.isFetchingNextPage}
+                onLoadMore={() => ledger.fetchNextPage()}
+                error={ledger.isFetchNextPageError ? ledger.error : undefined}
+                shown={entries.length}
+                total={entryTotal}
+              />
+            </>
+          )}
+        </Card>
 
         <div className="grid gap-5">
           <Card>
-            <CardHeader title={t('payee.purchases')} />
+            <CardHeader
+              title={t('payee.purchases')}
+              subtitle={t('purchase.landedHint')}
+              href="/owner/purchases"
+              hrefLabel={t('nav.purchases')}
+            />
             {purchases.length === 0 ? (
-              <EmptyState icon={ShoppingBasket} title={t('app.none')} />
+              <div className="text-sm">
+                <p className="mb-2 text-muted-foreground">{t('costSetup.noPurchaseYet')}</p>
+                <Link href="/owner/purchases" className="font-semibold text-primary-ink underline">
+                  {t('costSetup.recordPurchase')}
+                </Link>
+              </div>
             ) : (
               <ul className="-my-1 divide-y divide-border">
                 {purchases.map((purchase) => (
-                  <li
-                    key={purchase.id}
-                    className="flex items-start justify-between gap-3 py-2.5"
-                  >
+                  <li key={purchase.id} className="flex items-start justify-between gap-3 py-2.5">
                     <div className="min-w-0">
-                      <p className="tabular truncate font-semibold">{purchase.purchaseCode}</p>
+                      <Link
+                        href="/owner/purchases"
+                        className="tabular block truncate font-semibold text-primary-ink hover:underline"
+                      >
+                        {purchase.purchaseCode}
+                      </Link>
                       <p className="text-xs text-muted-foreground">
                         {formatDate(purchase.businessDate)}
                       </p>
@@ -234,15 +481,30 @@ export default function PayeeDetailPage({ params }: { params: Promise<{ id: stri
           </Card>
 
           <Card>
-            <CardHeader title={t('payee.expenses')} />
+            <CardHeader
+              title={t('payee.expenses')}
+              subtitle={t('expense.unpaidHint')}
+              href="/owner/expenses"
+              hrefLabel={t('nav.expenses')}
+            />
             {expenses.length === 0 ? (
-              <EmptyState icon={HandCoins} title={t('app.none')} />
+              <div className="text-sm">
+                <p className="mb-2 text-muted-foreground">{t('expense.help')}</p>
+                <Link href="/owner/expenses" className="font-semibold text-primary-ink underline">
+                  {t('expense.new')}
+                </Link>
+              </div>
             ) : (
               <ul className="-my-1 divide-y divide-border">
                 {expenses.map((expense) => (
                   <li key={expense.id} className="flex items-start justify-between gap-3 py-2.5">
                     <div className="min-w-0">
-                      <p className="truncate font-semibold">{expense.categoryNameBn}</p>
+                      <Link
+                        href="/owner/expenses"
+                        className="block truncate font-semibold text-primary-ink hover:underline"
+                      >
+                        {expense.categoryNameBn}
+                      </Link>
                       <p className="text-xs text-muted-foreground">
                         {formatDate(expense.businessDate)}
                       </p>
@@ -261,104 +523,135 @@ export default function PayeeDetailPage({ params }: { params: Promise<{ id: stri
         </div>
       </div>
 
+      <DueWhyModal
+        open={whyDue}
+        onClose={() => setWhyDue(false)}
+        entries={entries}
+        total={entryTotal}
+        due={payee.due}
+      />
       {paying && <PayModal payee={payee} onClose={() => setPaying(false)} />}
       {manual && <ManualEntryModal payee={payee} onClose={() => setManual(false)} />}
     </>
   );
 }
 
-/* ------------------------------------------------------------------ ledger -- */
+/* --------------------------------------------------------------- why, due -- */
 
-function LedgerCard({ payeeId }: { payeeId: string }) {
-  const ledger = useInfiniteQuery({
-    queryKey: ['owner', 'payee', payeeId, 'ledger'],
-    queryFn: ({ pageParam }) =>
-      api.get<Paged<'ledger', PayeeLedgerEntry>>(
-        `/owner/payees/${payeeId}/ledger?limit=${PAGE_SIZE}&page=${pageParam}`
-      ),
-    initialPageParam: 1,
-    getNextPageParam: (last, pages) => {
-      const loaded = pages.reduce((count, page) => count + page.ledger.length, 0);
-      return loaded < last.total ? pages.length + 1 : undefined;
-    },
-  });
+/**
+ * One line of the working, laid out the way it would be added up on paper.
+ *
+ * Local rather than shared: `components/why.tsx` has the same shape for a
+ * supply's arithmetic, but a ledger line carries a running balance underneath the
+ * amount and a charge line does not.
+ */
+function WhyLine({
+  label,
+  note,
+  value,
+  running,
+  strong,
+  muted,
+}: {
+  label: string;
+  note?: string;
+  value: string;
+  running?: string;
+  strong?: boolean;
+  muted?: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        'flex items-baseline justify-between gap-3 py-1',
+        strong && 'mt-1 border-t border-border pt-2 font-semibold'
+      )}
+    >
+      <span className={cn('min-w-0 text-sm', muted && 'text-muted-foreground')}>
+        {label}
+        {note && <span className="block text-xs text-muted-foreground">{note}</span>}
+      </span>
+      <span className="shrink-0 text-right">
+        <span className={cn('tabular block text-sm', muted && 'text-muted-foreground')}>
+          {value}
+        </span>
+        {running && <span className="tabular block text-xs text-muted-foreground">{running}</span>}
+      </span>
+    </div>
+  );
+}
 
-  const rows = ledger.data?.pages.flatMap((page) => page.ledger) ?? [];
-  const total = ledger.data?.pages[0]?.total ?? 0;
+/**
+ * "দিতে হবে ৳৪,৫০০ — কীভাবে?"
+ *
+ * A due is the only figure on this screen nobody typed: it is every entry in the
+ * খাতা added up, and the owner checking it is usually holding a paper slip that
+ * says something else. So the working is laid out oldest first, each entry with
+ * what it did to the balance and where the balance stood afterwards, ending on
+ * the figure printed on the screen behind this sheet.
+ *
+ * Not a tooltip. This is arithmetic somebody wants to sit and follow on a phone.
+ */
+function DueWhyModal({
+  open,
+  onClose,
+  entries,
+  total,
+  due,
+}: {
+  open: boolean;
+  onClose: () => void;
+  entries: PayeeLedgerEntry[];
+  total: number;
+  due: number;
+}) {
+  if (!open) return null;
+
+  const state = stateOf(due);
+  // The API sends the খাতা newest first; the working reads the other way.
+  const oldestFirst = [...entries].reverse();
 
   return (
-    <Card>
-      <CardHeader title={t('payee.ledger')} />
+    <Modal
+      open
+      onClose={onClose}
+      title={t('why.title')}
+      footer={<Button onClick={onClose}>{t('why.close')}</Button>}
+    >
+      <p className="mb-3 text-sm text-muted-foreground">{t('payee.dueHint')}</p>
 
-      {ledger.isLoading && <ListSkeleton rows={4} />}
-
-      {ledger.isError && rows.length === 0 && (
-        <ErrorState
-          onRetry={() => ledger.refetch()}
-          isRetrying={ledger.isFetching}
-          error={ledger.error}
-        />
-      )}
-
-      {ledger.data && rows.length === 0 && (
-        <EmptyState icon={HandCoins} title={t('payee.ledgerEmpty')} />
-      )}
-
-      {rows.length > 0 && (
+      {oldestFirst.length === 0 ? (
+        <p className="text-sm">{t('payee.ledgerEmpty')}</p>
+      ) : (
         <>
-          <ul className="-my-1 divide-y divide-border">
-            {rows.map((entry) => (
-              <li
-                key={entry.id}
-                /* A reversal is muted: the original row is never edited, so both
-                 * stay, and the one that cancels should not shout as loudly. */
-                className={cn(
-                  'flex items-start justify-between gap-3 py-2.5',
-                  entry.reversalOf && 'opacity-60'
-                )}
-              >
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="truncate text-sm font-semibold">
-                      {tPayeeLedgerKind(entry.kind)}
-                    </span>
-                    {entry.reversalOf && <Badge>{tPayeeLedgerKind('REVERSAL')}</Badge>}
-                  </div>
-                  <p className="text-xs text-muted-foreground">{formatDateTime(entry.createdAt)}</p>
-                  {entry.note && (
-                    <p className="mt-0.5 break-words text-xs text-muted-foreground">{entry.note}</p>
-                  )}
-                </div>
-                <div className="shrink-0 text-right">
-                  {/* Positive increased what we owe. */}
-                  <p
-                    className={cn(
-                      'tabular font-semibold',
-                      entry.amount < 0 ? 'text-success-ink' : 'text-warning-ink'
-                    )}
-                  >
-                    {formatSignedMoney(entry.amount)}
-                  </p>
-                  <p className="tabular text-xs text-muted-foreground">
-                    {runningText(entry.dueAfter)}
-                  </p>
-                </div>
-              </li>
-            ))}
-          </ul>
+          {/*
+            * Only the loaded pages are in here. Said in the same "20 / 57" form
+            * the foot of every paged list uses, so the owner knows the top line
+            * is not where the খাতা begins and can load the rest behind this sheet.
+            */}
+          {total > oldestFirst.length && (
+            <p className="tabular mb-2 text-xs text-muted-foreground">
+              {formatNumber(oldestFirst.length)} / {formatNumber(total)}
+            </p>
+          )}
 
-          <LoadMore
-            compact
-            hasMore={Boolean(ledger.hasNextPage)}
-            loading={ledger.isFetchingNextPage}
-            onLoadMore={() => ledger.fetchNextPage()}
-            error={ledger.isFetchNextPageError ? ledger.error : undefined}
-            shown={rows.length}
-            total={total}
-          />
+          {oldestFirst.map((entry) => (
+            <WhyLine
+              key={entry.id}
+              label={tPayeeLedgerKind(entry.kind)}
+              note={formatDateTime(entry.createdAt)}
+              value={formatSignedMoney(entry.amount)}
+              running={runningText(entry.dueAfter)}
+              // A cancelled row is still in the book and still in this sum, but
+              // it is greyed so the pair reads as one another's opposite.
+              muted={Boolean(entry.reversalOf)}
+            />
+          ))}
+
+          <WhyLine label={state.label} value={state.value} strong />
         </>
       )}
-    </Card>
+    </Modal>
   );
 }
 
@@ -415,6 +708,7 @@ function PayModal({ payee, onClose }: { payee: Payee; onClose: () => void }) {
    * not either. See docs/adr/0025.
    */
   const preview = check.ok ? payee.due - check.value : payee.due;
+  const state = stateOf(payee.due);
 
   return (
     <Modal
@@ -447,7 +741,8 @@ function PayModal({ payee, onClose }: { payee: Payee; onClose: () => void }) {
       )}
 
       <p className="mb-4 text-sm text-muted-foreground">
-        {payee.nameBn} · {stateOf(payee.due).label} {stateOf(payee.due).value}
+        {payee.nameBn} · {state.label}{' '}
+        <span className={cn('tabular font-semibold', inkOf(state.tone))}>{state.value}</span>
       </p>
 
       <Field
@@ -546,11 +841,7 @@ function ManualEntryModal({ payee, onClose }: { payee: Payee; onClose: () => voi
       <p className="mb-4 text-sm text-muted-foreground">{t('payee.manualHelp')}</p>
 
       <Field label={t('supply.adjustKind')} htmlFor="kind" error={errors.kind}>
-        <Select
-          id="kind"
-          value={kind}
-          onChange={(e) => setKind(e.target.value as ManualKind)}
-        >
+        <Select id="kind" value={kind} onChange={(e) => setKind(e.target.value as ManualKind)}>
           {MANUAL_KINDS.map((option) => (
             <option key={option} value={option}>
               {tPayeeLedgerKind(option)}
@@ -574,10 +865,9 @@ function ManualEntryModal({ payee, onClose }: { payee: Payee; onClose: () => voi
       </Field>
 
       {/*
-       * Which way it moves, as the two signs the ledger itself uses, with the
-       * resulting figure spelled out under the footer. A word for each direction
-       * would have to be one of `ledger.manualCredit`/`manualDebit`, and those
-       * say "ব্যালেন্স" — a reseller wallet, which runs the other way and is
+       * Which way it moves, in the payee's own words, with the resulting figure
+       * spelled out under the footer. Not `ledger.manualCredit`/`manualDebit`:
+       * those say "ব্যালেন্স" — a reseller wallet, which runs the other way and is
        * exactly the confusion docs/adr/0025 exists to prevent.
        */}
       {kind !== 'DISCOUNT' && (

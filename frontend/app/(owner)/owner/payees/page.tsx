@@ -1,19 +1,31 @@
 'use client';
 
 /**
- * Everyone the business owes money to, biggest debt first.
+ * পার্টি — everyone the business owes money to, biggest debt first.
  *
  * The screen that answers "who is waiting on me". A `due` here is positive when
  * the owner owes, which is the opposite of a reseller's balance (docs/adr/0025),
  * so nothing on this page is ever added to a wallet figure and a negative due is
  * never shown as a minus sign: it is an advance, said in its own words.
+ *
+ * Built to the same brief as `owner/supplies`:
+ *
+ * 1. The words are what the owner says out loud — "পার্টি", "দিতে হবে",
+ *    "টাকা দিন" — and every one of them comes from the dictionary.
+ * 2. Nothing on a row here is worked out by the software. A due is the sum of an
+ *    append-only ledger, and that arithmetic is shown on the detail page where
+ *    there is room to lay it out, so no row carries a "কীভাবে?".
+ * 3. An empty screen teaches. A first-time owner is told what a পার্টি is, with
+ *    examples from the trade, and what happens after adding one.
+ * 4. No row is a dead end: a name opens the খাতা, and the foot of the list links
+ *    to the two screens that actually move these figures.
  */
 
 import Link from 'next/link';
 import type { Route } from 'next';
 
 import { useState } from 'react';
-import { HandCoins, Plus, Wallet } from 'lucide-react';
+import { HandCoins, Plus, Receipt, ShoppingCart, Wallet } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, errorMessage, fieldErrors } from '@/lib/api';
 import { useDebounced } from '@/lib/use-debounced';
@@ -63,8 +75,8 @@ type PayeeList = {
  * What one payee's account comes to, as a figure that cannot be misread.
  *
  * An advance is not a negative due. "You owe him ৳500" and "he owes you ৳500 of
- * goods" are opposite facts, so they get different words and a different tone
- * rather than the same row with a minus sign in front of it.
+ * goods" are opposite facts, so they get different words, a different tone and a
+ * badge of their own rather than the same row with a minus sign in front of it.
  */
 function DueFigure({ payee, align = 'right' }: { payee: Payee; align?: 'left' | 'right' }) {
   if (payee.isAdvance) {
@@ -87,6 +99,35 @@ function DueFigure({ payee, align = 'right' }: { payee: Payee; align?: 'left' | 
         {formatMoney(payee.due)}
       </p>
       <p className="text-xs text-muted-foreground">{t('payee.due')}</p>
+    </div>
+  );
+}
+
+/**
+ * Where the figures on this page actually come from.
+ *
+ * Under the list rather than in a corner, because a due nobody recognises is
+ * almost always a কেনা or an unpaid খরচ somebody forgot to write down, and both
+ * of those are entered on another screen.
+ */
+function WhereFrom() {
+  return (
+    <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
+      <span>{t('costSetup.thenPurchase')}</span>
+      <Link
+        href="/owner/purchases"
+        className="inline-flex items-center gap-1 font-semibold text-primary-ink underline"
+      >
+        <ShoppingCart className="h-3.5 w-3.5" />
+        {t('costSetup.recordPurchase')}
+      </Link>
+      <Link
+        href="/owner/expenses"
+        className="inline-flex items-center gap-1 font-semibold text-primary-ink underline"
+      >
+        <Receipt className="h-3.5 w-3.5" />
+        {t('expense.new')}
+      </Link>
     </div>
   );
 }
@@ -119,6 +160,8 @@ export default function OwnerPayeesPage() {
 
   const rows = payees.data?.payees ?? [];
   const totals = payees.data?.totals;
+  /** A narrowed list that came back empty is a different sentence from a book nobody is in yet. */
+  const narrowed = Boolean(qs);
 
   return (
     <>
@@ -155,6 +198,10 @@ export default function OwnerPayeesPage() {
        * Two figures, never one. Netting an advance off a due would produce a
        * number that is true of nobody: money already handed over is a different
        * fact from money still owed. See docs/adr/0025.
+       *
+       * No `delta` on any of these. The API has no prior-period figure for a
+       * payee book, and a pill comparing a due against nothing is a decoration
+       * somebody would make a buying decision on.
        */}
       {totals && (
         <div className="mb-5 grid gap-4 sm:grid-cols-3">
@@ -173,7 +220,7 @@ export default function OwnerPayeesPage() {
             tone={totals.advance > 0 ? 'primary' : 'neutral'}
           />
           <Stat
-            label={t('nav.payees')}
+            label={t('payee.title')}
             value={formatNumber(totals.count)}
             hint={`${formatNumber(totals.owingCount)} · ${t('payee.owingOnly')}`}
           />
@@ -195,18 +242,33 @@ export default function OwnerPayeesPage() {
         />
       )}
 
-      {payees.data && rows.length === 0 && (
+      {/*
+       * Nobody in the book yet. This is the first thing a new owner sees here, so
+       * it says what belongs on this screen, with examples from the trade, and
+       * then what happens next: a পার্টি on its own moves no money until a কেনা or
+       * a খরচ is written against it.
+       */}
+      {payees.data && rows.length === 0 && !narrowed && (
         <EmptyState
           icon={HandCoins}
-          title={t('app.noResults')}
+          title={t('payee.title')}
           description={t('payee.help')}
           action={
-            <Button onClick={() => setCreating(true)}>
-              <Plus className="h-4 w-4" />
-              {t('payee.new')}
-            </Button>
+            <div className="flex flex-col items-center gap-2">
+              <Button onClick={() => setCreating(true)}>
+                <Plus className="h-4 w-4" />
+                {t('payee.new')}
+              </Button>
+              <p className="max-w-sm text-xs text-muted-foreground">
+                {t('costSetup.thenPayee')} {t('costSetup.thenPurchase')}
+              </p>
+            </div>
           }
         />
+      )}
+
+      {payees.data && rows.length === 0 && narrowed && (
+        <EmptyState icon={HandCoins} title={t('app.noResults')} description={t('payee.help')} />
       )}
 
       {rows.length > 0 && (
@@ -225,10 +287,14 @@ export default function OwnerPayeesPage() {
                       </Link>
                       <div className="mt-1.5 flex flex-wrap items-center gap-2">
                         <Badge>{tPayeeKind(payee.kind)}</Badge>
+                        {/* A number on a phone is for calling, not for reading. */}
                         {payee.phone && (
-                          <span className="tabular text-xs text-muted-foreground">
+                          <a
+                            href={`tel:${payee.phone}`}
+                            className="tabular text-xs text-muted-foreground underline"
+                          >
                             {payee.phone}
-                          </span>
+                          </a>
                         )}
                       </div>
                     </div>
@@ -306,6 +372,8 @@ export default function OwnerPayeesPage() {
               ))}
             </tbody>
           </TableWrap>
+
+          <WhereFrom />
         </>
       )}
 
@@ -367,12 +435,17 @@ function PayeeModal({ payee, onClose }: { payee: Payee | null; onClose: () => vo
       open
       onClose={onClose}
       title={payee ? t('payee.edit') : t('payee.new')}
+      dirty={!payee && draft.nameBn.trim().length > 0}
       footer={
         <>
           <Button variant="outline" onClick={onClose}>
             {t('app.cancel')}
           </Button>
-          <Button loading={save.isPending} onClick={() => save.mutate()}>
+          <Button
+            loading={save.isPending}
+            disabled={draft.nameBn.trim().length < 2}
+            onClick={() => save.mutate()}
+          >
             {t('app.save')}
           </Button>
         </>
@@ -381,6 +454,9 @@ function PayeeModal({ payee, onClose }: { payee: Payee | null; onClose: () => vo
       {save.error && !Object.keys(errors).length && (
         <Alert tone="danger">{errorMessage(save.error)}</Alert>
       )}
+
+      {/* Why anyone would add a row here at all, said once, at the top. */}
+      <p className="mb-4 text-sm text-muted-foreground">{t('costSetup.thenPayee')}</p>
 
       <Field label={t('payee.name')} htmlFor="nameBn" error={errors.nameBn} required>
         <Input

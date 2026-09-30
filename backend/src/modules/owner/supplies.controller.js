@@ -12,7 +12,11 @@ const { ok } = require('../../middleware/error');
 const { notFound, badRequest } = require('../../utils/errors');
 const { toTaka } = require('../../utils/money');
 const { toMilli, fromMilli } = require('../../utils/quantity');
-const { MOVEMENT_KIND, MOVEMENT_INCREASES } = require('../../domain/constants');
+const {
+  MOVEMENT_KIND,
+  MOVEMENT_INCREASES,
+  PURCHASE_STATUS,
+} = require('../../domain/constants');
 const { holdingValuePoisha, isLow } = require('../../domain/supplyValue');
 const { recipeAccuracy } = require('../../domain/packaging');
 const { startOfBusinessDay } = require('../../utils/dhakaTime');
@@ -170,16 +174,108 @@ async function archiveSupply(req, res) {
  * The recipe list is the answer to "why is this running out": a supply consumed
  * by the eleven-kilo box drains at whatever rate that box sells.
  */
+/**
+ * Where a supply's two headline numbers came from.
+ *
+ * Every computed figure on a screen is a figure somebody will eventually
+ * disbelieve, and "trust me" is not an answer when the number is money. These two
+ * are the ones that get questioned:
+ *
+ * - **what is on the shelf**, which is a sum of everything that ever moved, and
+ * - **what one unit cost**, which is a weighted average of landed costs and is
+ *   the least obvious number in the whole system.
+ *
+ * Both are worked out here rather than in the screen, so the explanation cannot
+ * drift from the figure it explains.
+ */
+async function onHandProvenance(supplyId) {
+  const rows = await StockMovement.aggregate([
+    { $match: { supply: supplyId } },
+    { $group: { _id: '$kind', qtyMilli: { $sum: '$qtyMilli' }, count: { $sum: 1 } } },
+    { $sort: { _id: 1 } },
+  ]);
+
+  return rows.map((row) => ({
+    kind: row._id,
+    quantity: fromMilli(row.qtyMilli),
+    count: row.count,
+  }));
+}
+
+/**
+ * The purchase that set the current average, broken into the lines a person
+ * would add up on paper: the rate, then each charge, then the division.
+ *
+ * Only the most recent receipt, because that is the one the owner remembers and
+ * the one whose slip is in their hand. A supply whose average came from several
+ * lots says so, so nobody reads this as the whole story.
+ */
+async function avgCostProvenance(supplyId) {
+  const purchase = await Purchase.findOne({
+    'lines.supply': supplyId,
+    status: PURCHASE_STATUS.RECEIVED,
+  }).sort({ businessDate: -1, createdAt: -1 });
+
+  if (!purchase) return null;
+
+  const line = purchase.lines.find((l) => String(l.supply) === String(supplyId));
+  if (!line) return null;
+
+  const receipts = await StockMovement.countDocuments({
+    supply: supplyId,
+    kind: { $in: [MOVEMENT_KIND.PURCHASE, MOVEMENT_KIND.OPENING] },
+  });
+
+  return {
+    purchaseId: purchase._id,
+    purchaseCode: purchase.purchaseCode,
+    payeeId: purchase.payee,
+    payeeNameBn: purchase.payeeNameBn,
+    businessDate: purchase.businessDate,
+    quantity: fromMilli(line.qtyMilli),
+    unit: line.unit,
+    // The rate, before anything was spread onto it.
+    unitCost: toTaka(line.unitCostPoisha),
+    goodsCost: toTaka(line.lineCostPoisha),
+    /*
+     * Every charge, whether or not it was allocated, because the owner is
+     * checking this against a slip that lists all of them. `allocate` false means
+     * it was paid but did not raise the per-unit cost.
+     */
+    charges: (purchase.charges || []).map((c) => ({
+      kind: c.kind,
+      amount: toTaka(c.amountPoisha),
+      allocate: c.allocate,
+      paidTo: c.paidTo,
+      payeeName: c.payeeName || null,
+    })),
+    // This line's share of the allocated charges, and the division that follows.
+    allocatedCharge: toTaka(line.allocatedChargePoisha),
+    landedLineCost: toTaka(line.landedLineCostPoisha),
+    landedUnitCost: toTaka(line.landedUnitCostPoisha),
+    /*
+     * True when more than one lot has ever arrived, so the average is a blend and
+     * this single purchase does not explain it on its own. Said out loud rather
+     * than left for the owner to wonder why the arithmetic below does not equal
+     * the figure above.
+     */
+    isBlended: receipts > 1,
+    receipts,
+  };
+}
+
 async function getSupply(req, res) {
   const supply = await Supply.findById(req.params.id);
   if (!supply) throw notFound('Supply not found');
 
-  const [movements, purchases, products, health] = await Promise.all([
+  const [movements, purchases, products, health, onHandFrom, avgCostFrom] = await Promise.all([
     StockMovement.find({ supply: supply._id }).sort({ seq: -1 }).limit(20),
     Purchase.find({ 'lines.supply': supply._id }).sort({ businessDate: -1 }).limit(10),
     // Which variants name this supply, so the owner can see what drains it.
     Product.find({ 'variants.packaging.supply': supply._id }, { nameBn: 1, unit: 1, variants: 1 }),
     supplyStock.reconcile(supply._id),
+    onHandProvenance(supply._id),
+    avgCostProvenance(supply._id),
   ]);
 
   const usedBy = [];
@@ -220,6 +316,11 @@ async function getSupply(req, res) {
     // Whether the movements and the cached count still agree. Shown because a
     // drift here is a bug, not a business event.
     health: { ok: health.ok, problems: health.problems },
+    /*
+     * How the two headline figures were arrived at, so the screen can show the
+     * working rather than asking to be believed.
+     */
+    provenance: { onHand: onHandFrom, avgCost: avgCostFrom },
   });
 }
 

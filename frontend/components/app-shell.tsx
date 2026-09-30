@@ -453,17 +453,18 @@ function SideLink({ item, active }: { item: NavItem; active: boolean }) {
       aria-current={active ? 'page' : undefined}
       className={cn(
         'group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors',
+        /*
+         * The active item is a solid fill rather than the tinted one it was.
+         * A tint and a hover state look alike at a glance, which is the whole
+         * job this element has; a filled pill is unmistakable from across a
+         * room, and near-black on mango measures 8.09:1, so it costs nothing in
+         * legibility to be that emphatic.
+         */
         active
-          ? 'bg-primary-soft font-semibold text-primary-ink'
+          ? 'bg-primary font-semibold text-primary-foreground shadow-[0_4px_12px_color-mix(in_oklch,var(--primary)_38%,transparent)]'
           : 'font-medium text-muted-foreground hover:bg-muted hover:text-foreground'
       )}
     >
-      {active && (
-        <span
-          aria-hidden
-          className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-primary"
-        />
-      )}
       <item.icon
         className={cn('h-[1.125rem] w-[1.125rem] shrink-0', !active && 'opacity-80')}
       />
@@ -760,8 +761,10 @@ function NavDrawer({
                           // Forty-four pixels tall, because this is a list tapped
                           // with a thumb rather than clicked with a pointer.
                           'flex min-h-11 items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors',
+                          // Filled, to match the sidebar. The drawer is the
+                          // sidebar on a phone and must not disagree with it.
                           isActive(item.href)
-                            ? 'bg-primary-soft font-semibold text-primary-ink'
+                            ? 'bg-primary font-semibold text-primary-foreground'
                             : 'font-medium text-muted-foreground hover:bg-muted hover:text-foreground'
                         )}
                       >

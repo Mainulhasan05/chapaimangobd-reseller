@@ -90,25 +90,35 @@ export function QueuePanel({
   children: React.ReactNode;
   footer?: React.ReactNode;
 }) {
+  /*
+   * Mango, with a near-black label. This panel was a blue gradient with white
+   * text, written as two literal oklch values — which is why it survived every
+   * earlier attempt to retheme the app and then sat there looking foreign. It
+   * now takes its fill from --primary so it moves when the palette moves.
+   *
+   * The gradient darkens towards the corner rather than lightening: measured
+   * against the near-black label the two ends are 8.7:1 and 5.9:1, so the text
+   * holds anywhere on it.
+   */
   return (
-    <section className="elev-2 relative overflow-hidden rounded-[var(--radius-panel)] bg-gradient-to-br from-[oklch(0.5_0.22_263)] to-[oklch(0.38_0.16_265)] p-5 text-white">
+    <section className="elev-2 relative overflow-hidden rounded-[var(--radius-panel)] bg-gradient-to-br from-[var(--primary)] to-[oklch(0.70_0.17_58)] p-5 text-[var(--primary-foreground)]">
       {/* A soft highlight, so the fill reads as a surface rather than a swatch. */}
       <div
         aria-hidden
-        className="pointer-events-none absolute -right-10 -top-14 h-44 w-44 rounded-full bg-white/15 blur-2xl"
+        className="pointer-events-none absolute -right-10 -top-14 h-44 w-44 rounded-full bg-white/25 blur-2xl"
       />
 
       <div className="relative">
         <div className="mb-3 flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h2 className="truncate text-base font-bold">{title}</h2>
-            {subtitle && <p className="mt-0.5 text-xs text-white/75">{subtitle}</p>}
+            {subtitle && <p className="mt-0.5 text-xs text-[var(--primary-foreground)]/75">{subtitle}</p>}
           </div>
           {href && (
             <Link
               href={href}
               aria-label={title}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/15 text-white transition-colors hover:bg-white/25"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-black/10 transition-colors hover:bg-black/16"
             >
               <ChevronRight className="h-4 w-4" />
             </Link>
@@ -118,7 +128,7 @@ export function QueuePanel({
         <div className="grid grid-cols-2 gap-2.5">{children}</div>
 
         {footer && (
-          <div className="mt-3 rounded-lg bg-white/12 px-3 py-2 text-xs text-white/90">{footer}</div>
+          <div className="mt-3 rounded-lg bg-black/8 px-3 py-2 text-xs text-[var(--primary-foreground)]/90">{footer}</div>
         )}
       </div>
     </section>
@@ -148,21 +158,21 @@ export function QueueTile({
     <>
       <span
         aria-hidden
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/15"
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-black/10"
       >
         <Icon className="h-4 w-4" />
       </span>
       <span className="min-w-0">
         <span className="tabular block text-sm font-bold leading-tight">{count}</span>
-        <span className="block truncate text-[0.6875rem] leading-tight text-white/75">{label}</span>
+        <span className="block truncate text-[0.6875rem] leading-tight text-[var(--primary-foreground)]/75">{label}</span>
       </span>
     </>
   );
 
   const className = cn(
-    'flex items-center gap-2.5 rounded-xl bg-white/10 px-3 py-2.5 transition-colors',
+    'flex items-center gap-2.5 rounded-xl bg-black/8 px-3 py-2.5 transition-colors',
     empty && 'opacity-60',
-    href && 'hover:bg-white/20'
+    href && 'hover:bg-black/14'
   );
 
   if (href) {

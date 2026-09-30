@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import type { Route } from 'next';
-import { ArrowUpRight } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n/bn';
 import { errorMessage, errorHint } from '@/lib/api';
@@ -202,6 +202,7 @@ export function Stat({
   label,
   value,
   hint,
+  delta,
   tone = 'neutral',
   icon: Icon,
   href,
@@ -210,6 +211,15 @@ export function Stat({
   label: string;
   value: React.ReactNode;
   hint?: string;
+  /**
+   * How this figure moved against the period before it.
+   *
+   * A number on its own says what is true now; the only way to know whether that
+   * is good news is to know where it came from. `direction` is stated rather than
+   * derived from the sign, because down is not always bad — returns falling by a
+   * fifth is a good week, and a component cannot tell which figure it is holding.
+   */
+  delta?: { value: string; direction: 'up' | 'down'; good?: boolean };
   tone?: Tone;
   icon?: React.ComponentType<{ className?: string }>;
   /** Makes the whole card the link, with an arrow in the corner to say so. */
@@ -264,7 +274,30 @@ export function Stat({
       >
         {value}
       </div>
-      {hint && <div className="mt-2 text-xs text-muted-foreground">{hint}</div>}
+      {(delta || hint) && (
+        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
+          {delta && (
+            <span
+              className={cn(
+                'tabular inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[0.6875rem] font-bold',
+                // `good` defaults to "up is good", which is true of sales and
+                // orders and false of returns and complaints.
+                (delta.good ?? delta.direction === 'up')
+                  ? 'bg-success-soft text-success-ink'
+                  : 'bg-danger-soft text-danger-ink'
+              )}
+            >
+              {delta.direction === 'up' ? (
+                <ArrowUp className="h-3 w-3" aria-hidden />
+              ) : (
+                <ArrowDown className="h-3 w-3" aria-hidden />
+              )}
+              {delta.value}
+            </span>
+          )}
+          {hint && <span className="text-xs text-muted-foreground">{hint}</span>}
+        </div>
+      )}
     </>
   );
 

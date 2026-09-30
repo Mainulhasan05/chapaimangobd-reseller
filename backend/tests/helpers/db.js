@@ -54,6 +54,18 @@ function loadModels() {
 async function startDb() {
   replset = await MongoMemoryReplSet.create({
     replSet: { count: 1, storageEngine: 'wiredTiger' },
+    /*
+     * The default is ten seconds, which is plenty on an idle machine and not
+     * nearly enough on a busy one. Every test file boots its own replica set, so
+     * on a laptop that is also running the dev server, a build and an editor, the
+     * mongod process can take far longer than that just to get scheduled — and
+     * the whole file then fails with `Instance failed to start within 10000ms`,
+     * which reads like a broken test rather than a busy machine.
+     *
+     * Waiting longer costs nothing when the machine is idle: the promise resolves
+     * as soon as mongod is up, and this is only the ceiling.
+     */
+    instanceOpts: [{ launchTimeout: 60_000 }],
   });
 
   await mongoose.connect(replset.getUri(), { dbName: 'test' });
