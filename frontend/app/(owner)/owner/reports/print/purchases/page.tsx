@@ -26,6 +26,7 @@ import {
   Figure,
   KeyFigures,
   PrintBar,
+  ReportEmpty,
   ReportFooter,
   ReportSection,
   ReportSheet,
@@ -173,7 +174,7 @@ function PurchaseReportView() {
 
         <ReportSection title={t('purchase.payee')}>
           {data.byPayee.length === 0 ? (
-            <Empty />
+            <ReportEmpty />
           ) : (
             <ReportTable
               head={
@@ -236,7 +237,7 @@ function PurchaseReportView() {
          */}
         <ReportSection title={t('nav.supplies')} hint={t('purchase.landedHint')} breakBefore>
           {data.bySupply.length === 0 ? (
-            <Empty />
+            <ReportEmpty />
           ) : (
             <ReportTable
               head={
@@ -279,8 +280,4 @@ function PurchaseReportView() {
       </ReportSheet>
     </>
   );
-}
-
-function Empty() {
-  return <p className="py-6 text-center text-sm text-muted-foreground">{t('report.noRows')}</p>;
 }

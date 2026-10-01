@@ -14,8 +14,6 @@ import {
   HandCoins,
   Package,
   ShoppingBag,
-  TrendingDown,
-  TrendingUp,
   Truck,
   TriangleAlert,
   Wallet,
@@ -55,7 +53,7 @@ import { CountUp, Greeting, HeroCard } from '@/components/dashboard/metrics';
 import { ActionCard, ActionGrid } from '@/components/dashboard/actions';
 import { PipelineBar } from '@/components/dashboard/pipeline-bar';
 import { QueuePanel, QueueTile, RailList, RailRow } from '@/components/dashboard/rail';
-import { TrendChart, type TrendPoint } from '@/components/dashboard/trend-chart';
+import { IncomeCostChart, type DayMoney } from '@/components/dashboard/income-cost-chart';
 import { daysAgo, rangeParams } from '@/components/ui/date-range';
 import { ReportButton } from '@/components/report/download-menu';
 
@@ -150,6 +148,22 @@ export default function OwnerDashboardPage() {
     staleTime: 5 * 60_000,
   });
 
+  /*
+   * The same report over the last week, for the chart.
+   *
+   * A second call rather than slicing the monthly one: the card above wants a
+   * month and the chart wants seven days, and deriving one from the other would
+   * mean the chart silently changing length on the first of the month.
+   */
+  const week = useQuery({
+    queryKey: ['owner', 'profit', 'week'],
+    queryFn: () =>
+      api.get<ProfitReport>(
+        `/owner/reports/profit?${rangeParams({ from: daysAgo(6), to: businessDate() })}`
+      ),
+    staleTime: 5 * 60_000,
+  });
+
   const data = dashboard.data;
 
   /*
@@ -158,6 +172,27 @@ export default function OwnerDashboardPage() {
    * delta invented from a single day's number would be a decoration; this one is
    * two real days being compared.
    */
+  /*
+   * Income against cost, a day at a time, folded up from the per-order rows the
+   * profit report already returns. Days with no trade still appear, because a
+   * quiet Friday is information and a chart that silently skips it makes the
+   * week look busier than it was.
+   */
+  const dayMoney: DayMoney[] = (() => {
+    const byDate = new Map<string, DayMoney>();
+    for (let i = 6; i >= 0; i -= 1) {
+      const date = daysAgo(i);
+      byDate.set(date, { date, income: 0, cost: 0 });
+    }
+    (week.data?.orders ?? []).forEach((o) => {
+      const row = byDate.get(o.businessDate);
+      if (!row) return;
+      row.income += o.revenue;
+      row.cost += o.cost;
+    });
+    return [...byDate.values()];
+  })();
+
   const days = trend.data?.days ?? [];
   const todayRow = days[days.length - 1];
   const yesterdayRow = days[days.length - 2];
@@ -208,16 +243,24 @@ export default function OwnerDashboardPage() {
   const problems =
     (health?.lowStock ?? 0) + (health?.deadLetters ?? 0) + (health?.smsEnabled === false ? 1 : 0);
 
-  const points: TrendPoint[] = (trend.data?.days ?? []).map((day) => ({
-    date: day.date,
-    value: day.customerTotal,
-  }));
-
   /*
    * Everyone in the red, deepest first. The balance is the reseller's net
    * position, so a negative number is what they owe; sorting ascending puts the
    * largest debt at the top.
    */
+  /*
+   * Everything waiting on the owner personally. One number, because it decides
+   * two things at once: whether the queue panel says "nothing waiting", and
+   * whether it is allowed to shout.
+   */
+  const waiting =
+    (data?.pendingDeposits ?? 0) +
+    (data?.pendingWithdrawals ?? 0) +
+    (data?.awaitingAcceptance ?? 0) +
+    (data?.agingOrders ?? 0) +
+    (data?.pendingKyc ?? 0) +
+    (data?.openComplaints ?? 0);
+
   const debtors = (resellers.data?.resellers ?? [])
     .filter((reseller) => reseller.balance < 0)
     .sort((left, right) => left.balance - right.balance)
@@ -232,24 +275,24 @@ export default function OwnerDashboardPage() {
       </header>
 
       {/*
-       * The four figures lead, as a row of cards. The receivable used to be a
-       * full-width block above them; it is now the first card in the row and the
-       * hero has moved into the rail, because on a wide screen a single number
-       * stretched across twelve hundred pixels is mostly empty space.
-       */}
-      {/*
-       * Money leads, then work.
+       * Money first, then work, then what is owed in both directions.
        *
-       * This row used to be four counts and no taka figure at all, which meant
-       * the screen could say forty orders came in and never what they were
-       * worth. The owner's revenue is the wallet debit — goods at cost plus
+       * Today's takings lead because that is the figure the owner opens the app
+       * for. The owner's revenue is the wallet debit — goods at cost plus
        * delivery — and deliberately not the customer total, which carries the
        * resellers' margin and is therefore not the owner's money.
        */}
       <div className="mb-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Stat
-          icon={ShoppingBag}
+          icon={Wallet}
           tone="primary"
+          label={t('dash.todaySales')}
+          value={formatMoney(money?.ownerRevenue ?? 0)}
+          hint={t('dash.todaySalesHint')}
+          href="/owner/orders"
+        />
+        <Stat
+          icon={ShoppingBag}
           label={t('owner.ordersToday')}
           value={formatNumber(data?.ordersToday ?? 0)}
           delta={orderDelta}
@@ -260,45 +303,6 @@ export default function OwnerDashboardPage() {
           }
           href="/owner/orders"
         />
-        <Stat
-          icon={ClipboardCheck}
-          label={t('owner.awaitingAcceptance')}
-          value={formatNumber(data?.awaitingAcceptance ?? 0)}
-          tone={(data?.awaitingAcceptance ?? 0) > 0 ? 'warning' : 'neutral'}
-          href="/owner/orders"
-        />
-        {/*
-         * Cash the couriers are carrying. The credit only posts when an order
-         * is marked delivered, so until then this is the owner's money out in
-         * the world, and it appeared on no screen in the app.
-         */}
-        <Stat
-          icon={Truck}
-          label={t('owner.codInFlight')}
-          value={formatMoney(data?.codInFlight.amount ?? 0)}
-          hint={`${formatNumber(data?.codInFlight.orders ?? 0)} ${t('nav.orders')}`}
-          tone={(data?.codInFlight.amount ?? 0) > 0 ? 'warning' : 'neutral'}
-          href="/owner/orders"
-        />
-        <Stat
-          icon={Clock}
-          label={t('owner.agingOrders')}
-          value={formatNumber(data?.agingOrders ?? 0)}
-          hint={t('dash.agingHint').replace('{n}', formatNumber(data?.agingThresholdHours ?? 24))}
-          tone={(data?.agingOrders ?? 0) > 0 ? 'danger' : 'neutral'}
-          href="/owner/orders"
-        />
-      </div>
-
-      {/*
-       * Where the money stands, and whether the month is working.
-       *
-       * Receivable and payable sit side by side and are never netted: what
-       * resellers owe the owner and what the owner owes parties are different
-       * people's money, and one figure hiding both would describe nobody's
-       * position. See docs/adr/0025 and docs/adr/0027.
-       */}
-      <section className="mb-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Stat
           icon={ArrowDownToLine}
           label={t('position.receivable')}
@@ -314,21 +318,80 @@ export default function OwnerDashboardPage() {
           tone={(position.data?.payable ?? 0) > 0 ? 'warning' : 'neutral'}
           href="/owner/payees"
         />
-        {/*
-         * The only figure in the system that may be called profit without saying
-         * whose or before what, so it is labelled as loss when it is one rather
-         * than shown as a negative profit.
-         */}
-        <Stat
-          icon={(profit.data?.totals.netProfit ?? 0) < 0 ? TrendingDown : TrendingUp}
-          label={
-            (profit.data?.totals.netProfit ?? 0) < 0 ? t('profit.netLoss') : t('profit.net')
-          }
-          value={formatMoney(Math.abs(profit.data?.totals.netProfit ?? 0))}
-          hint={t('report.profitHint')}
-          tone={(profit.data?.totals.netProfit ?? 0) < 0 ? 'danger' : 'success'}
-          href="/owner/reports"
-        />
+      </div>
+
+      {/*
+       * What came in against what went out, beside the month it adds up to.
+       *
+       * The chart is the wider of the two because reading it is a comparison
+       * across seven days; the breakdown beside it is a column of five figures
+       * and needs no room to breathe.
+       */}
+      <section className="mb-5 grid gap-4 lg:grid-cols-[1.6fr_1fr]">
+        <Card className="p-5">
+          <CardHeader title={t('dash.incomeVsSpend')} subtitle={t('owner.trend')} />
+          <div className="mt-2">
+            {week.isLoading && <Skeleton className="h-56 w-full rounded-xl" />}
+            {week.isSuccess && <IncomeCostChart days={dayMoney} />}
+          </div>
+        </Card>
+
+        <Card className="p-5">
+          <CardHeader title={t('dash.profitBreakdown')} href="/owner/reports" />
+          {profit.isLoading ? (
+            <ListSkeleton rows={4} />
+          ) : (
+            <div className="mt-2">
+              <PlRow label={t('profit.revenue')} value={profit.data?.totals.revenue ?? 0} />
+              <PlRow label={t('cost.goods')} value={-(profit.data?.totals.goods ?? 0)} />
+              <PlRow label={t('cost.packaging')} value={-(profit.data?.totals.packaging ?? 0)} />
+              <PlRow
+                label={t('expense.totalOrder')}
+                value={-(profit.data?.totals.orderExpenses ?? 0)}
+              />
+              <PlRow
+                label={t('profit.periodExpenses')}
+                value={-(profit.data?.totals.periodExpenses ?? 0)}
+                hint={t('profit.periodHint')}
+              />
+
+              {/*
+               * The one figure that may be called profit without saying whose or
+               * before what, so it is labelled as a loss when it is one rather
+               * than shown as a negative profit. See docs/adr/0027.
+               */}
+              {(() => {
+                const net = profit.data?.totals.netProfit ?? 0;
+                const loss = net < 0;
+                return (
+                  <div
+                    className={cn(
+                      'mt-3 flex items-center justify-between gap-3 rounded-xl px-4 py-3',
+                      loss ? 'bg-danger-soft' : 'bg-success-soft'
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        'text-sm font-semibold',
+                        loss ? 'text-danger-ink' : 'text-success-ink'
+                      )}
+                    >
+                      {loss ? t('dash.monthLoss') : t('dash.monthProfit')}
+                    </span>
+                    <span
+                      className={cn(
+                        'tabular text-xl font-bold',
+                        loss ? 'text-danger-ink' : 'text-success-ink'
+                      )}
+                    >
+                      {formatMoney(Math.abs(net))}
+                    </span>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+        </Card>
       </section>
 
       {/*
@@ -437,33 +500,64 @@ export default function OwnerDashboardPage() {
            */}
           <Card>
             <CardHeader
-              title={t('dash.pipeline')}
-              subtitle={data?.today}
+              title={t('dash.stuckOrders')}
+              subtitle={t('dash.stuckHint')}
               href="/owner/orders"
               hrefLabel={t('nav.orders')}
             />
             <PipelineBar byStatus={data?.byStatus ?? {}} />
+
+            {/*
+             * The two figures that used to sit in the lead row. They belong
+             * beside the bar rather than above it: both are about orders in
+             * flight, which is what the bar is showing, and in the lead row they
+             * competed with the money for the first glance.
+             */}
+            <div className="mt-4 grid grid-cols-2 gap-3 border-t border-border pt-4">
+              <Link
+                href="/owner/orders"
+                className="rounded-xl bg-muted px-3 py-2.5 transition-colors hover:bg-subtle"
+              >
+                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Truck className="h-3.5 w-3.5" />
+                  {t('owner.codInFlight')}
+                </span>
+                <span className="tabular mt-0.5 block text-base font-bold">
+                  {formatMoney(data?.codInFlight.amount ?? 0)}
+                </span>
+                <span className="text-[0.6875rem] text-muted-foreground">
+                  {formatNumber(data?.codInFlight.orders ?? 0)} {t('nav.orders')}
+                </span>
+              </Link>
+
+              <Link
+                href="/owner/orders"
+                className={cn(
+                  'rounded-xl px-3 py-2.5 transition-colors',
+                  (data?.agingOrders ?? 0) > 0
+                    ? 'bg-danger-soft hover:brightness-95'
+                    : 'bg-muted hover:bg-subtle'
+                )}
+              >
+                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Clock className="h-3.5 w-3.5" />
+                  {t('owner.agingOrders')}
+                </span>
+                <span
+                  className={cn(
+                    'tabular mt-0.5 block text-base font-bold',
+                    (data?.agingOrders ?? 0) > 0 && 'text-danger-ink'
+                  )}
+                >
+                  {formatNumber(data?.agingOrders ?? 0)}
+                </span>
+                <span className="text-[0.6875rem] text-muted-foreground">
+                  {t('dash.agingHint').replace('{n}', formatNumber(data?.agingThresholdHours ?? 24))}
+                </span>
+              </Link>
+            </div>
           </Card>
 
-          {/*
-           * Seven days of trade. Placed under the pipeline, because the
-           * pipeline says what is happening now and this says whether now is
-           * normal — which is the question a single day's figure always raises
-           * and never answers.
-           */}
-          <Card>
-            <CardHeader
-              title={t('owner.trend')}
-              subtitle={t('owner.customerValue')}
-              href="/owner/reports"
-              hrefLabel={t('report.reports')}
-            />
-            {trend.isLoading && <Skeleton className="h-32 w-full" />}
-            {trend.isSuccess && points.length > 0 && <TrendChart points={points} />}
-            {trend.isSuccess && points.length === 0 && (
-              <EmptyState icon={ChartColumn} title={t('app.none')} />
-            )}
-          </Card>
 
           <Card>
             <CardHeader
@@ -622,19 +716,10 @@ export default function OwnerDashboardPage() {
            */}
           <QueuePanel
             title={t('dash.queue')}
-            subtitle={t('dash.queueHelp')}
+            subtitle={waiting > 0 ? t('dash.queueHelp') : undefined}
             href="/owner/finance"
-            footer={
-              (data?.pendingDeposits ?? 0) +
-                (data?.pendingWithdrawals ?? 0) +
-                (data?.awaitingAcceptance ?? 0) +
-                (data?.agingOrders ?? 0) +
-                (data?.pendingKyc ?? 0) +
-                (data?.openComplaints ?? 0) ===
-              0
-                ? t('dash.queueEmpty')
-                : undefined
-            }
+            waiting={waiting}
+            footer={waiting === 0 ? t('dash.queueEmpty') : undefined}
           >
             <QueueTile
               icon={ArrowDownToLine}
@@ -722,5 +807,28 @@ export default function OwnerDashboardPage() {
         </Rail>
       </DashboardGrid>
     </>
+  );
+}
+
+/**
+ * One line of the month's arithmetic: a label, and a signed figure.
+ *
+ * Negative values are drawn with a real minus and in ink rather than in red —
+ * every line below the first is a cost, so colouring them all as bad would say
+ * nothing and only make the column shout. The one figure that earns a colour is
+ * the net, and it gets it in the block underneath.
+ */
+function PlRow({ label, value, hint }: { label: string; value: number; hint?: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 border-b border-dashed border-border py-2 last:border-0">
+      <span>
+        <span className="text-sm text-muted-foreground">{label}</span>
+        {hint && <span className="block text-[0.6875rem] text-muted-foreground/80">{hint}</span>}
+      </span>
+      <span className="tabular shrink-0 text-sm font-semibold">
+        {value < 0 ? '−' : ''}
+        {formatMoney(Math.abs(value))}
+      </span>
+    </div>
   );
 }

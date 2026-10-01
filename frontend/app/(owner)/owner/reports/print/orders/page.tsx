@@ -25,6 +25,7 @@ import {
   Figure,
   KeyFigures,
   PrintBar,
+  ReportEmpty,
   ReportFooter,
   ReportSection,
   ReportSheet,
@@ -51,9 +52,7 @@ function OrderSheetView() {
   const to = params.get('to');
   const status = params.get('status') ?? '';
   const range: DateRange = from && to ? { from, to } : null;
-  const query = [rangeParams(range), status ? `status=${status}` : '']
-    .filter(Boolean)
-    .join('&');
+  const query = [rangeParams(range), status ? `status=${status}` : ''].filter(Boolean).join('&');
 
   const sheet = useQuery({
     queryKey: ['owner', 'order-sheet', from, to, status],
@@ -78,7 +77,11 @@ function OrderSheetView() {
     return (
       <>
         <PrintBar back="/owner/orders" />
-        <ErrorState onRetry={() => sheet.refetch()} isRetrying={sheet.isFetching} error={sheet.error} />
+        <ErrorState
+          onRetry={() => sheet.refetch()}
+          isRetrying={sheet.isFetching}
+          error={sheet.error}
+        />
       </>
     );
   }
@@ -157,9 +160,14 @@ function OrderSheetView() {
                     <RTd className="font-semibold">{product.name}</RTd>
                     <RTd>
                       {product.sources.map((source, index) => (
-                        <span key={`${source.sourceName ?? 'none'}-${index}`} className="block text-xs">
+                        <span
+                          key={`${source.sourceName ?? 'none'}-${index}`}
+                          className="block text-xs"
+                        >
                           {source.sourceName ?? (
-                            <span className="text-muted-foreground">{t('owner.pickUndecided')}</span>
+                            <span className="text-muted-foreground">
+                              {t('owner.pickUndecided')}
+                            </span>
                           )}
                           {' · '}
                           {formatQuantity(source.quantity, product.unit)}
@@ -176,9 +184,7 @@ function OrderSheetView() {
           )}
 
           <ReportSection title={t('nav.orders')} breakBefore={orders.length > 0}>
-            {orders.length === 0 && (
-              <p className="py-6 text-center text-sm text-muted-foreground">{t('report.noRows')}</p>
-            )}
+            {orders.length === 0 && <ReportEmpty />}
 
             <div className="space-y-3">
               {orders.map((order, index) => (
@@ -187,7 +193,7 @@ function OrderSheetView() {
             </div>
           </ReportSection>
 
-          <ReportFooter note={`${t('report.checkedBy')}: ______________________`} />
+          <ReportFooter signatures />
         </ReportSheet>
       )}
     </>
@@ -202,19 +208,13 @@ function OrderSheetView() {
  * never truncated: this is the copy that has to be read by someone standing in
  * a lane looking for a house.
  */
-function OrderBlock({
-  order,
-  index,
-}: {
-  order: OrderSheet['orders'][number];
-  index: number;
-}) {
+function OrderBlock({ order, index }: { order: OrderSheet['orders'][number]; index: number }) {
   const shopName = typeof order.reseller === 'object' ? order.reseller.shopName : '';
   const isCod = order.paymentMode === 'cod';
 
   return (
-    <div className="print-block rounded-lg border border-border p-3">
-      <div className="flex items-start justify-between gap-3 border-b border-border pb-2">
+    <div className="print-block overflow-hidden rounded-xl border border-border">
+      <div className="flex items-start justify-between gap-3 border-b border-border bg-subtle px-3.5 py-2.5">
         <div className="min-w-0">
           <p className="tabular text-sm font-bold">
             {formatNumber(index)}. {order.orderCode}
@@ -235,28 +235,30 @@ function OrderBlock({
           <p className="tabular text-lg font-bold leading-none">
             {isCod ? formatMoney(order.totals.customerTotal) : t('order.prepaid')}
           </p>
-          <p className="text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground">
+          <p className="text-[0.6875rem] font-semibold text-muted-foreground">
             {isCod ? t('order.cod') : t('order.paid')}
           </p>
         </div>
       </div>
 
-      <div className="mt-2 grid gap-2 sm:grid-cols-2 print:grid-cols-2">
-        <div>
+      <div className="grid gap-3 px-3.5 py-3 sm:grid-cols-2 sm:gap-5 print:grid-cols-2">
+        <div className="min-w-0">
           <p className="font-semibold">{order.customer.name}</p>
           <p className="tabular text-sm">{order.customer.phoneE164}</p>
           {order.customer.altPhoneE164 && (
             <p className="tabular text-sm text-muted-foreground">{order.customer.altPhoneE164}</p>
           )}
           {/* Never truncated: somebody reads this standing in the lane. */}
-          <p className="mt-0.5 text-sm leading-snug">{order.customer.address}</p>
+          <p className="mt-0.5 text-sm leading-snug [overflow-wrap:anywhere]">
+            {order.customer.address}
+          </p>
           <p className="text-sm text-muted-foreground">{districtLabel(order.customer.district)}</p>
           {order.customer.note && (
             <p className="mt-1 text-xs italic text-muted-foreground">{order.customer.note}</p>
           )}
         </div>
 
-        <div>
+        <div className="min-w-0">
           <ul className="space-y-0.5">
             {order.items.map((item) => (
               <li key={item.id} className="flex items-baseline justify-between gap-2 text-sm">
@@ -276,11 +278,7 @@ function OrderBlock({
           <div className="mt-1.5 border-t border-border pt-1.5 text-sm">
             <Line label={t('order.items')} value={formatMoney(order.totals.sellSubtotal)} />
             <Line label={t('order.deliveryCharge')} value={formatMoney(order.deliveryCharge)} />
-            <Line
-              label={t('app.total')}
-              value={formatMoney(order.totals.customerTotal)}
-              bold
-            />
+            <Line label={t('app.total')} value={formatMoney(order.totals.customerTotal)} bold />
           </div>
 
           {order.courier?.trackingNumber && (

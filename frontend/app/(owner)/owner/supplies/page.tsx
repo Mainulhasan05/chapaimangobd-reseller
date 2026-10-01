@@ -296,8 +296,10 @@ function SupplyModal({ supply, onClose }: { supply: Supply | null; onClose: () =
   const toast = useToast();
   const [nameBn, setNameBn] = useState(supply?.nameBn ?? '');
   const [unit, setUnit] = useState(supply?.unit ?? 'pcs');
+  // Empty, not '0'. A box pre-filled with a zero is a box the owner has to
+  // clear before typing, and `Number('')` is 0 anyway when it is submitted.
   const [reorderLevel, setReorderLevel] = useState(
-    supply ? formatMoneyPlain(supply.reorderLevel) : '0'
+    supply && supply.reorderLevel > 0 ? formatMoneyPlain(supply.reorderLevel) : ''
   );
   const [note, setNote] = useState(supply?.note ?? '');
   const [isArchived, setIsArchived] = useState(Boolean(supply?.isArchived));

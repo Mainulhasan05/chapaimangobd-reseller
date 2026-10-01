@@ -24,6 +24,7 @@ import {
   Figure,
   KeyFigures,
   PrintBar,
+  ReportEmpty,
   ReportFooter,
   ReportSection,
   ReportSheet,
@@ -107,7 +108,7 @@ function ProductsReportView() {
 
           <ReportSection title={t('nav.products')}>
             {rows.length === 0 ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">{t('report.noRows')}</p>
+              <ReportEmpty />
             ) : (
               <ReportTable
                 head={

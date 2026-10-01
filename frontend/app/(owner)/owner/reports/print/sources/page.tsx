@@ -24,6 +24,7 @@ import {
   Figure,
   KeyFigures,
   PrintBar,
+  ReportEmpty,
   ReportFooter,
   ReportSection,
   ReportSheet,
@@ -150,7 +151,7 @@ function SourcesReportView() {
 
           <ReportSection title={t('source.record')}>
             {supplying.length === 0 ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">{t('report.noRows')}</p>
+              <ReportEmpty />
             ) : (
               <ReportTable
                 head={

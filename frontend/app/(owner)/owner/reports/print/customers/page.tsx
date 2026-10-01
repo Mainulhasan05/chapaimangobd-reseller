@@ -26,6 +26,7 @@ import {
   Figure,
   KeyFigures,
   PrintBar,
+  ReportEmpty,
   ReportFooter,
   ReportSection,
   ReportSheet,
@@ -106,7 +107,7 @@ function CustomersReportView() {
 
           <ReportSection title={t('report.topCustomers')}>
             {data.top.length === 0 ? (
-              <Empty />
+              <ReportEmpty />
             ) : (
               <ReportTable head={<Head />}>
                 {data.top.map((row) => (
@@ -185,8 +186,4 @@ function Row({ row, risky }: { row: CustomerReportRow; risky?: boolean }) {
       </RTd>
     </tr>
   );
-}
-
-function Empty() {
-  return <p className="py-6 text-center text-sm text-muted-foreground">{t('report.noRows')}</p>;
 }

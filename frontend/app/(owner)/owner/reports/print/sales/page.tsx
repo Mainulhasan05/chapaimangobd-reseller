@@ -26,6 +26,7 @@ import {
   Figure,
   KeyFigures,
   PrintBar,
+  ReportEmpty,
   ReportFooter,
   ReportSection,
   ReportSheet,
@@ -108,7 +109,7 @@ function SalesView() {
 
           <ReportSection title={t('report.byDay')}>
             {data.days.length === 0 ? (
-              <Empty />
+              <ReportEmpty />
             ) : (
               <ReportTable
                 head={
@@ -166,7 +167,7 @@ function SalesView() {
 
           <ReportSection title={t('report.byProduct')}>
             {data.products.length === 0 ? (
-              <Empty />
+              <ReportEmpty />
             ) : (
               <ReportTable
                 head={
@@ -277,8 +278,4 @@ function SalesView() {
       )}
     </>
   );
-}
-
-function Empty() {
-  return <p className="py-6 text-center text-sm text-muted-foreground">{t('report.noRows')}</p>;
 }

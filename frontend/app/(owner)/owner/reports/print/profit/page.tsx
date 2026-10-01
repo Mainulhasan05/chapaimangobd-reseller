@@ -39,6 +39,7 @@ import {
   Figure,
   KeyFigures,
   PrintBar,
+  ReportEmpty,
   ReportFooter,
   ReportSection,
   ReportSheet,
@@ -241,7 +242,7 @@ function ProfitReportView() {
 
         <ReportSection title={t('profit.periodExpenses')} hint={t('profit.periodHint')}>
           {data.periodExpenses.length === 0 ? (
-            <Empty />
+            <ReportEmpty />
           ) : (
             <ReportTable
               head={
@@ -281,7 +282,7 @@ function ProfitReportView() {
          */}
         <ReportSection title={t('profit.perOrder')} hint={t('profit.worstFirst')} breakBefore>
           {data.orders.length === 0 ? (
-            <Empty />
+            <ReportEmpty />
           ) : (
             <ReportTable
               head={
@@ -362,8 +363,4 @@ function ProfitReportView() {
       </ReportSheet>
     </>
   );
-}
-
-function Empty() {
-  return <p className="py-6 text-center text-sm text-muted-foreground">{t('report.noRows')}</p>;
 }

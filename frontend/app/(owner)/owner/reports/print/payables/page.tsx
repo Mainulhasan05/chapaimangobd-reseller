@@ -26,6 +26,7 @@ import {
   Figure,
   KeyFigures,
   PrintBar,
+  ReportEmpty,
   ReportFooter,
   ReportSection,
   ReportSheet,
@@ -109,7 +110,7 @@ function PayablesReportView() {
 
         <ReportSection title={t('payee.due')} hint={t('payee.dueHint')}>
           {data.payables.length === 0 ? (
-            <Empty />
+            <ReportEmpty />
           ) : (
             <ReportTable
               head={
@@ -160,7 +161,7 @@ function PayablesReportView() {
          */}
         <ReportSection title={t('payee.advance')} hint={t('payee.advanceHint')} breakBefore>
           {data.advances.length === 0 ? (
-            <Empty />
+            <ReportEmpty />
           ) : (
             <ReportTable
               head={
@@ -204,12 +205,8 @@ function PayablesReportView() {
           )}
         </ReportSection>
 
-        <ReportFooter note={`${t('report.checkedBy')}: ______________________`} />
+        <ReportFooter signatures />
       </ReportSheet>
     </>
   );
-}
-
-function Empty() {
-  return <p className="py-6 text-center text-sm text-muted-foreground">{t('report.noRows')}</p>;
 }

@@ -25,6 +25,7 @@ import {
   Figure,
   KeyFigures,
   PrintBar,
+  ReportEmpty,
   ReportFooter,
   ReportSection,
   ReportSheet,
@@ -133,7 +134,7 @@ function DueReportView() {
 
           <ReportSection title={t('wallet.owed')} hint={formatMoney(data.totalOwed)}>
             {debtors.length === 0 ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">{t('report.noRows')}</p>
+              <ReportEmpty />
             ) : (
               <ReportTable
                 head={
@@ -210,7 +211,7 @@ function DueReportView() {
             </ReportSection>
           )}
 
-          <ReportFooter note={`${t('report.checkedBy')}: ______________________`} />
+          <ReportFooter signatures />
         </ReportSheet>
       )}
     </>

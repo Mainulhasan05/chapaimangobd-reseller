@@ -51,6 +51,34 @@ type FieldExtras = {
   invalid?: boolean;
 };
 
+/**
+ * Strips a leading zero a number box would otherwise keep.
+ *
+ * A field holding "0" — because the record it is editing really is zero, or
+ * because the form seeded it that way — puts the caret after the zero, so typing
+ * 2 leaves "02". `Number("02")` is 2 and the value saved was always correct, but
+ * the box reads like a bug and every form in the app had it.
+ *
+ * Fixed here rather than at the thirty-odd call sites, because fixing it per
+ * field is how some fields keep it.
+ *
+ * What is deliberately left alone:
+ *   "0"      a lone zero is a legitimate value and may be on its way to "0.5"
+ *   "0.5"    a zero before the point is how a decimal is written
+ *   ""       an empty box is not a number yet
+ *   "-0..."  the sign is kept and the digits after it are cleaned
+ */
+export function stripLeadingZero(value: string): string {
+  const sign = value.startsWith('-') ? '-' : '';
+  const digits = sign ? value.slice(1) : value;
+
+  // Nothing to strip unless there are at least two characters and the first is
+  // a zero that is not immediately followed by a decimal point.
+  if (!/^0\d/.test(digits)) return value;
+
+  return sign + digits.replace(/^0+(?=\d)/, '');
+}
+
 export function Input({
   className,
   action,
@@ -58,8 +86,26 @@ export function Input({
   prefix,
   trailing,
   invalid,
+  onChange,
   ...props
 }: React.ComponentProps<'input'> & FieldExtras) {
+  /*
+   * Number boxes clean their own leading zero before the parent hears about it,
+   * so a controlled field never renders "02". Text boxes are untouched: a
+   * leading zero is meaningful in an order code, a phone number or an invoice
+   * number, and stripping it there would be a different and worse bug.
+   */
+  const numeric = props.type === 'number';
+  const handleChange = onChange
+    ? (event: React.ChangeEvent<HTMLInputElement>) => {
+        if (numeric) {
+          const cleaned = stripLeadingZero(event.target.value);
+          if (cleaned !== event.target.value) event.target.value = cleaned;
+        }
+        onChange(event);
+      }
+    : undefined;
+
   return (
     <div className={shell(className)} data-invalid={invalid || undefined}>
       {prefix && (
@@ -70,7 +116,11 @@ export function Input({
           {prefix}
         </span>
       )}
-      <input className={cn(bare, 'h-11 sm:h-10', prefix && 'pl-1.5')} {...props} />
+      <input
+        className={cn(bare, 'h-11 sm:h-10', prefix && 'pl-1.5')}
+        onChange={handleChange}
+        {...props}
+      />
       {trailing && (
         <span aria-hidden className="flex shrink-0 items-center pr-3">
           {trailing}

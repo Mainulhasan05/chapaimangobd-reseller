@@ -18,7 +18,24 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import type { Route } from 'next';
-import { ChevronDown, Download, FileText } from 'lucide-react';
+import {
+  Boxes,
+  ChartColumn,
+  ChevronDown,
+  ClipboardList,
+  Contact,
+  Download,
+  HandCoins,
+  ListChecks,
+  Package,
+  Receipt,
+  ShoppingCart,
+  Store,
+  TrendingUp,
+  Users,
+  Wallet,
+  type LucideIcon,
+} from 'lucide-react';
 import { t, type DictKey } from '@/lib/i18n/bn';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -40,28 +57,135 @@ export type ReportKind =
   | 'expenses'
   | 'profit';
 
-const REPORTS: { kind: ReportKind; labelKey: DictKey; hintKey: DictKey; ranged: boolean }[] = [
-  { kind: 'orders', labelKey: 'report.orderSheet', hintKey: 'report.orderSheetHint', ranged: true },
-  { kind: 'pick-list', labelKey: 'report.pickList', hintKey: 'report.pickListHint', ranged: true },
-  { kind: 'sales', labelKey: 'report.sales', hintKey: 'report.salesHint', ranged: true },
-  { kind: 'products', labelKey: 'report.products', hintKey: 'report.productsHint', ranged: true },
-  // Which orchard to stop buying from. See backend models/Complaint.js.
-  { kind: 'sources', labelKey: 'report.sources', hintKey: 'report.sourcesHint', ranged: true },
-  { kind: 'resellers', labelKey: 'report.resellers', hintKey: 'report.resellersHint', ranged: true },
-  // A buyer's record spans every order they ever placed, so it takes no dates.
-  { kind: 'customers', labelKey: 'report.customers', hintKey: 'report.customersHint', ranged: false },
+export type ReportGroup = 'sales' | 'people' | 'cost';
+
+export type ReportInfo = {
+  kind: ReportKind;
+  labelKey: DictKey;
+  hintKey: DictKey;
+  /** Covers a range of days. The rest are a snapshot of where things stand now. */
+  ranged: boolean;
+  group: ReportGroup;
+  icon: LucideIcon;
+};
+
+/*
+ * The same icons the sidebar uses for the screen each report belongs to, so a
+ * report is recognisable from the place it is about.
+ */
+export const REPORTS: ReportInfo[] = [
+  {
+    kind: 'orders',
+    labelKey: 'report.orderSheet',
+    hintKey: 'report.orderSheetHint',
+    ranged: true,
+    group: 'sales',
+    icon: ClipboardList,
+  },
+  {
+    kind: 'pick-list',
+    labelKey: 'report.pickList',
+    hintKey: 'report.pickListHint',
+    ranged: true,
+    group: 'sales',
+    icon: ListChecks,
+  },
+  {
+    kind: 'sales',
+    labelKey: 'report.sales',
+    hintKey: 'report.salesHint',
+    ranged: true,
+    group: 'sales',
+    icon: TrendingUp,
+  },
+  {
+    kind: 'products',
+    labelKey: 'report.products',
+    hintKey: 'report.productsHint',
+    ranged: true,
+    group: 'sales',
+    icon: Package,
+  },
+  {
+    kind: 'resellers',
+    labelKey: 'report.resellers',
+    hintKey: 'report.resellersHint',
+    ranged: true,
+    group: 'people',
+    icon: Users,
+  },
   // A balance is where a wallet stands now, not over a period, so no dates.
-  { kind: 'due', labelKey: 'report.due', hintKey: 'report.dueHint', ranged: false },
+  {
+    kind: 'due',
+    labelKey: 'report.due',
+    hintKey: 'report.dueHint',
+    ranged: false,
+    group: 'people',
+    icon: Wallet,
+  },
+  // A buyer's record spans every order they ever placed, so it takes no dates.
+  {
+    kind: 'customers',
+    labelKey: 'report.customers',
+    hintKey: 'report.customersHint',
+    ranged: false,
+    group: 'people',
+    icon: Contact,
+  },
+  // Which orchard to stop buying from. See backend models/Complaint.js.
+  {
+    kind: 'sources',
+    labelKey: 'report.sources',
+    hintKey: 'report.sourcesHint',
+    ranged: true,
+    group: 'people',
+    icon: Store,
+  },
   /*
    * The cost side. `profit` is the one this whole plan exists for; the rest feed
    * it. `payables` takes no dates for exactly the reason `due` does not — a due is
    * where an account stands at the moment it is printed.
    */
-  { kind: 'profit', labelKey: 'report.profit', hintKey: 'report.profitHint', ranged: true },
-  { kind: 'purchases', labelKey: 'report.purchases', hintKey: 'report.purchasesHint', ranged: true },
-  { kind: 'expenses', labelKey: 'report.expenses', hintKey: 'report.expensesHint', ranged: true },
-  { kind: 'supplies', labelKey: 'report.supplies', hintKey: 'report.suppliesHint', ranged: true },
-  { kind: 'payables', labelKey: 'report.payables', hintKey: 'report.payablesHint', ranged: false },
+  {
+    kind: 'profit',
+    labelKey: 'report.profit',
+    hintKey: 'report.profitHint',
+    ranged: true,
+    group: 'cost',
+    icon: ChartColumn,
+  },
+  {
+    kind: 'purchases',
+    labelKey: 'report.purchases',
+    hintKey: 'report.purchasesHint',
+    ranged: true,
+    group: 'cost',
+    icon: ShoppingCart,
+  },
+  {
+    kind: 'expenses',
+    labelKey: 'report.expenses',
+    hintKey: 'report.expensesHint',
+    ranged: true,
+    group: 'cost',
+    icon: Receipt,
+  },
+  {
+    kind: 'supplies',
+    labelKey: 'report.supplies',
+    hintKey: 'report.suppliesHint',
+    ranged: true,
+    group: 'cost',
+    icon: Boxes,
+  },
+  {
+    kind: 'payables',
+    labelKey: 'report.payables',
+    hintKey: 'report.payablesHint',
+    ranged: false,
+    group: 'cost',
+    icon: HandCoins,
+  },
 ];
 
 /** The href for one report, carrying the range and anything else it filters on. */
@@ -116,7 +240,7 @@ export function ReportButton({
 /**
  * Every report, behind one button, with the current range already applied.
  *
- * A menu rather than a row of buttons: there are five, the labels are long in
+ * A menu rather than a row of buttons: there are thirteen, the labels are long in
  * Bengali, and a phone toolbar that wraps to three lines pushes the list itself
  * below the fold.
  */
@@ -170,34 +294,36 @@ export function DownloadMenu({
       {open && (
         <div
           role="menu"
-          className="menu-in absolute right-0 z-40 mt-1 w-[17rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-border bg-surface elev-2"
+          className="menu-in absolute right-0 z-40 mt-1 flex max-h-[min(32rem,calc(100dvh-8rem))] w-[17rem] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-xl border border-border bg-surface elev-2"
         >
-          <p className="border-b border-border px-3 py-2 text-xs font-semibold text-muted-foreground">
+          <p className="shrink-0 border-b border-border px-3 py-2 text-xs font-semibold text-muted-foreground">
             {t('report.pickChoose')}
           </p>
 
-          {items.map((report) => (
-            <Link
-              key={report.kind}
-              role="menuitem"
-              href={reportHref(report.kind, range, extra)}
-              onClick={() => setOpen(false)}
-              className="flex items-start gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-muted"
-            >
-              <FileText className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-              <span className="min-w-0">
-                <span className="block text-sm font-medium">{t(report.labelKey)}</span>
-                <span className="block text-xs text-muted-foreground">{t(report.hintKey)}</span>
-              </span>
-            </Link>
-          ))}
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {items.map((report) => (
+              <Link
+                key={report.kind}
+                role="menuitem"
+                href={reportHref(report.kind, range, extra)}
+                onClick={() => setOpen(false)}
+                className="flex items-start gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-muted"
+              >
+                <report.icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                <span className="min-w-0">
+                  <span className="block text-sm font-medium">{t(report.labelKey)}</span>
+                  <span className="block text-xs text-muted-foreground">{t(report.hintKey)}</span>
+                </span>
+              </Link>
+            ))}
+          </div>
 
           {/*
            * Said once, here, rather than on each button. The browser's print
            * sheet is where a PDF is actually saved, and someone meeting it for
            * the first time will not guess that.
            */}
-          <p className="border-t border-border bg-muted/50 px-3 py-2 text-[0.6875rem] text-muted-foreground">
+          <p className="shrink-0 border-t border-border bg-muted/50 px-3 py-2 text-[0.6875rem] text-muted-foreground">
             {t('report.downloadHint')}
           </p>
         </div>

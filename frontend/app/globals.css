@@ -356,6 +356,29 @@
   .scroll-x-bare::-webkit-scrollbar {
     display: none;
   }
+
+  /*
+   * Report line items, banded. A wide row on paper is read with a finger, and
+   * the band is what keeps the finger on the right line. The totals row keeps
+   * its own shade, so it is excluded rather than overridden.
+   */
+  .report-table tbody tr:nth-child(even):not(.report-total) {
+    background: var(--muted);
+  }
+
+  .report-table tbody tr:first-child > td {
+    border-top: 0;
+  }
+
+  /*
+   * The first column is what a row is about — a product, a shop, a date — and
+   * the figure columns beside it never wrap, so without a floor it is the one
+   * squeezed to a word per line on a phone. Zero specificity, so a utility on
+   * the cell (the pick list's tick box) overrides it.
+   */
+  :where(.report-table th:first-child, .report-table td:first-child) {
+    min-width: 7.5rem;
+  }
 }
 
 @layer utilities {
@@ -596,9 +619,50 @@
     color: #000 !important;
   }
 
+  /*
+   * The page number, in Bengali digits, bottom right of every sheet. A report
+   * that runs to three sheets and gets dropped has to go back together in order.
+   * Browsers without margin boxes simply print without it.
+   */
   @page {
     size: A4 portrait;
-    margin: 12mm 10mm;
+    margin: 12mm 12mm 14mm;
+
+    @bottom-right {
+      content: counter(page, bengali) ' / ' counter(pages, bengali);
+      font-size: 8pt;
+      color: #52525b;
+    }
+  }
+
+  /*
+   * The report sheet is paper on screen; on paper it is just the page. Its
+   * border, shadow, rounding and the bleed it takes on a phone all go, and the
+   * tinted heads and bands are kept, because a ruled table without them is a
+   * grid of hairlines that is hard to read across.
+   */
+  .report-paper {
+    margin: 0 !important;
+    max-width: none !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* A table is printed whole; the sideways scroll is a screen affordance. */
+  .report-table {
+    overflow: visible !important;
+  }
+
+  .report-table table {
+    font-size: 9pt;
+  }
+
+  /* The shell's two-column grid would keep the sidebar's width with no sidebar. */
+  .app-shell {
+    display: block !important;
   }
 
   /* Anything whose job is to be pressed has no job on paper. */

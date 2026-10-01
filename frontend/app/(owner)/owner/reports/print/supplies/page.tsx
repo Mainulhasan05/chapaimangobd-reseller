@@ -30,6 +30,7 @@ import {
   Figure,
   KeyFigures,
   PrintBar,
+  ReportEmpty,
   ReportFooter,
   ReportSection,
   ReportSheet,
@@ -156,7 +157,7 @@ function SupplyReportView() {
          */}
         <ReportSection title={t('supply.title')} hint={t('supply.estimatedHint')}>
           {data.supplies.length === 0 ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">{t('report.noRows')}</p>
+            <ReportEmpty />
           ) : (
             <ReportTable
               head={

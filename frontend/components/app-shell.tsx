@@ -195,7 +195,7 @@ export function AppShell({
   const sections = Array.from(new Set(nav.map((item) => item.section)));
 
   return (
-    <div className="min-h-screen lg:grid lg:grid-cols-[17rem_1fr]">
+    <div className="app-shell min-h-screen lg:grid lg:grid-cols-[17rem_1fr]">
       {/*
        * The sidebar owns the full height of the viewport and scrolls its own
        * list, so the brand stays at the top and the account stays at the bottom

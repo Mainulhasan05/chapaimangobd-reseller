@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
-import { ClipboardList, Download, FileText, TrendingDown } from 'lucide-react';
+import { ChevronRight, ClipboardList, Download, FileSpreadsheet, TrendingDown } from 'lucide-react';
 import { api, errorMessage } from '@/lib/api';
 import { t, tUnit } from '@/lib/i18n/bn';
 import { formatMoney, formatNumber, formatSignedMoney } from '@/lib/format';
@@ -30,7 +30,14 @@ import {
   type DateRange,
   type PresetKey,
 } from '@/components/ui/date-range';
-import { DownloadMenu, reportHref } from '@/components/report/download-menu';
+import {
+  DownloadMenu,
+  REPORTS,
+  reportHref,
+  type ReportGroup,
+  type ReportInfo,
+} from '@/components/report/download-menu';
+import type { DictKey } from '@/lib/i18n/bn';
 
 type Receivables = {
   /** What resellers owe the owner: the negative ledger balances. */
@@ -68,33 +75,63 @@ type ProductsSold = {
   }[];
 };
 
+const GROUPS: { group: ReportGroup; titleKey: DictKey }[] = [
+  { group: 'sales', titleKey: 'report.groupSales' },
+  { group: 'people', titleKey: 'report.groupPeople' },
+  { group: 'cost', titleKey: 'report.groupCost' },
+];
+
 /**
  * One report, as a card. A card rather than a link, because on a phone this is
  * the tap target and a line of text is not one.
+ *
+ * Each card says whether it follows the range above or is a snapshot of today,
+ * because "due" and "payables" ignore the dates on purpose and a person who
+ * picked last week would otherwise think the sheet was wrong.
  */
-function ReportCard({
-  kind,
-  label,
+function ReportCard({ report, range }: { report: ReportInfo; range: DateRange }) {
+  const Icon = report.icon;
+
+  return (
+    <Link
+      href={reportHref(report.kind, range)}
+      className="card card-interactive group flex h-full min-w-0 items-start gap-3 p-4"
+    >
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary-softer">
+        <Icon className="h-5 w-5 text-primary-ink" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-semibold leading-snug">{t(report.labelKey)}</span>
+        <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">
+          {t(report.hintKey)}
+        </span>
+        <Badge tone={report.ranged ? 'neutral' : 'warning'} className="mt-2 px-2 py-0.5">
+          {report.ranged ? t('report.ranged') : t('report.snapshot')}
+        </Badge>
+      </span>
+      <ChevronRight className="mt-2.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+    </Link>
+  );
+}
+
+/** A labelled block of the page. */
+function Section({
+  title,
   hint,
-  range,
+  children,
 }: {
-  kind: Parameters<typeof reportHref>[0];
-  label: string;
-  hint: string;
-  range: DateRange;
+  title: string;
+  hint?: string;
+  children: React.ReactNode;
 }) {
   return (
-    <Link href={reportHref(kind, range)} className="card-interactive">
-      <Card className="flex h-full items-start gap-3 p-4">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-subtle">
-          <FileText className="h-4 w-4 text-primary-ink" />
-        </span>
-        <span className="min-w-0">
-          <span className="block text-sm font-semibold">{label}</span>
-          <span className="block text-xs text-muted-foreground">{hint}</span>
-        </span>
-      </Card>
-    </Link>
+    <section className="mb-8 min-w-0">
+      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-3">
+        <h2 className="text-sm font-semibold text-muted-foreground">{title}</h2>
+        {hint && <span className="text-xs text-muted-foreground">{hint}</span>}
+      </div>
+      {children}
+    </section>
   );
 }
 
@@ -156,60 +193,54 @@ export default function OwnerReportsPage() {
 
       {/*
        * Every report, as cards rather than a menu, because this is the screen
-       * someone opens when they do not already know which one they want.
+       * someone opens when they do not already know which one they want. Grouped
+       * the way the business is: what was sold, who it was sold through, and
+       * what it cost.
        */}
-      <section className="mb-6">
-        <h2 className="mb-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          {t('report.reports')}
-        </h2>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <ReportCard kind="sales" label={t('report.sales')} hint={t('report.salesHint')} range={range} />
-          <ReportCard
-            kind="resellers"
-            label={t('report.resellers')}
-            hint={t('report.resellersHint')}
-            range={range}
-          />
-          <ReportCard kind="due" label={t('report.due')} hint={t('report.dueHint')} range={range} />
-          <ReportCard
-            kind="orders"
-            label={t('report.orderSheet')}
-            hint={t('report.orderSheetHint')}
-            range={range}
-          />
-          <ReportCard
-            kind="pick-list"
-            label={t('report.pickList')}
-            hint={t('report.pickListHint')}
-            range={range}
-          />
+      {GROUPS.map(({ group, titleKey }) => (
+        <Section key={group} title={t(titleKey)}>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {REPORTS.filter((report) => report.group === group).map((report) => (
+              <ReportCard key={report.kind} report={report} range={range} />
+            ))}
+          </div>
+        </Section>
+      ))}
 
-          {/*
-           * The two CSVs, which are a different thing from a report: a file to
-           * open in a spreadsheet rather than a sheet to print. They now carry
-           * the range above them, which is the whole reason they are here and
-           * not in the header.
-           */}
-          <Card className="flex flex-col gap-2 p-4">
-            <p className="text-sm font-semibold">CSV</p>
-            <div className="flex flex-wrap gap-2">
-              <a href={`/api/owner/exports/orders.csv${query}`} download>
-                <Button variant="outline" size="sm">
-                  <Download className="h-4 w-4" />
-                  {t('nav.orders')}
-                </Button>
-              </a>
-              <a href={`/api/owner/exports/ledger.csv${query}`} download>
-                <Button variant="outline" size="sm">
-                  <Download className="h-4 w-4" />
-                  {t('wallet.ledger')}
-                </Button>
-              </a>
-            </div>
-          </Card>
-        </div>
-      </section>
+      {/*
+       * The two CSVs, which are a different thing from a report: a file to open
+       * in a spreadsheet rather than a sheet to print. They carry the range
+       * above them, which is the whole reason they are here and not in the header.
+       */}
+      <Section title={t('report.export')}>
+        <Card className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:p-4">
+          <span className="flex min-w-0 flex-1 items-center gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-success-soft">
+              <FileSpreadsheet className="h-5 w-5 text-success-ink" />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-sm font-semibold">CSV</span>
+              <span className="block text-xs text-muted-foreground">{t('report.exportHint')}</span>
+            </span>
+          </span>
+          <div className="flex flex-wrap gap-2">
+            <a href={`/api/owner/exports/orders.csv${query}`} download>
+              <Button variant="outline" size="sm">
+                <Download className="h-4 w-4" />
+                {t('nav.orders')}
+              </Button>
+            </a>
+            <a href={`/api/owner/exports/ledger.csv${query}`} download>
+              <Button variant="outline" size="sm">
+                <Download className="h-4 w-4" />
+                {t('wallet.ledger')}
+              </Button>
+            </a>
+          </div>
+        </Card>
+      </Section>
 
+      <h2 className="mb-3 text-sm font-semibold text-muted-foreground">{t('report.glance')}</h2>
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
         <Stat
           icon={TrendingDown}
@@ -314,9 +345,7 @@ export default function OwnerReportsPage() {
                     <Td className="tabular text-right">{formatMoney(row.creditLimit)}</Td>
                     <Td className="text-right text-xs">
                       <div className="flex flex-wrap items-center justify-end gap-1.5">
-                        {row.atLimit && (
-                          <span className="text-danger">{t('reports.atLimit')}</span>
-                        )}
+                        {row.atLimit && <span className="text-danger">{t('reports.atLimit')}</span>}
                         {/*
                          * A wallet whose cached balance does not match its
                          * ledger. Rare and serious, so it gets a badge rather
@@ -358,10 +387,16 @@ export default function OwnerReportsPage() {
         )}
 
         {sold.isError && (
-          <ErrorState onRetry={() => sold.refetch()} isRetrying={sold.isFetching} error={sold.error} />
+          <ErrorState
+            onRetry={() => sold.refetch()}
+            isRetrying={sold.isFetching}
+            error={sold.error}
+          />
         )}
 
-        {sold.data?.products.length === 0 && <EmptyState icon={ClipboardList} title={t('app.none')} />}
+        {sold.data?.products.length === 0 && (
+          <EmptyState icon={ClipboardList} title={t('app.none')} />
+        )}
 
         {sold.data && sold.data.products.length > 0 && (
           <TableWrap alwaysVisible>

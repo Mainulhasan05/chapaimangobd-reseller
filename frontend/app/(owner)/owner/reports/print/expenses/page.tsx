@@ -28,6 +28,7 @@ import {
   Figure,
   KeyFigures,
   PrintBar,
+  ReportEmpty,
   ReportFooter,
   ReportSection,
   ReportSheet,
@@ -196,7 +197,7 @@ function ExpenseReportView() {
 /** One scope's categories. Identical shape both times, so the two compare. */
 function ScopeTable({ rows, total }: { rows: Row[]; total: number }) {
   if (rows.length === 0) {
-    return <p className="py-6 text-center text-sm text-muted-foreground">{t('report.noRows')}</p>;
+    return <ReportEmpty />;
   }
 
   return (
