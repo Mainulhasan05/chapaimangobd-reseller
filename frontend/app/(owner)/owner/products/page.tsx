@@ -713,7 +713,7 @@ type StockMode = 'in' | 'out' | 'set';
  * Android phones has no minus key.
  */
 function StockSheet({
-  product,
+  product: opened,
   variantId,
   onClose,
 }: {
@@ -727,7 +727,19 @@ function StockSheet({
   const [mode, setMode] = useState<StockMode>('in');
   const [value, setValue] = useState('');
   const [tried, setTried] = useState(false);
+  // One per opening: a retry after a lost answer is applied once, not twice.
+  const [nonce] = useState(() => crypto.randomUUID());
   const [setStock, state] = useSetVariantStockMutation();
+
+  /*
+   * The product as the catalog has it now, not as it was when the sheet
+   * opened: an order can take boxes meanwhile, and the "now" figure, the
+   * before → after preview and the toast must all start from the real count.
+   */
+  const { live, refetch } = useGetProductsQuery(undefined, {
+    selectFromResult: ({ data }) => ({ live: data?.products.find((p) => p.id === opened.id) }),
+  });
+  const product = live ?? opened;
 
   const box = product.variants.find((v) => v.id === boxId) ?? product.variants[0];
   const current = box?.stockQty ?? 0;
@@ -765,8 +777,8 @@ function StockSheet({
     try {
       const { product: fresh } = await setStock(
         mode === 'set'
-          ? { productId: product.id, variantId: box.id, set: amount }
-          : { productId: product.id, variantId: box.id, add: mode === 'in' ? amount : -amount }
+          ? { productId: product.id, variantId: box.id, set: amount, nonce }
+          : { productId: product.id, variantId: box.id, add: mode === 'in' ? amount : -amount, nonce }
       ).unwrap();
       const now = fresh.variants.find((v) => v.id === box.id)?.stockQty ?? after ?? 0;
       toast(
@@ -777,10 +789,19 @@ function StockSheet({
         })
       );
       onClose();
-    } catch {
-      // Shown in the sheet, beside the button.
+    } catch (error) {
+      // Shown in the sheet, beside the button. A refusal over the count means
+      // the count moved: fetch the real one so the message and preview use it.
+      if (error instanceof ApiError && error.code === 'STOCK_BELOW_ZERO') void refetch();
     }
   };
+
+  const stockError =
+    state.error instanceof ApiError && state.error.code === 'STOCK_BELOW_ZERO'
+      ? tf('products.stockNowIs', { n: formatNumber(current) })
+      : state.isError
+        ? catalogError(state.error)
+        : null;
 
   const labels: Record<StockMode, string> = {
     in: t('products.stockInLabel'),
@@ -794,7 +815,7 @@ function StockSheet({
       onClose={onClose}
       title={tf('products.stockTitle', { name: product.name })}
       dirty={value.trim() !== ''}
-      footerLead={state.isError ? <SheetError message={catalogError(state.error)} /> : undefined}
+      footerLead={stockError ? <SheetError message={stockError} /> : undefined}
       footer={
         <>
           <ModalCancel />
@@ -1497,8 +1518,16 @@ function ProductPhotos({ product }: { product: OwnerProduct }) {
   const [pending, setPending] = useState<File[]>([]);
   const [removing, setRemoving] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [update, state] = useUpdateProductMutation();
+  // Separate hooks for the upload and the removal, so one request's state is
+  // never read as the other's: a removal during a slow upload used to make the
+  // upload look finished and offer "retry", which uploaded the photos twice.
+  const [update, uploadState] = useUpdateProductMutation();
+  const [removeRequest] = useUpdateProductMutation();
   const [setCover] = useSetProductCoverMutation();
+  const uploading = uploadState.isLoading;
+  // One change to the set at a time: each answer replaces the whole list, so
+  // two in flight would leave whichever answered last on screen.
+  const busy = uploading || removing.length > 0;
 
   const makeCover = async (imageId: string) => {
     setRemoving((prev) => [...prev, imageId]);
@@ -1536,7 +1565,7 @@ function ProductPhotos({ product }: { product: OwnerProduct }) {
     const data = new FormData();
     data.append('removeImages', id);
     try {
-      const { product: fresh } = await update({ id: product.id, formData: data }).unwrap();
+      const { product: fresh } = await removeRequest({ id: product.id, formData: data }).unwrap();
       setImages(fresh.images);
       toast(t('file.removed'));
     } catch (failure) {
@@ -1545,8 +1574,6 @@ function ProductPhotos({ product }: { product: OwnerProduct }) {
       setRemoving((prev) => prev.filter((value) => value !== id));
     }
   };
-
-  const uploading = state.isLoading && pending.length > 0;
 
   return (
     <div>
@@ -1561,16 +1588,16 @@ function ProductPhotos({ product }: { product: OwnerProduct }) {
         confirmRemove
         error={error ?? undefined}
         onChange={(files) => {
-          if (state.isLoading) return;
+          if (busy) return;
           // A pick adds files; dropping a failed one from the tray does not upload.
           if (files.length > pending.length) void upload(files);
           else setPending(files);
         }}
-        onRemoveExisting={(id) => void remove(id)}
-        onMakeCover={(id) => void makeCover(id)}
+        onRemoveExisting={busy ? undefined : (id) => void remove(id)}
+        onMakeCover={busy ? undefined : (id) => void makeCover(id)}
       />
       <p className="mt-1 text-xs text-muted-foreground">{t('products.photosInstant')}</p>
-      {pending.length > 0 && !state.isLoading && (
+      {pending.length > 0 && !busy && (
         <Button variant="outline" full className="mt-2" onClick={() => void upload(pending)}>
           {t('products.retryUpload')}
         </Button>

@@ -134,7 +134,11 @@ export default function OwnerReportsPage() {
 
   const receivables = useGetReceivablesQuery();
   const sold = useGetProductsSoldQuery(rangeArgs);
-  const [runReconcile, reconcile] = useLazyGetReconcileQuery();
+  // Run on the button only: returning to the tab must not re-run a check across every wallet.
+  const [runReconcile, reconcile] = useLazyGetReconcileQuery({
+    refetchOnFocus: false,
+    refetchOnReconnect: false,
+  });
 
   // The cost glance: three figures, each read from the cheapest source that has it.
   const profit = useGetProfitReportQuery(rangeArgs);

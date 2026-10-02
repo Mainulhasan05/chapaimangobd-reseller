@@ -16,7 +16,7 @@ const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const request = require('supertest');
 
-const { startDb, stopDb, resetDb } = require('./helpers/db');
+const { startDb, stopDb, resetDb, mongoose } = require('./helpers/db');
 const f = require('./helpers/factory');
 
 const app = require('../src/app');
@@ -612,4 +612,173 @@ test('any photo can be made the cover, and a stale reorder is refused', async ()
   const entries = await AuditLog.find({ action: 'product.cover' });
   assert.equal(entries.length, 1);
   assert.equal(entries[0].after.cover, 'c');
+});
+
+/* --------------------------------------------------------- review follow-ups */
+
+test('the summary counts and money honour a reseller or source filter', async () => {
+  const setup = await scene();
+  const other = await f.makeReseller({ creditLimit: 1000000 });
+  await f.listProduct(other.profile, setup.product, 70);
+  const accepted = await walk(setup, await confirm(setup, await placeOrder(setup)), 'accept');
+  await confirm(setup, await placeOrder(setup, { reseller: other }), other);
+
+  const byReseller = await setup.api.get(`/api/owner/orders/summary?reseller=${setup.reseller.profile._id}`);
+  assert.equal(byReseller.status, 200, JSON.stringify(byReseller.body));
+  assert.deepEqual(byReseller.body.data.byStatus, { [ORDER_STATUS.ACCEPTED]: 1 });
+  assert.equal(byReseller.body.data.money.orders, 1);
+  assert.equal(byReseller.body.data.money.ownerRevenue, accepted.totals.walletDebitPoisha / 100);
+
+  const bySource = await setup.api.get(`/api/owner/orders/summary?source=${setup.source._id}`);
+  assert.equal(bySource.body.data.total, 1);
+  assert.equal(bySource.body.data.money.orders, 1);
+});
+
+test('a stock change sent twice with the same nonce is applied once', async () => {
+  const setup = await scene({ trackStock: true, stockQty: 10 });
+  const variant = setup.product.variants[0];
+  const url = `/api/owner/products/${setup.product._id}/variants/${variant._id}/stock`;
+
+  const first = await setup.api.patch(url).send({ add: 5, nonce: 'delivery-0001' });
+  assert.equal(first.status, 200, JSON.stringify(first.body));
+  assert.equal(first.body.data.replayed, false);
+  const retry = await setup.api.patch(url).send({ add: 5, nonce: 'delivery-0001' });
+  assert.equal(retry.status, 200);
+  assert.equal(retry.body.data.replayed, true);
+  assert.equal(retry.body.data.product.variants[0].stockQty, 15);
+
+  // A replayed take that would now go below zero still answers as applied.
+  await setup.api.patch(url).send({ add: -15, nonce: 'take-all-0001' }).expect(200);
+  const again = await setup.api.patch(url).send({ add: -15, nonce: 'take-all-0001' });
+  assert.equal(again.status, 200, JSON.stringify(again.body));
+  assert.equal(again.body.data.replayed, true);
+
+  await setup.api.patch(url).send({ add: 5, nonce: 'delivery-0002' }).expect(200);
+  assert.equal((await Product.findById(setup.product._id)).variants[0].stockQty, 5);
+  assert.equal(await AuditLog.countDocuments({ action: 'product.stock' }), 3);
+  assert.equal((await setup.api.patch(url).send({ add: 1, nonce: 'short' })).status, 400);
+});
+
+test('a kept box cannot collide with a sent one, nor push past the ceiling', async () => {
+  const setup = await scene();
+  await confirm(setup, await placeOrder(setup)); // the one-kilo box now has an order
+
+  // Dropping it and sending a new one-kilo box would leave two one-kilo boxes.
+  const clash = await setup.api.patch(`/api/owner/products/${setup.product._id}`).send({
+    variants: [{ content: 1, costPrice: 60 }],
+  });
+  assert.equal(clash.status, 400);
+  assert.equal(clash.body.error.code, 'DUPLICATE_VARIANT');
+  assert.ok(clash.body.error.fields['variants.0.content']);
+
+  const many = await setup.api.patch(`/api/owner/products/${setup.product._id}`).send({
+    variants: Array.from({ length: 8 }, (_, i) => ({ content: i + 2, costPrice: 50 })),
+  });
+  assert.equal(many.status, 400);
+  assert.equal(many.body.error.code, 'TOO_MANY_VARIANTS');
+  assert.equal((await Product.findById(setup.product._id)).variants.length, 1, 'nothing written');
+});
+
+test('an edit racing a recipe or a photo change is rebuilt, not written over it', async () => {
+  const setup = await scene();
+  const photo = (id) => ({ provider: 'imgbb', id, url: `https://i.ibb.co/${id}.jpg` });
+  await Product.updateOne({ _id: setup.product._id }, { $set: { images: [photo('a')] } });
+  const crate = (await setup.api.post('/api/owner/supplies').send({ nameBn: 'ক্যারেট', unit: 'pcs' }))
+    .body.data.supply;
+
+  /*
+   * Between the edit's read and its write, someone saves a recipe and adds a
+   * photo from another tab. Both bump the version, so the edit misses, re-reads
+   * and lands on top of them.
+   */
+  const real = Product.findOneAndUpdate;
+  let raced = false;
+  Product.findOneAndUpdate = function racing(...args) {
+    if (!raced) {
+      raced = true;
+      const recipe = [{ supply: new mongoose.Types.ObjectId(crate.id), qtyMilli: 1000 }];
+      return Product.collection
+        .updateOne(
+          { _id: setup.product._id },
+          { $set: { 'variants.0.packaging': recipe }, $push: { images: photo('b') }, $inc: { __v: 1 } }
+        )
+        .then(() => real.apply(this, args));
+    }
+    return real.apply(this, args);
+  };
+  try {
+    const res = await setup.api.patch(`/api/owner/products/${setup.product._id}`).send({
+      name: 'নতুন নাম',
+      removeImages: ['a'],
+      variants: [{ id: String(setup.product.variants[0]._id), content: 1, costPrice: 51 }],
+    });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+  } finally {
+    Product.findOneAndUpdate = real;
+  }
+
+  const saved = await Product.findById(setup.product._id);
+  assert.equal(saved.variants[0].packaging.length, 1, 'the recipe saved meanwhile survives');
+  assert.deepEqual(saved.images.map((img) => img.id), ['b'], 'the photo added meanwhile survives');
+  assert.equal(saved.nameBn, 'নতুন নাম');
+});
+
+test('the cover can be named in the body, and the recipe write bumps the version', async () => {
+  const setup = await scene();
+  const photo = (id) => ({ provider: 'imgbb', id, url: `https://i.ibb.co/${id}.jpg` });
+  await Product.updateOne({ _id: setup.product._id }, { $set: { images: [photo('a'), photo('b')] } });
+  const coverUrl = `/api/owner/products/${setup.product._id}/cover`;
+
+  const res = await setup.api.post(coverUrl).send({ imageId: 'b' });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.deepEqual((await Product.findById(setup.product._id)).images.map((img) => img.id), ['b', 'a']);
+  assert.equal((await setup.api.post(coverUrl).send({})).status, 400);
+  assert.equal((await setup.api.post(coverUrl).send({ imageId: 'zzz' })).status, 404);
+
+  const version = (await Product.findById(setup.product._id)).__v;
+  const crate = (await setup.api.post('/api/owner/supplies').send({ nameBn: 'ক্যারেট', unit: 'pcs' }))
+    .body.data.supply;
+  await setup.api
+    .put(`/api/owner/products/${setup.product._id}/variants/${setup.product.variants[0]._id}/packaging`)
+    .send({ packaging: [{ supplyId: crate.id, quantity: 2 }] })
+    .expect(200);
+  const after = await Product.findById(setup.product._id);
+  assert.equal(after.__v, version + 1);
+  assert.equal(after.variants[0].packaging[0].qtyMilli, 2000);
+});
+
+test('a supply search with regex characters is a search, not a 500', async () => {
+  const owner = await f.makeOwner();
+  const api = as(owner.user);
+  await api.post('/api/owner/supplies').send({ nameBn: 'টেপ (বড়)', unit: 'roll' }).expect(201);
+  const res = await api.get(`/api/owner/supplies?q=${encodeURIComponent('(বড়')}`);
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(res.body.data.supplies.length, 1);
+  const literal = await api.get(`/api/owner/supplies?q=${encodeURIComponent('.*')}`);
+  assert.equal(literal.body.data.supplies.length, 0);
+});
+
+test('the source detail lists only the orders and complaints inside its date range', async () => {
+  const setup = await scene();
+  const inside = await walk(setup, await confirm(setup, await placeOrder(setup)), 'accept');
+  const outside = await walk(setup, await confirm(setup, await placeOrder(setup)), 'accept');
+  for (const order of [inside, outside]) {
+    // eslint-disable-next-line no-await-in-loop
+    await setup.api
+      .post(`/api/owner/orders/${order._id}/complaints`)
+      .send({ kind: 'quality', note: 'Overripe', itemIds: [String(order.items[0]._id)] })
+      .expect(201);
+  }
+  await Order.updateOne({ _id: outside._id }, { $set: { businessDate: '2026-01-15' } });
+  await Complaint.updateMany({ order: outside._id }, { $set: { businessDate: '2026-01-15' } });
+
+  const day = inside.businessDate;
+  const res = await setup.api.get(`/api/owner/sources/${setup.source._id}?from=${day}&to=${day}`);
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.deepEqual(res.body.data.orders.map((o) => o.orderCode), [inside.orderCode]);
+  assert.deepEqual(res.body.data.complaints.map((c) => c.orderCode), [inside.orderCode]);
+  assert.equal(res.body.data.record.orders, 1);
+
+  const all = await setup.api.get(`/api/owner/sources/${setup.source._id}`);
+  assert.equal(all.body.data.orders.length, 2);
 });

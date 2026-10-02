@@ -357,7 +357,9 @@ function RejectSheet({
 
 /** The payment screenshot, fetched as a fresh signed URL each time it is shown. */
 function DepositScreenshot({ id }: { id: string }) {
-  const shot = useGetDepositScreenshotQuery({ id });
+  // Not again on every return to the tab: the owner switching to bKash to
+  // check the payment and back must not re-download the screenshot.
+  const shot = useGetDepositScreenshotQuery({ id }, { refetchOnFocus: false, refetchOnReconnect: false });
   if (shot.isLoading) return <Skeleton className="h-48 w-full rounded-lg" />;
   if (shot.isError || !shot.data) {
     return (
@@ -459,11 +461,11 @@ type Decision<R> = { mode: 'approve' | 'reject' | 'screenshot'; row: R } | null;
 function Deposits({ status, reseller, clearReseller }: ListProps) {
   const [deciding, setDeciding] = useState<Decision<DepositRow>>(null);
 
-  // A page at a time; the approved and rejected histories only grow. The
-  // pending queue is watched, so it polls.
+  // A page at a time; the approved and rejected histories only grow. Not
+  // polled: the shell watches the pending counts and refreshes the list when
+  // one rises (lib/store/live.ts), instead of refetching every loaded page.
   const deposits = useGetDepositsInfiniteQuery(
-    { status: status === 'all' ? undefined : status, resellerId: reseller || undefined },
-    status === 'pending' ? LIVE : undefined
+    { status: status === 'all' ? undefined : status, resellerId: reseller || undefined }
   );
   const rows = deposits.data?.pages.flatMap((page) => page.deposits) ?? [];
   const total = deposits.data?.pages[0]?.total ?? 0;
@@ -793,8 +795,7 @@ function Withdrawals({ status, reseller, clearReseller }: ListProps) {
   const [deciding, setDeciding] = useState<Decision<WithdrawalRow>>(null);
 
   const withdrawals = useGetWithdrawalsInfiniteQuery(
-    { status: status === 'all' ? undefined : status, resellerId: reseller || undefined },
-    status === 'pending' ? LIVE : undefined
+    { status: status === 'all' ? undefined : status, resellerId: reseller || undefined }
   );
   const rows = withdrawals.data?.pages.flatMap((page) => page.withdrawals) ?? [];
   const total = withdrawals.data?.pages[0]?.total ?? 0;

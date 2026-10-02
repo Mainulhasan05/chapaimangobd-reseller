@@ -118,7 +118,7 @@ const REASON_FIX: Record<string, DictKey> = {
  * A number in the local 01… form the owner dials, whatever the log stored.
  * Masked numbers (a sign-in code's) keep their stars.
  */
-const localPhone = (phone: string) => phone.replace(/^+?880/, '0');
+const localPhone = (phone: string) => phone.replace(/^\+?880/, '0');
 
 /** What one row says happened, in one phrase. */
 function outcomeOf(log: Pick<SmsLog, 'status' | 'blockedReason'>): string {

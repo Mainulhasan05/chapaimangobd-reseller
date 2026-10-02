@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { errorMessage, fieldErrors } from '@/lib/api';
+import { fieldErrors } from '@/lib/api';
 import { t, tf, tMethod } from '@/lib/i18n/bn';
 import { businessDate, formatMoney } from '@/lib/format';
 import { checkMoney, moneyError } from '@/lib/money';
@@ -14,7 +14,7 @@ import { Field, FormErrorSummary, Input, MoneyInput, Select, Textarea, focusFirs
 import { Modal, ModalCancel } from '@/components/ui/modal';
 import { useToast } from '@/components/ui/toast';
 import { amountInWords } from './amount-words';
-import { payeeState, runningText } from './payee-money';
+import { entryErrorMessage, nonceFor, payeeState, runningText } from './payee-money';
 
 export const PAID_FROM = ['cash', 'bkash', 'nagad', 'rocket', 'bank'] as const;
 
@@ -46,12 +46,12 @@ export function PaySheet({ payee, onClose }: { payee: Payee; onClose: () => void
   const [confirming, setConfirming] = useState(false);
 
   /*
-   * One key per opening of this sheet, not per click. A double tap, or a retry
-   * after a timeout that actually went through, reuses it and the API refuses
-   * the second write rather than paying the man twice. Reopening the sheet is
-   * how a deliberate second payment is made.
+   * One key per payment, not per click. A double tap, or a retry after a
+   * timeout that actually went through, reuses it and the API refuses the
+   * second write rather than paying the man twice. A corrected amount after a
+   * failure is a different payment and gets a fresh key (see `nonceFor`).
    */
-  const [nonce] = useState(() => crypto.randomUUID());
+  const sent = useRef<{ key: string; nonce: string } | null>(null);
 
   const [pay, payState] = usePayPayeeMutation();
   const errors = fieldErrors(payState.error);
@@ -64,15 +64,14 @@ export function PaySheet({ payee, onClose }: { payee: Payee; onClose: () => void
 
   const send = async () => {
     if (!check.ok) return;
+    const body = {
+      amount: check.value,
+      paidFrom,
+      ...(note.trim() ? { note: note.trim() } : {}),
+      ...(date && date !== businessDate() ? { date } : {}),
+    };
     try {
-      await pay({
-        id: payee.id,
-        amount: check.value,
-        nonce,
-        paidFrom,
-        ...(note.trim() ? { note: note.trim() } : {}),
-        ...(date && date !== businessDate() ? { date } : {}),
-      }).unwrap();
+      await pay({ id: payee.id, ...body, nonce: nonceFor(sent, body) }).unwrap();
       toast(tf('payee.paidToast', { name: payee.nameBn, amount: formatMoney(check.value) }));
       onClose();
     } catch {
@@ -96,7 +95,7 @@ export function PaySheet({ payee, onClose }: { payee: Payee; onClose: () => void
 
   const amountError = errors.amount ?? (tried || amount ? moneyError(amount) : undefined);
   const generalError =
-    payState.error && !Object.keys(errors).length ? errorMessage(payState.error) : null;
+    payState.error && !Object.keys(errors).length ? entryErrorMessage(payState.error) : null;
 
   return (
     <Modal

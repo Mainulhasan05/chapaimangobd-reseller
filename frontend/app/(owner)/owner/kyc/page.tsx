@@ -77,7 +77,8 @@ export default function OwnerKycPage() {
    * the approved and rejected histories only grow, which is why this pages by
    * cursor rather than by number.
    */
-  const queue = useGetKycSubmissionsInfiniteQuery({ status }, status === 'pending' ? LIVE : undefined);
+  // Not polled: the shell refreshes it when the pending count rises (lib/store/live.ts).
+  const queue = useGetKycSubmissionsInfiniteQuery({ status });
   const submissions = queue.data?.pages.flatMap((page) => page.submissions) ?? [];
   const switching = queue.isFetching && !queue.isFetchingNextPage && !queue.currentData;
 
@@ -208,7 +209,12 @@ export default function OwnerKycPage() {
 
 /** The scans, one under another, each enlargeable and re-fetched when its link expires. */
 function Documents({ submission }: { submission: KycSubmission }) {
-  const documents = useGetKycDocumentsQuery({ id: submission.id });
+  // Every fetch of these is an audited view of a national ID, so it happens
+  // when the sheet opens and not again on every return to the tab.
+  const documents = useGetKycDocumentsQuery(
+    { id: submission.id },
+    { refetchOnFocus: false, refetchOnReconnect: false }
+  );
 
   if (documents.isLoading) {
     return (

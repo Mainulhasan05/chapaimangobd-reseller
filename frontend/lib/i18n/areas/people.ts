@@ -136,6 +136,8 @@ export const people = {
   'resellerDetail.addTitle': 'ব্যালেন্সে টাকা যোগ করবেন?',
   'resellerDetail.cutTitle': 'ব্যালেন্স থেকে টাকা কাটবেন?',
   'resellerDetail.entryPermanent': 'হিসাবের এই লেখা পরে মোছা বা বদলানো যায় না; ভুল হলে উল্টো একটি লেখা দিতে হবে।',
+  'resellerDetail.nonceReused':
+    'আগের চেষ্টাটি অন্য পরিমাণে পৌঁছে গিয়ে থাকতে পারে। খাতা দেখে নিন, তারপর দরকার হলে আবার লিখুন।',
   'resellerDetail.entrySaved': '{shop}: {amount} হিসাবে লেখা হয়েছে',
   'resellerDetail.seeAll': 'সব দেখুন',
   'resellerDetail.downloadLedger': 'খাতা ডাউনলোড করুন (CSV)',

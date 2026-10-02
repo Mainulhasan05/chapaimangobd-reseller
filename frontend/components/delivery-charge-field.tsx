@@ -38,8 +38,12 @@ export type DeliveryChargeState = {
   changed: boolean;
   /** What the wallet adjustment will be, signed taka, or null when none posts. */
   adjustment: number | null;
-  /** Sends the change if there is one. Resolves to null when there was nothing to send. */
-  apply: () => Promise<DeliveryChargeChange | null>;
+  /**
+   * Sends the change if there is one. Resolves to null when there was nothing to
+   * send. `bulk` leaves the refresh to the transition sent straight after it
+   * (`chargeChanged`), so accepting with a new charge is one refresh, not two.
+   */
+  apply: (options?: { bulk?: boolean }) => Promise<DeliveryChargeChange | null>;
   reset: () => void;
 };
 
@@ -74,9 +78,9 @@ export function useDeliveryCharge(order: Order | null): DeliveryChargeState {
     check,
     changed,
     adjustment,
-    apply: async () => {
+    apply: async (options) => {
       if (!order || !changed || !check.ok) return null;
-      return change({ id: order.id, deliveryCharge: check.value }).unwrap();
+      return change({ id: order.id, deliveryCharge: check.value, bulk: options?.bulk }).unwrap();
     },
     reset: () => setDraft(null),
   };

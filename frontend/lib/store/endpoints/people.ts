@@ -347,7 +347,14 @@ export const peopleApi = api.injectEndpoints({
     // An adjustment is a new entry, never an edit, so the note is required.
     postResellerLedgerEntry: build.mutation<
       { entry: LedgerEntry },
-      { id: string; amount: number; direction: 'credit' | 'debit'; note: string }
+      {
+        id: string;
+        amount: number;
+        direction: 'credit' | 'debit';
+        note: string;
+        /** One per entry, so a retry after a lost response credits once. */
+        nonce?: string;
+      }
     >({
       query: ({ id, ...body }) => ({ url: `/owner/resellers/${id}/ledger`, method: 'POST', body }),
       invalidatesTags: (_result, error, { id }) => (error ? [] : moneyMoved({ resellerId: id })),

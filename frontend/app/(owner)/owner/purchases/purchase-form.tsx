@@ -539,7 +539,7 @@ export function PurchaseModal({
               return (
                 <li key={line.key} className="rounded-xl border border-border p-3">
                   {errors[`lines.${index}`] && (
-                    <p role="alert" aria-invalid className="mb-2 text-xs font-medium text-danger">
+                    <p role="alert" className="mb-2 text-xs font-medium text-danger">
                       {errors[`lines.${index}`]}
                     </p>
                   )}
@@ -565,7 +565,8 @@ export function PurchaseModal({
                     <Select
                       id={`supply-${index}`}
                       value={line.supplyId}
-                      aria-invalid={supplyError ? true : undefined}
+                      // A complaint about the whole line brings the reader to its first field.
+                      aria-invalid={supplyError || errors[`lines.${index}`] ? true : undefined}
                       onChange={(event) => setLine(index, { supplyId: event.target.value })}
                     >
                       <option value="">{t('purchase.item')}</option>
@@ -663,7 +664,7 @@ export function PurchaseModal({
                 return (
                   <li key={charge.key} className="rounded-xl border border-border p-3">
                     {errors[`charges.${index}`] && (
-                      <p role="alert" aria-invalid className="mb-2 text-xs font-medium text-danger">
+                      <p role="alert" className="mb-2 text-xs font-medium text-danger">
                         {errors[`charges.${index}`]}
                       </p>
                     )}
@@ -700,7 +701,7 @@ export function PurchaseModal({
                         <MoneyInput
                           id={`chargeAmount-${index}`}
                           value={charge.amount}
-                          invalid={Boolean(amountError)}
+                          invalid={Boolean(amountError || errors[`charges.${index}`])}
                           onChange={(event) => setCharge(index, { amount: event.target.value })}
                         />
                       </Field>

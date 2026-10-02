@@ -524,8 +524,16 @@ export default function OwnerExpensesPage() {
           }
           consequences={[
             t('expense.voidHelp'),
-            ...(voiding.paymentStatus === 'unpaid' && voiding.payeeNameBn
+            /*
+             * Keyed on the due entry, not on today's status: an expense left
+             * unpaid and later marked paid still posted a due, and voiding takes
+             * that due back while the payment stays, as an advance.
+             */
+            ...(voiding.ledgerEntry && voiding.payeeNameBn
               ? [tf('expense.voidDue', { name: voiding.payeeNameBn, amount: formatMoney(voiding.amount) })]
+              : []),
+            ...(voiding.ledgerEntry && voiding.paymentStatus === 'paid' && voiding.payeeNameBn
+              ? [tf('expense.voidPaidStays', { name: voiding.payeeNameBn, amount: formatMoney(voiding.amount) })]
               : []),
           ]}
           reason={{

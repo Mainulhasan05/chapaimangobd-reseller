@@ -101,11 +101,36 @@ export function primeOrder(dispatch: Dispatch, role: Role, order: Order | undefi
   );
 }
 
+/** The recent-couriers list, refreshed only by the calls that write a courier. */
+const COURIERS: Tag = { type: 'Order', id: 'COURIERS' };
+
 /** Customer SMS goes out through the gateway, so the SMS log and balance move. */
 const smsTags = (sent: boolean | undefined): Tag[] => (sent ? ['Sms'] : []);
 
-/** The recent-couriers list, refreshed only by the two calls that write a courier. */
-const COURIERS: Tag = { type: 'Order', id: 'COURIERS' };
+/**
+ * How a transition takes part in a batch.
+ *
+ * `bulk` skips the transition's own refresh: twenty accepts each refetching
+ * every loaded page, the counts and the dashboard was a hundred requests on a
+ * 2G line. The optimistic removal and the write-through still happen per
+ * order; the caller refreshes once at the end (`BULK_EFFECTS`).
+ *
+ * `chargeChanged` is the accept or ship sheet saying it changed the delivery
+ * charge (sent with `bulk` so it refreshed nothing), so this one refresh also
+ * covers the wallet the adjustment posted to.
+ */
+export type Batching = { bulk?: boolean; chargeChanged?: boolean };
+
+/** Everything a batch of transitions can move, refreshed once when it ends. */
+export const BULK_EFFECTS: Tag[] = [
+  ...EFFECTS.order(),
+  ...EFFECTS.wallet(),
+  ...EFFECTS.supplies(),
+  ...EFFECTS.stock(),
+  'Source',
+  COURIERS,
+];
+
 
 /** Whether a list filtered by these args would still show an order in `status`. */
 function listKeeps(args: OwnerOrdersArgs | undefined, status: OrderStatus): boolean {
@@ -248,36 +273,62 @@ export const ordersApi = api.injectEndpoints({
 
     acceptOrder: build.mutation<
       OrderResult,
-      { id: string; sources: { itemId: string; sourceId: string }[]; sendCustomerSms?: boolean }
+      {
+        id: string;
+        sources: { itemId: string; sourceId: string }[];
+        sendCustomerSms?: boolean;
+      } & Batching
     >({
-      query: ({ id, ...body }) => ({ url: `/owner/orders/${id}/accept`, method: 'POST', body }),
+      query: ({ id, sources, sendCustomerSms }) => ({
+        url: `/owner/orders/${id}/accept`,
+        method: 'POST',
+        body: { sources, sendCustomerSms },
+      }),
       // Each line now names its orchard, so the source pages move too.
-      invalidatesTags: (_result, error, { id, sendCustomerSms }) =>
-        error ? [] : [...EFFECTS.order(id), 'Source', ...smsTags(sendCustomerSms)],
+      invalidatesTags: (result, error, { id, sendCustomerSms, bulk, chargeChanged }) =>
+        error || bulk
+          ? []
+          : [
+              ...EFFECTS.order(id),
+              'Source',
+              ...smsTags(sendCustomerSms),
+              ...(chargeChanged ? EFFECTS.wallet(resellerIdOf(result?.order)) : []),
+            ],
       onQueryStarted: transitionEffects('accepted'),
     }),
 
-    packOrder: build.mutation<OrderResult, { id: string }>({
+    packOrder: build.mutation<OrderResult, { id: string } & Batching>({
       query: ({ id }) => ({ url: `/owner/orders/${id}/pack`, method: 'POST', body: {} }),
-      invalidatesTags: (_result, error, { id }) => (error ? [] : EFFECTS.order(id)),
+      invalidatesTags: (_result, error, { id, bulk }) => (error || bulk ? [] : EFFECTS.order(id)),
       onQueryStarted: transitionEffects('packed'),
     }),
 
     shipOrder: build.mutation<
       OrderResult,
-      { id: string; courierName: string; trackingNumber?: string; sendCustomerSms?: boolean }
+      { id: string; courierName: string; trackingNumber?: string; sendCustomerSms?: boolean } & Batching
     >({
-      query: ({ id, ...body }) => ({ url: `/owner/orders/${id}/ship`, method: 'POST', body }),
-      invalidatesTags: (_result, error, { id, sendCustomerSms }) =>
-        error ? [] : [...EFFECTS.order(id), COURIERS, ...smsTags(sendCustomerSms)],
+      query: ({ id, courierName, trackingNumber, sendCustomerSms }) => ({
+        url: `/owner/orders/${id}/ship`,
+        method: 'POST',
+        body: { courierName, trackingNumber, sendCustomerSms },
+      }),
+      invalidatesTags: (result, error, { id, sendCustomerSms, bulk, chargeChanged }) =>
+        error || bulk
+          ? []
+          : [
+              ...EFFECTS.order(id),
+              COURIERS,
+              ...smsTags(sendCustomerSms),
+              ...(chargeChanged ? EFFECTS.wallet(resellerIdOf(result?.order)) : []),
+            ],
       onQueryStarted: transitionEffects('shipped'),
     }),
 
     // COD collection posts to the wallet and the parcel's packaging is consumed (ADR 0026).
-    deliverOrder: build.mutation<OrderResult, { id: string }>({
+    deliverOrder: build.mutation<OrderResult, { id: string } & Batching>({
       query: ({ id }) => ({ url: `/owner/orders/${id}/deliver`, method: 'POST', body: {} }),
-      invalidatesTags: (result, error, { id }) =>
-        error
+      invalidatesTags: (result, error, { id, bulk }) =>
+        error || bulk
           ? []
           : [
               ...EFFECTS.order(id),
@@ -328,14 +379,17 @@ export const ordersApi = api.injectEndpoints({
     }),
 
     // A changed charge on a confirmed order posts an adjustment to the reseller's wallet.
-    changeDeliveryCharge: build.mutation<DeliveryChargeChange, { id: string; deliveryCharge: number }>({
+    changeDeliveryCharge: build.mutation<
+      DeliveryChargeChange,
+      { id: string; deliveryCharge: number } & Pick<Batching, 'bulk'>
+    >({
       query: ({ id, deliveryCharge }) => ({
         url: `/owner/orders/${id}/delivery-charge`,
         method: 'PATCH',
         body: { deliveryCharge },
       }),
-      invalidatesTags: (result, error, { id }) =>
-        error ? [] : [...EFFECTS.order(id), ...EFFECTS.wallet(resellerIdOf(result?.order))],
+      invalidatesTags: (result, error, { id, bulk }) =>
+        error || bulk ? [] : [...EFFECTS.order(id), ...EFFECTS.wallet(resellerIdOf(result?.order))],
       onQueryStarted: async (_arg, { dispatch, getState, queryFulfilled }) => {
         try {
           const { data } = await queryFulfilled;

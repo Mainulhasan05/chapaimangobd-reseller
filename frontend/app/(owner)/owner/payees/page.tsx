@@ -304,7 +304,10 @@ export default function OwnerPayeesPage() {
           </div>
           <p className="tabular mt-1.5 text-xs text-muted-foreground">
             {tf('payee.owingCountLine', {
-              owing: formatNumber(totals.owingCount),
+              // The owing count includes archived payees; the listed count only does when they are shown.
+              owing: formatNumber(
+                filters.archived ? totals.owingCount : totals.owingCount - (totals.archivedOwingCount ?? 0)
+              ),
               count: formatNumber(totals.count),
             })}
           </p>

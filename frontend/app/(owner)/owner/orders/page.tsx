@@ -22,11 +22,11 @@ import { districtLabel } from '@/lib/districts';
 import { formatMoney, formatAge, formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useUrlRange, useUrlSearch, useUrlState } from '@/lib/use-url-state';
-import { LIVE, LIST } from '@/lib/store/api';
+import { api } from '@/lib/store/api';
 import { qs } from '@/lib/store/base-query';
 import { useAppDispatch } from '@/lib/store/hooks';
 import {
-  ordersApi,
+  BULK_EFFECTS,
   useAcceptOrderMutation,
   useDeliverOrderMutation,
   useGetOrdersSummaryQuery,
@@ -148,7 +148,12 @@ export default function OwnerOrdersPage() {
   const { status, aging, source, reseller, range, preset, args } = queue;
   const listKey = qs(args);
 
-  const orders = useGetOwnerOrdersInfiniteQuery(args, LIVE);
+  /*
+   * Not polled: refetching every loaded page each minute was the heaviest thing
+   * on the screen. The shell polls the counts and refreshes this list when one
+   * rises (lib/store/live.ts); what that brings in waits behind "নতুন N".
+   */
+  const orders = useGetOwnerOrdersInfiniteQuery(args);
 
   /*
    * Counts and money for the tabs and tiles. The counts carry every filter
@@ -306,6 +311,9 @@ export default function OwnerOrdersPage() {
     }
     setProgress(null);
     bulkRunning.current = false;
+    // Each order skipped its own refresh (`bulk`); one refresh now covers them
+    // all, whether every order went through or some did not.
+    dispatch(api.util.invalidateTags(BULK_EFFECTS));
 
     selection.clear();
     failed.forEach(({ order }) => selection.toggle(order.id));
@@ -314,8 +322,6 @@ export default function OwnerOrdersPage() {
       toast(tf('orders.bulkDone', { count: formatNumber(targets.length), status: ownerStatusLabel(to) }));
       return;
     }
-    // A failed order may have moved under us; refresh what the list shows.
-    dispatch(ordersApi.util.invalidateTags([{ type: 'Order', id: LIST }, 'OrderSummary']));
     toast(
       tf('orders.bulkPartial', {
         done: formatNumber(targets.length - failed.length),
@@ -619,7 +625,7 @@ export default function OwnerOrdersPage() {
                 <Button
                   size="sm"
                   onClick={() =>
-                    void runBulk(t('order.pack'), 'packed', selectedOrders, (order) => packOne({ id: order.id }).unwrap())
+                    void runBulk(t('order.pack'), 'packed', selectedOrders, (order) => packOne({ id: order.id, bulk: true }).unwrap())
                   }
                 >
                   {t('order.pack')}
@@ -698,7 +704,9 @@ export default function OwnerOrdersPage() {
         <div
           className={cn('transition-opacity', (dimmed || stale) && 'opacity-60')}
           aria-busy={dimmed || undefined}
-          inert={stale || undefined}
+          // Also held still while a bulk run works through the selection, so
+          // nothing is ticked, unticked or acted on under it.
+          inert={stale || Boolean(progress) || undefined}
         >
           {/* Select-all for the cards, which have no header row to put it in. */}
           <div className="mb-2 flex items-center justify-between gap-3 xl:hidden">
@@ -927,6 +935,7 @@ export default function OwnerOrdersPage() {
             setBulkSheet(null);
             void runBulk(t('order.accept'), 'accepted', targets, async (order) => {
               await acceptOne({
+                bulk: true,
                 id: order.id,
                 sources: order.items.map((item) => ({ itemId: item.id, sourceId })),
               }).unwrap();
@@ -943,7 +952,7 @@ export default function OwnerOrdersPage() {
             const targets = selectedOrders;
             setBulkSheet(null);
             void runBulk(t('order.ship'), 'shipped', targets, (order) =>
-              shipOne({ id: order.id, courierName }).unwrap()
+              shipOne({ id: order.id, courierName, bulk: true }).unwrap()
             );
           }}
         />
@@ -955,7 +964,7 @@ export default function OwnerOrdersPage() {
           onConfirm={async () => {
             // The sheet closes at once; the run shows its own progress.
             void runBulk(t('orders.deliverShort'), 'delivered', selectedOrders, (order) =>
-              deliverOne({ id: order.id }).unwrap()
+              deliverOne({ id: order.id, bulk: true }).unwrap()
             );
           }}
         />

@@ -29,7 +29,7 @@
  *    row itself, with a reason, and never edited.
  */
 
-import { use, useState } from 'react';
+import { use, useRef, useState } from 'react';
 import Link from 'next/link';
 import type { Route } from 'next';
 import { HandCoins, Receipt, ShoppingBasket, TriangleAlert, Undo2, Wallet } from 'lucide-react';
@@ -68,7 +68,7 @@ import { ListSkeleton, StatSkeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
 import { ExplainedStat } from '@/components/why';
 import { PaySheet } from '../pay-sheet';
-import { payeeState, runningText } from '../payee-money';
+import { entryErrorMessage, nonceFor, payeeState, runningText } from '../payee-money';
 import { MarkPaidSheet, type MarkPaidTarget } from '../../expenses/mark-paid-sheet';
 
 /** The only three a person has any business typing. The rest are posted by
@@ -757,7 +757,8 @@ function ManualEntryModal({ payee, onClose }: { payee: Payee; onClose: () => voi
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
   const [tried, setTried] = useState(false);
-  const [nonce] = useState(() => crypto.randomUUID());
+  // Renewed when the entry changes after a failure; see `nonceFor`.
+  const sent = useRef<{ key: string; nonce: string } | null>(null);
 
   const [post, postState] = usePostPayeeLedgerEntryMutation();
   const errors = fieldErrors(postState.error);
@@ -784,13 +785,12 @@ function ManualEntryModal({ payee, onClose }: { payee: Payee; onClose: () => voi
       return;
     }
     try {
-      await post({
-        id: payee.id,
+      const body = {
         kind,
         amount: signed,
-        nonce,
         ...(note.trim() ? { note: note.trim() } : {}),
-      }).unwrap();
+      };
+      await post({ id: payee.id, ...body, nonce: nonceFor(sent, body) }).unwrap();
       toast(t('payee.entryToast'));
       onClose();
     } catch {
@@ -809,7 +809,7 @@ function ManualEntryModal({ payee, onClose }: { payee: Payee; onClose: () => voi
       footerLead={
         <>
           <FormErrorSummary
-            message={postState.error && !Object.keys(errors).length ? errorMessage(postState.error) : null}
+            message={postState.error && !Object.keys(errors).length ? entryErrorMessage(postState.error) : null}
           />
           {check.ok && (
             <p className="tabular text-sm text-muted-foreground">

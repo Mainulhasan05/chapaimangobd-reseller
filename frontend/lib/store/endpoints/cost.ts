@@ -115,6 +115,8 @@ export type PayeeReverseResult = {
   reversed: PayeeLedgerRow;
   /** A reversed payment that had settled an expense puts that expense back to unpaid. */
   reopenedExpenseId: string | null;
+  /** The order that reopened expense was filed against, whose cost block shows it. */
+  reopenedExpenseOrderId?: string | null;
 };
 
 export type ExpensesArgs = {
@@ -282,11 +284,13 @@ export const costApi = api.injectEndpoints({
       invalidatesTags: (result, error, { id }) => {
         if (error) return [];
         const reopened = result?.reopenedExpenseId;
+        const order = result?.reopenedExpenseOrderId;
         return [
           ...EFFECTS.payee(id),
           ...(reopened
             ? [{ type: 'Expense' as const, id: LIST }, { type: 'Expense' as const, id: reopened }]
             : []),
+          ...(order ? [{ type: 'Order' as const, id: order }] : []),
         ];
       },
     }),

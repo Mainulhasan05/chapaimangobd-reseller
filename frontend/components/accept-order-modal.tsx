@@ -7,6 +7,8 @@ import { t, tf } from '@/lib/i18n/bn';
 import { formatNumber } from '@/lib/format';
 import { useGetSourcesQuery } from '@/lib/store/endpoints/catalog';
 import { useAcceptOrderMutation } from '@/lib/store/endpoints/orders';
+import { api, EFFECTS } from '@/lib/store/api';
+import { useAppDispatch } from '@/lib/store/hooks';
 import type { Order, Source } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { EmptyState } from '@/components/ui/layout';
@@ -79,6 +81,7 @@ export function AcceptOrderModal({
   /** After the accept went through; the caller toasts and moves focus on. */
   onDone?: (order: Order) => void;
 }) {
+  const dispatch = useAppDispatch();
   const [accept] = useAcceptOrderMutation();
   const { sources, available } = useAvailableSources();
 
@@ -118,11 +121,12 @@ export function AcceptOrderModal({
     if (missing.length > 0 || !charge.check.ok || sms.preparing) return;
     setBusy(true);
     setError(null);
+    let charged = false;
     try {
       // The charge first, so the accept that follows is taken against the final
       // figure. If the accept then fails, the charge change still stands, and
       // pressing the button again sends it as a no-op.
-      await charge.apply();
+      charged = Boolean(await charge.apply({ bulk: true }));
       const lines = order.items.map((item) => ({
         itemId: item.id,
         sourceId: chosenFor(item.id, item.product),
@@ -131,6 +135,7 @@ export function AcceptOrderModal({
         id: order.id,
         sources: lines,
         sendCustomerSms: sms.enabled,
+        chargeChanged: charged,
       }).unwrap();
       rememberSources(
         order.items.map((item, index) => ({ product: item.product, sourceId: lines[index].sourceId }))
@@ -138,6 +143,8 @@ export function AcceptOrderModal({
       onClose();
       onDone?.(accepted);
     } catch (failure) {
+      // The charge went through and the accept did not: refresh what the charge moved.
+      if (charged) dispatch(api.util.invalidateTags([...EFFECTS.order(order.id), ...EFFECTS.wallet()]));
       setError(errorMessage(failure));
     } finally {
       setBusy(false);

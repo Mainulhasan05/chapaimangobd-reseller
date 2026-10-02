@@ -9,6 +9,8 @@ import {
   useGetRecentCouriersQuery,
   useShipOrderMutation,
 } from '@/lib/store/endpoints/orders';
+import { api, EFFECTS } from '@/lib/store/api';
+import { useAppDispatch } from '@/lib/store/hooks';
 import type { Order } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -103,6 +105,7 @@ export function ShipModal({
   onClose: () => void;
   onDone?: (order: Order) => void;
 }) {
+  const dispatch = useAppDispatch();
   const [ship] = useShipOrderMutation();
   const couriers = useRecentCouriers();
   // Null until typed, so the most recent courier fills in once the list arrives.
@@ -128,18 +131,22 @@ export function ShipModal({
     if (courierName.trim().length < MIN_COURIER || !charge.check.ok || sms.preparing) return;
     setBusy(true);
     setError(null);
+    let charged = false;
     try {
       // Before the transition, because after it the API refuses the change.
-      await charge.apply();
+      charged = Boolean(await charge.apply({ bulk: true }));
       const { order: shipped } = await ship({
         id: order.id,
         courierName: courierName.trim(),
         trackingNumber: trackingNumber.trim() || undefined,
         sendCustomerSms: sms.enabled,
+        chargeChanged: charged,
       }).unwrap();
       onClose();
       onDone?.(shipped);
     } catch (failure) {
+      // The charge went through and the ship did not: refresh what the charge moved.
+      if (charged) dispatch(api.util.invalidateTags([...EFFECTS.order(order.id), ...EFFECTS.wallet()]));
       setError(errorMessage(failure));
     } finally {
       setBusy(false);

@@ -1,3 +1,4 @@
+import { ApiError, errorMessage } from '@/lib/api';
 import { t } from '@/lib/i18n/bn';
 import { formatMoney } from '@/lib/format';
 
@@ -39,4 +40,27 @@ export function runningText(dueAfter: number): string {
   return dueAfter < 0
     ? `${t('payee.advance')} ${formatMoney(-dueAfter)}`
     : `${t('payee.dueAfter')} ${formatMoney(dueAfter)}`;
+}
+
+/**
+ * The key a payment or hand entry is sent under.
+ *
+ * One key per opening of a sheet, so a double tap or a retry after a timeout
+ * that actually went through is refused rather than posted twice. But a retry
+ * with a different amount (or kind, or date) is a different entry, and the API
+ * refuses a known key with new contents (NONCE_REUSED), so the key is renewed
+ * whenever what is being sent changes.
+ */
+export function nonceFor(sent: { current: { key: string; nonce: string } | null }, payload: unknown): string {
+  const key = JSON.stringify(payload);
+  if (!sent.current || sent.current.key !== key) {
+    sent.current = { key, nonce: crypto.randomUUID() };
+  }
+  return sent.current.nonce;
+}
+
+/** A failed payment or entry in words, including the refusal of a reused key. */
+export function entryErrorMessage(error: unknown): string {
+  if (error instanceof ApiError && error.code === 'NONCE_REUSED') return t('payee.nonceReused');
+  return errorMessage(error);
 }

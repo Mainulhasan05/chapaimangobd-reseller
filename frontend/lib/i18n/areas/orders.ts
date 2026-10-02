@@ -121,6 +121,9 @@ export const orders = {
   // Confirm (reseller).
   'orders.boxesWhole': 'কমপক্ষে ১টি পুরো বক্স লিখুন',
   'orders.priceRequired': 'দাম লিখুন',
+  'orders.estimate': 'আনুমানিক',
+  'orders.confirmEstimateHint':
+    'ওয়ালেট থেকে কাটা আর লাভ আনুমানিক: নিশ্চিত করার মুহূর্তে পণ্যের তখনকার ক্রয়মূল্য ধরে হিসাব হবে।',
   'orders.negativeProfit': 'এই দামে আপনার লাভ শূন্যের নিচে। দামগুলো আবার দেখুন।',
 
   // Complaints.

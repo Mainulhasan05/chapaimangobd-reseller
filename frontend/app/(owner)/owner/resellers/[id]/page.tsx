@@ -27,6 +27,8 @@ import {
 import { checkMoney, moneyError } from '@/lib/money';
 import { cn } from '@/lib/utils';
 import { useUrlState } from '@/lib/use-url-state';
+import { api, LIST } from '@/lib/store/api';
+import { useAppDispatch } from '@/lib/store/hooks';
 import { useUnsavedChanges } from '@/lib/use-unsaved-changes';
 import { kycVisible } from '@/lib/kyc';
 import type { KycStatus, LedgerEntry, ResellerSummary } from '@/lib/types';
@@ -637,6 +639,16 @@ function PasswordReset({
 
 /* ----------------------------------------------------------------- money -- */
 
+/**
+ * The key one manual entry is posted under, so a retry after a lost response
+ * credits once. `randomUUID` needs a secure context, which a phone on the
+ * office Wi-Fi opening the dev server is not, hence the fallback.
+ */
+function newNonce(): string {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
 function MoneySection({ reseller }: { reseller: Reseller }) {
   return (
     <div className="space-y-4">
@@ -710,6 +722,9 @@ function ManualEntry({ reseller }: { reseller: Reseller }) {
   const [tried, setTried] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [post] = usePostResellerLedgerEntryMutation();
+  const dispatch = useAppDispatch();
+  // One key per entry: a new one whenever the amount or direction changes.
+  const [nonce, setNonce] = useState(newNonce);
 
   const check = checkMoney(amount);
   const noteOk = note.trim().length >= 3;
@@ -733,7 +748,10 @@ function ManualEntry({ reseller }: { reseller: Reseller }) {
         className="mb-3"
         label={t('ledger.direction')}
         value={direction}
-        onChange={setDirection}
+        onChange={(value) => {
+          setDirection(value);
+          setNonce(newNonce());
+        }}
         options={[
           { value: 'credit', label: t('resellerDetail.directionAdd') },
           { value: 'debit', label: t('resellerDetail.directionCut') },
@@ -745,7 +763,10 @@ function ManualEntry({ reseller }: { reseller: Reseller }) {
           id="entryAmount"
           value={amount}
           invalid={Boolean(amountError)}
-          onChange={(event) => setAmount(event.target.value)}
+          onChange={(event) => {
+            setAmount(event.target.value);
+            setNonce(newNonce());
+          }}
         />
       </Field>
 
@@ -793,7 +814,25 @@ function ManualEntry({ reseller }: { reseller: Reseller }) {
           confirmLabel={verb}
           onClose={() => setConfirming(false)}
           onConfirm={async () => {
-            await post({ id: reseller.id, amount: check.value, direction, note: note.trim() }).unwrap();
+            try {
+              await post({ id: reseller.id, amount: check.value, direction, note: note.trim(), nonce }).unwrap();
+            } catch (error) {
+              if (error instanceof ApiError && error.code === 'NONCE_REUSED') {
+                // The first attempt may have landed with other figures: show
+                // what the ledger now says, and let the next attempt be new.
+                setNonce(newNonce());
+                dispatch(
+                  api.util.invalidateTags([
+                    { type: 'Ledger', id: reseller.id },
+                    { type: 'Reseller', id: reseller.id },
+                    { type: 'Reseller', id: LIST },
+                  ])
+                );
+                throw new Error(t('resellerDetail.nonceReused'));
+              }
+              throw error;
+            }
+            setNonce(newNonce());
             toast(tf('resellerDetail.entrySaved', { shop: reseller.shopName, amount: formatSignedMoney(after - reseller.balance) }));
             setAmount('');
             setNote('');
@@ -876,7 +915,11 @@ function RecentRequests({ resellerId }: { resellerId: string }) {
 
 function LedgerSection({ resellerId }: { resellerId: string }) {
   const ledger = useGetResellerLedgerInfiniteQuery({ id: resellerId });
-  const [reconcile, reconciled] = useLazyGetResellerReconcileQuery();
+  // Run on demand only: not again on every return to the tab.
+  const [reconcile, reconciled] = useLazyGetResellerReconcileQuery({
+    refetchOnFocus: false,
+    refetchOnReconnect: false,
+  });
   const entries = ledger.data?.pages.flatMap((page) => page.entries) ?? [];
   const total = ledger.data?.pages[0]?.total ?? 0;
 

@@ -242,16 +242,19 @@ const unchanged = (existing) => {
  */
 function assertKeptBoxesFit(variants, keptCount) {
   const sentCount = variants.length - keptCount;
-  const kept = variants.slice(sentCount);
-  kept.forEach((box) => {
-    const clash = variants.slice(0, sentCount).findIndex((v) => v.contentMilli === box.contentMilli);
+  const sent = variants.slice(0, sentCount);
+  variants.slice(sentCount).forEach((box) => {
+    const clash = sent.findIndex((v) => v.contentMilli === box.contentMilli);
     if (clash === -1) return;
     const message =
-      'A box of this size has orders, so it is kept (switched off). Switch that one back on instead';
+      'A box of this size has orders, so it is kept (switched off). ' +
+      'Switch that one back on instead';
     throw badRequest('DUPLICATE_VARIANT', message, { [`variants.${clash}.content`]: message });
   });
   if (variants.length > MAX_VARIANTS) {
-    const message = `A product can have at most ${MAX_VARIANTS} boxes, counting the ones kept because they have orders`;
+    const message =
+      `A product can have at most ${MAX_VARIANTS} boxes, ` +
+      'counting the ones kept because they have orders';
     throw badRequest('TOO_MANY_VARIANTS', message, { variants: message });
   }
 }

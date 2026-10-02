@@ -28,8 +28,9 @@ type Draft = { product: string; variant: string | null; quantity: string; sellPr
  * that matter before the reseller commits: what the customer pays, what leaves
  * the wallet, and what is left over as profit.
  *
- * The wallet figure is computed here for reassurance only. The server recomputes
- * every total from live catalog data and ignores anything the client sends.
+ * The wallet figure and the profit are estimates from the prices snapshotted on
+ * the order. The server reprices the confirm from the live catalog and ignores
+ * any total the client sends, so both are labelled "আনুমানিক" and say why.
  */
 export function ConfirmOrderModal({ order, onClose }: { order: Order | null; onClose: () => void }) {
   if (!order) return null;
@@ -106,7 +107,7 @@ function ConfirmForm({ order, onClose }: { order: Order; onClose: () => void }) 
     0
   );
 
-  // Cost prices are snapshots on the order, per box, so this preview matches the server.
+  // Cost prices per box as snapshotted on the order; the confirm reprices from the live catalog.
   const costSubtotal = order.items.reduce((sum, item, index) => {
     const boxes = Number(drafts[index]?.quantity) || 0;
     return sum + item.costPrice * boxes;
@@ -175,9 +176,13 @@ function ConfirmForm({ order, onClose }: { order: Order; onClose: () => void }) 
           ) : (
             <dl className="space-y-1 rounded-lg bg-muted p-3 text-sm">
               <Row label={t('order.customerTotal')} value={formatMoney(customerTotal)} strong />
-              <Row label={t('order.walletDebit')} value={formatMoney(walletDebit)} tone="danger" />
               <Row
-                label={t('order.yourProfit')}
+                label={`${t('order.walletDebit')} (${t('orders.estimate')})`}
+                value={formatMoney(walletDebit)}
+                tone="danger"
+              />
+              <Row
+                label={`${t('order.yourProfit')} (${t('orders.estimate')})`}
                 value={formatMoney(profit)}
                 tone={profit < 0 ? 'danger' : 'success'}
                 strong
@@ -295,6 +300,7 @@ function ConfirmForm({ order, onClose }: { order: Order; onClose: () => void }) 
         </div>
 
         <p className="text-xs text-muted-foreground">{t('order.confirmHelp')}</p>
+        <p className="mt-1 text-xs text-muted-foreground">{t('orders.confirmEstimateHint')}</p>
       </div>
     </Modal>
   );

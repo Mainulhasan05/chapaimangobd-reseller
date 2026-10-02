@@ -254,7 +254,7 @@ function VariantRecipe({
 }) {
   const panelId = `recipe-${variant.id}`;
   // An archived supply is flagged straight away, not only after a Save attempt.
-  const problems = showProblems
+  const problems: Record<number, { supply?: string; qty?: string }> = showProblems
     ? rowProblems(rows, byId)
     : Object.fromEntries(
         Object.entries(rowProblems(rows, byId))
