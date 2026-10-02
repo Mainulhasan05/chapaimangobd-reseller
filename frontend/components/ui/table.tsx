@@ -70,7 +70,16 @@ export function TableWrap({
         className
       )}
     >
-      <table className="w-full border-collapse text-sm" style={{ minWidth }}>
+      {/*
+       * The last row drops its rule, because the card's own edge closes the
+       * table. Said on the table rather than on `Td`: a `last:` on the cell
+       * matched the last cell of every row, which left each row's rule stopping
+       * short under the actions column.
+       */}
+      <table
+        className="w-full border-collapse text-sm [&>tbody>tr:last-child>td]:border-b-0"
+        style={{ minWidth }}
+      >
         {children}
       </table>
     </div>
@@ -92,7 +101,7 @@ export function Th({ className, ...props }: React.ComponentProps<'th'>) {
 export function Td({ className, ...props }: React.ComponentProps<'td'>) {
   return (
     <td
-      className={cn('border-b border-border px-5 py-3.5 align-middle last:border-b-0', className)}
+      className={cn('border-b border-border px-5 py-3.5 align-middle', className)}
       {...props}
     />
   );

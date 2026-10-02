@@ -36,6 +36,7 @@ Tests need none of this: they start an in-memory single-node replica set.
 npm install
 cp .env.example .env      # then fill in the secrets
 npm run seed:owner        # creates the single owner account
+npm run seed:zones        # every district orderable at default rates; --dry-run to preview
 npm run seed:demo         # optional: catalog, zones and a demo reseller
 npm run dev
 ```

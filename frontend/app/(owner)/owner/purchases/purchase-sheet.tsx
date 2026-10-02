@@ -2,13 +2,13 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { RotateCcw } from 'lucide-react';
+import { Printer, RotateCcw } from 'lucide-react';
 import { t } from '@/lib/i18n/bn';
 import { formatDate, formatMoney } from '@/lib/format';
 import type { Purchase, PurchaseLine } from '@/lib/types';
 import { useGetPurchaseQuery } from '@/lib/store/endpoints/cost';
 import { Badge, ErrorState } from '@/components/ui/layout';
-import { Button } from '@/components/ui/button';
+import { Button, ButtonLink } from '@/components/ui/button';
 import { Modal } from '@/components/ui/modal';
 import { ListSkeleton } from '@/components/ui/skeleton';
 import { LandedCostWorking, PurchaseLines } from './purchase-lines';
@@ -51,6 +51,10 @@ export function PurchaseSheet({
             <Button variant="outline" onClick={onClose}>
               {t('app.close')}
             </Button>
+            <ButtonLink variant="outline" href={`/owner/reports/print/purchase/${purchase.id}`}>
+              <Printer className="h-4 w-4" />
+              {t('purchase.printReceiptLong')}
+            </ButtonLink>
             {/* No edit, ever: a purchase is cancelled and re-entered. */}
             {cancelled ? (
               <Button variant="outline" onClick={() => onReenter(purchase)}>

@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Field, FormErrorSummary, Input, MoneyInput, Select, Textarea, focusFirstInvalid } from '@/components/ui/form';
 import { Modal, ModalCancel } from '@/components/ui/modal';
 import { useToast } from '@/components/ui/toast';
-import { amountInWords } from './amount-words';
+import { amountInWords } from '@/lib/amount-words';
 import { entryErrorMessage, nonceFor, payeeState, runningText } from './payee-money';
 
 export const PAID_FROM = ['cash', 'bkash', 'nagad', 'rocket', 'bank'] as const;

@@ -151,7 +151,9 @@ export function DateRangeFilter({
   };
 
   return (
-    <div className={cn('flex flex-col gap-2', className)}>
+    // One row from `lg`, where there is room: the custom-dates button used to sit
+    // alone on a second line under the presets on every screen.
+    <div className={cn('flex flex-col gap-2 lg:flex-row lg:flex-wrap lg:items-center', className)}>
       <div
         ref={ref}
         {...fadeProps}
@@ -206,7 +208,7 @@ export function DateRangeFilter({
       </button>
 
       {open && (
-        <div className="flex flex-wrap items-end gap-2 rounded-xl border border-border bg-surface p-3">
+        <div className="flex flex-wrap items-end gap-2 rounded-xl border border-border bg-surface p-3 lg:basis-full">
           <label className="flex min-w-[8.5rem] flex-1 flex-col gap-1 text-xs font-medium text-muted-foreground">
             {t('range.from')}
             <input

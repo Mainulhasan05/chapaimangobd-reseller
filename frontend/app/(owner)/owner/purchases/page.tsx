@@ -34,7 +34,7 @@
 
 import { useRef, useState } from 'react';
 import Link from 'next/link';
-import { Plus, RotateCcw, ShoppingBasket } from 'lucide-react';
+import { Ban, Plus, Printer, RotateCcw, ShoppingBasket } from 'lucide-react';
 import { t, tf } from '@/lib/i18n/bn';
 import { formatDate, formatMoney, formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -52,6 +52,7 @@ import {
   ErrorState,
   FilteredEmpty,
   PageHeader,
+  RowMenu,
   TableWrap,
   Td,
   Th,
@@ -59,7 +60,7 @@ import {
 } from '@/components/ui/layout';
 import { DateRangeFilter } from '@/components/ui/date-range';
 import { DownloadMenu } from '@/components/report/download-menu';
-import { Button } from '@/components/ui/button';
+import { Button, ButtonLink } from '@/components/ui/button';
 import { Label, Select } from '@/components/ui/form';
 import { Switch } from '@/components/ui/switch';
 import { ConfirmSheet } from '@/components/ui/confirm-sheet';
@@ -70,20 +71,25 @@ import { PurchaseModal } from './purchase-form';
 import { LandedCostWhyModal, PurchaseLines } from './purchase-lines';
 import { PurchaseSheet } from './purchase-sheet';
 
-/** One figure in the totals strip. Two lines on a phone, never a card each. */
+/**
+ * One figure in the totals strip. Two lines on a phone, never a card each.
+ * `lead` tints the figure the screen is for, so the eye lands on it first.
+ */
 function TotalCell({
   label,
   value,
   strong,
+  lead,
   className,
 }: {
   label: string;
   value: string;
   strong?: boolean;
+  lead?: boolean;
   className?: string;
 }) {
   return (
-    <div className={cn('min-w-0 bg-surface px-3 py-2', className)}>
+    <div className={cn('min-w-0 px-3 py-2.5 sm:px-4', lead ? 'bg-primary-softer' : 'bg-surface', className)}>
       <p className="text-[0.6875rem] font-medium leading-snug text-muted-foreground">{label}</p>
       <p className={cn('tabular mt-0.5 leading-tight', strong ? 'text-lg font-bold' : 'text-sm font-semibold')}>
         {value}
@@ -157,7 +163,7 @@ export default function OwnerPurchasesPage() {
     setCancelling(purchase);
   };
 
-  /** The two buttons every purchase offers, the same on a card and in the table. */
+  /** The buttons every purchase offers, the same on a card and in the table. */
   const actions = (purchase: Purchase, size: 'sm' | 'md') => {
     const cancelled = purchase.status === 'cancelled';
     const expanded = open === purchase.id;
@@ -166,6 +172,16 @@ export default function OwnerPurchasesPage() {
         <Button size={size} variant="outline" onClick={() => setOpen(expanded ? null : purchase.id)}>
           {expanded ? t('purchase.hideDetails') : t('app.details')}
         </Button>
+        {/* The one purchase on paper, as a memo the seller can sign. */}
+        <ButtonLink
+          size={size}
+          variant="outline"
+          href={`/owner/reports/print/purchase/${purchase.id}`}
+          aria-label={t('purchase.printReceiptLong')}
+        >
+          <Printer className="h-4 w-4" />
+          {t('purchase.printReceipt')}
+        </ButtonLink>
         {/* No edit, ever: a purchase is cancelled and re-entered. */}
         {cancelled ? (
           <Button size={size} variant="ghost" onClick={() => setReentering(purchase)}>
@@ -177,6 +193,40 @@ export default function OwnerPurchasesPage() {
             {t('purchase.cancel')}
           </Button>
         )}
+      </>
+    );
+  };
+
+  /*
+   * The table's actions. Three labelled buttons did not fit the column and the
+   * last one was cut off at the card's edge, so the two reads stay buttons and
+   * the one write (cancel, or re-enter a cancelled one) moves to the row menu.
+   */
+  const tableActions = (purchase: Purchase) => {
+    const cancelled = purchase.status === 'cancelled';
+    const expanded = open === purchase.id;
+    return (
+      <>
+        <Button size="sm" variant="outline" onClick={() => setOpen(expanded ? null : purchase.id)}>
+          {expanded ? t('purchase.hideDetails') : t('app.details')}
+        </Button>
+        <ButtonLink
+          size="sm"
+          variant="outline"
+          href={`/owner/reports/print/purchase/${purchase.id}`}
+          aria-label={t('purchase.printReceiptLong')}
+        >
+          <Printer className="h-4 w-4" />
+          {t('purchase.printReceipt')}
+        </ButtonLink>
+        <RowMenu
+          label={`${t('app.actions')} ${purchase.purchaseCode}`}
+          items={
+            cancelled
+              ? [{ label: t('purchase.reenter'), icon: RotateCcw, onSelect: () => setReentering(purchase) }]
+              : [{ label: t('purchase.cancel'), icon: Ban, tone: 'danger', onSelect: () => openCancel(purchase) }]
+          }
+        />
       </>
     );
   };
@@ -209,36 +259,43 @@ export default function OwnerPurchasesPage() {
         }
       />
 
-      <DateRangeFilter className="mb-3" preset={preset} range={range} onChange={setRange} />
+      {/*
+       * The dates, and the two selects beside them once there is room for both
+       * on one line. The selects used to float alone at the right edge, a long
+       * way from the dates they narrow.
+       */}
+      <div className="mb-4 flex flex-col gap-3 2xl:flex-row 2xl:items-end 2xl:justify-between">
+        <DateRangeFilter className="min-w-0" preset={preset} range={range} onChange={setRange} />
 
-      {/* Two selects side by side even on a phone, each with a label a person can read. */}
-      <div className="mb-4 grid grid-cols-2 gap-3 sm:flex sm:justify-end">
-        <div className="min-w-0 sm:w-56">
-          <Label htmlFor="filter-seller">{t('purchase.filterSeller')}</Label>
-          <Select
-            id="filter-seller"
-            value={filters.payeeId}
-            onChange={(event) => setFilters({ payeeId: event.target.value })}
-          >
-            <option value="">{t('purchase.allSellers')}</option>
-            {(payees.data?.payees ?? []).map((payee) => (
-              <option key={payee.id} value={payee.id}>
-                {payee.nameBn}
-              </option>
-            ))}
-          </Select>
-        </div>
-        <div className="min-w-0 sm:w-48">
-          <Label htmlFor="filter-status">{t('app.status')}</Label>
-          <Select
-            id="filter-status"
-            value={filters.status}
-            onChange={(event) => setFilters({ status: event.target.value })}
-          >
-            <option value="">{t('purchase.allStatuses')}</option>
-            <option value="received">{t('purchase.recorded')}</option>
-            <option value="cancelled">{t('purchase.cancelled')}</option>
-          </Select>
+        {/* Two selects side by side even on a phone, each with a label a person can read. */}
+        <div className="grid grid-cols-2 gap-3 sm:flex 2xl:shrink-0">
+          <div className="min-w-0 sm:w-56">
+            <Label htmlFor="filter-seller">{t('purchase.filterSeller')}</Label>
+            <Select
+              id="filter-seller"
+              value={filters.payeeId}
+              onChange={(event) => setFilters({ payeeId: event.target.value })}
+            >
+              <option value="">{t('purchase.allSellers')}</option>
+              {(payees.data?.payees ?? []).map((payee) => (
+                <option key={payee.id} value={payee.id}>
+                  {payee.nameBn}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div className="min-w-0 sm:w-48">
+            <Label htmlFor="filter-status">{t('app.status')}</Label>
+            <Select
+              id="filter-status"
+              value={filters.status}
+              onChange={(event) => setFilters({ status: event.target.value })}
+            >
+              <option value="">{t('purchase.allStatuses')}</option>
+              <option value="received">{t('purchase.recorded')}</option>
+              <option value="cancelled">{t('purchase.cancelled')}</option>
+            </Select>
+          </div>
         </div>
       </div>
 
@@ -251,7 +308,7 @@ export default function OwnerPurchasesPage() {
       {totals && (rows.length > 0 || switching) && (
         <>
           <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border lg:grid-cols-4">
-            <TotalCell label={t('purchase.spent')} value={formatMoney(totals.spent)} strong />
+            <TotalCell label={t('purchase.spent')} value={formatMoney(totals.spent)} strong lead />
             <TotalCell label={t('purchase.payeeTotal')} value={formatMoney(totals.billedByPayees)} strong />
             {/* The breakdown of the first figure: one row on a phone, the rest from `lg` and on the sheet. */}
             <TotalCell
@@ -381,23 +438,31 @@ export default function OwnerPurchasesPage() {
                       </div>
                     )}
 
-                    <div className="mt-3 flex gap-2 [&>button]:flex-1">{actions(purchase, 'md')}</div>
+                    {/* Three actions do not fit one row at 360px: the two reads side by side, cancel under them. */}
+                    <div className="mt-3 grid grid-cols-2 gap-2 [&>*:last-child]:col-span-2">
+                      {actions(purchase, 'md')}
+                    </div>
                   </Card>
                 </li>
               );
             })}
           </ul>
 
-          <TableWrap from="xl" minWidth="56rem">
+          {/*
+           * Five columns, not seven: the goods and the carrying cost are the
+           * breakdown of the total, so they sit under it in small type rather
+           * than as two more columns that squeezed every heading onto three lines.
+           */}
+          <TableWrap from="xl" minWidth="50rem">
             <thead>
               <tr>
                 <Th>{t('purchase.code')}</Th>
                 <Th>{t('purchase.payee')}</Th>
-                <Th className="text-right">{t('purchase.goodsCost')}</Th>
-                <Th className="text-right">{t('purchase.chargeTotal')}</Th>
-                <Th className="text-right">{t('purchase.payeeTotal')}</Th>
-                <Th className="text-right">{t('purchase.total')}</Th>
-                <Th className="text-right">{t('app.actions')}</Th>
+                <Th className="whitespace-nowrap text-right">{t('purchase.payeeTotal')}</Th>
+                <Th className="whitespace-nowrap text-right">{t('purchase.total')}</Th>
+                <Th className="text-right">
+                  <span className="sr-only">{t('app.actions')}</span>
+                </Th>
               </tr>
             </thead>
             <tbody>
@@ -405,7 +470,7 @@ export default function OwnerPurchasesPage() {
                 const cancelled = purchase.status === 'cancelled';
                 return (
                   <Tr key={purchase.id} selected={open === purchase.id} className={cancelled ? 'opacity-70' : undefined}>
-                    <Td>
+                    <Td className="whitespace-nowrap">
                       <span className={cn('tabular font-semibold', cancelled && 'line-through')}>
                         {purchase.purchaseCode}
                       </span>
@@ -420,23 +485,31 @@ export default function OwnerPurchasesPage() {
                       <Link href={`/owner/payees/${purchase.payee}`} className="font-medium hover:underline">
                         {purchase.payeeNameBn}
                       </Link>
-                      <div className="max-w-[16rem] truncate text-xs text-muted-foreground">
+                      <div className="max-w-[18rem] truncate text-xs text-muted-foreground">
                         {supplyNames(purchase)}
                         {purchase.invoiceNo && ` · ${purchase.invoiceNo}`}
                       </div>
                       {cancelled && purchase.cancelReason && (
-                        <div className="max-w-[16rem] truncate text-xs text-muted-foreground">
+                        <div className="max-w-[18rem] truncate text-xs text-muted-foreground">
                           {t('purchase.cancelledReasonLabel')}: {purchase.cancelReason}
                         </div>
                       )}
                     </Td>
-                    <Td className="tabular text-right">{formatMoney(purchase.goodsCost)}</Td>
-                    <Td className="tabular text-right">{formatMoney(purchase.chargeTotal)}</Td>
                     {/* What the seller is owed, never the same column as what it cost. */}
-                    <Td className="tabular text-right font-semibold">{formatMoney(purchase.payeeTotal)}</Td>
-                    <Td className="tabular text-right font-bold">{formatMoney(purchase.total)}</Td>
+                    <Td className="tabular whitespace-nowrap text-right font-semibold">
+                      {formatMoney(purchase.payeeTotal)}
+                    </Td>
+                    <Td className="tabular whitespace-nowrap text-right">
+                      <span className={cn('font-bold', cancelled && 'line-through')}>{formatMoney(purchase.total)}</span>
+                      <div className="text-xs text-muted-foreground">
+                        {tf('purchase.breakdownLine', {
+                          goods: formatMoney(purchase.goodsCost),
+                          charges: formatMoney(purchase.chargeTotal),
+                        })}
+                      </div>
+                    </Td>
                     <Td className="text-right">
-                      <div className="flex justify-end gap-1">{actions(purchase, 'sm')}</div>
+                      <div className="flex items-center justify-end gap-1.5">{tableActions(purchase)}</div>
                     </Td>
                   </Tr>
                 );

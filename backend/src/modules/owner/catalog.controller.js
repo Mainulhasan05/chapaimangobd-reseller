@@ -13,6 +13,7 @@ const { toPoisha, toTaka } = require('../../utils/money');
 const { toMilli, fromMilli } = require('../../utils/quantity');
 const { assertDistinctContents, findVariant, MAX_VARIANTS } = require('../../domain/variants');
 const { assertRecipe } = require('../../domain/packaging');
+const { normalizeDistrictList } = require('../../domain/districts');
 const Supply = require('../../models/Supply');
 const { normalizeBdPhone } = require('../../utils/phone');
 const present = require('../../utils/present');
@@ -561,10 +562,12 @@ async function assertDistrictsFree(districts, excludeId) {
 }
 
 async function createZone(req, res) {
-  await assertDistrictsFree(req.body.districts);
+  // Stored spelling, one per entry: the checkout lookup matches it exactly.
+  const districts = normalizeDistrictList(req.body.districts);
+  await assertDistrictsFree(districts);
   const zone = await DeliveryZone.create({
     name: req.body.name,
-    districts: req.body.districts,
+    districts,
     chargePoisha: toPoisha(req.body.charge, 'charge'),
     isActive: req.body.isActive ?? true,
     sortOrder: req.body.sortOrder ?? 0,
@@ -576,8 +579,8 @@ async function updateZone(req, res) {
   const patch = {};
   if (req.body.name !== undefined) patch.name = req.body.name;
   if (req.body.districts !== undefined) {
-    await assertDistrictsFree(req.body.districts, req.params.id);
-    patch.districts = req.body.districts;
+    patch.districts = normalizeDistrictList(req.body.districts);
+    await assertDistrictsFree(patch.districts, req.params.id);
   }
   if (req.body.charge !== undefined) patch.chargePoisha = toPoisha(req.body.charge, 'charge');
   if (req.body.isActive !== undefined) patch.isActive = req.body.isActive;

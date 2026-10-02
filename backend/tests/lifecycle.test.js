@@ -550,6 +550,12 @@ test('reseller price changes, reseller cancels, toggles, settings and archives a
   assert.equal(settings[0].after.orderAgingHours, 12);
   assert.deepEqual(Object.keys(settings[1].after), ['businessName']);
 
+  // A blank business name is refused: it heads every report and receipt.
+  const blank = await ownerApi.patch('/api/owner/settings').send({ businessName: '   ' });
+  assert.equal(blank.status, 400);
+  assert.ok(blank.body.error.fields.businessName);
+  assert.equal(await AuditLog.countDocuments({ action: 'settings.update' }), 2);
+
   // Archives.
   const source = await f.makeSource();
   const spare = await f.makeProduct({ name: 'ফজলি' });

@@ -47,6 +47,15 @@ export function useBrand() {
 }
 
 /**
+ * The name printed at the head of a sheet. Never blank: a settings row saved
+ * with an empty name, or a settings read that has not landed, used to print a
+ * letterhead with no business on it and an empty logo tile.
+ */
+export function brandName(settings?: { businessName?: string | null }): string {
+  return settings?.businessName?.trim() || t('app.name');
+}
+
+/**
  * The moment the sheet was produced, fixed on first render.
  *
  * Read once rather than on every render, so the time printed in the details
@@ -176,7 +185,7 @@ export function SheetBody({ busy, children }: { busy: boolean; children: React.R
 }
 
 /** The business mark: the uploaded logo, or its initial on a mango tile. */
-function BrandMark({ name, logo }: { name?: string; logo?: string | null }) {
+function BrandMark({ name, logo }: { name: string; logo?: string | null }) {
   if (logo) {
     return (
       // A hosted image of unknown size; next/image would need its dimensions.
@@ -194,7 +203,7 @@ function BrandMark({ name, logo }: { name?: string; logo?: string | null }) {
       aria-hidden
       className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-brand text-xl font-bold text-brand-foreground"
     >
-      {name?.trim().charAt(0) ?? ''}
+      {name.charAt(0)}
     </span>
   );
 }
@@ -224,20 +233,30 @@ function Detail({ label, children }: { label: string; children: React.ReactNode 
 export function ReportSheet({
   title,
   subtitle,
+  eyebrow,
   range,
   meta,
+  details,
   children,
 }: {
   title: string;
   subtitle?: string;
+  /** The small line above the title. "রিপোর্ট" unless the sheet is something else, such as a receipt. */
+  eyebrow?: string;
   /** Already-formatted, e.g. "১৬ সেপ্টেম্বর" or "১ – ৭ সেপ্টেম্বর". */
   range?: string;
   /** A short line of context, such as how many rows the sheet carries. */
   meta?: React.ReactNode;
+  /**
+   * The details strip, given whole. A document about one thing (a receipt) is
+   * identified by its number and date, not by a period and a row count.
+   */
+  details?: { label: string; value: React.ReactNode }[];
   children: React.ReactNode;
 }) {
   const brand = useBrand();
   const settings = brand.data?.settings;
+  const name = brandName(settings);
   const generatedAt = useGeneratedAt();
 
   return (
@@ -246,13 +265,11 @@ export function ReportSheet({
       <div aria-hidden className="h-1.5 bg-brand sm:rounded-t-2xl print:h-1 print:rounded-none" />
 
       <div className="px-4 py-6 sm:px-10 sm:py-9 print:px-0 print:py-4">
-        <header className="print-block mb-6 flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between print:flex-row print:items-start print:justify-between">
+        <header className="print-block mb-6 print:mb-4 flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between print:flex-row print:items-start print:justify-between">
           <div className="flex min-w-0 items-center gap-3">
-            <BrandMark name={settings?.businessName} logo={settings?.brandLogoUrl} />
+            <BrandMark name={name} logo={settings?.brandLogoUrl} />
             <div className="min-w-0">
-              <p className="text-lg font-bold leading-tight [overflow-wrap:anywhere]">
-                {settings?.businessName ?? ' '}
-              </p>
+              <p className="text-lg font-bold leading-tight [overflow-wrap:anywhere]">{name}</p>
               {settings?.supportPhone && (
                 <p className="tabular text-xs text-muted-foreground">{settings.supportPhone}</p>
               )}
@@ -264,25 +281,35 @@ export function ReportSheet({
              * No letter-spacing: any tracking switches off ligatures, and
              * Bengali conjuncts are ligatures.
              */}
-            <p className="text-xs font-semibold text-brand-ink">{t('report.reports')}</p>
+            <p className="text-xs font-semibold text-brand-ink">{eyebrow ?? t('report.reports')}</p>
             <h1 className="text-xl font-bold leading-tight sm:text-2xl">{title}</h1>
             {subtitle && <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>}
           </div>
         </header>
 
-        <dl className="print-block mb-7 grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl bg-subtle px-4 py-3.5 sm:grid-cols-3 print:grid-cols-3">
-          <Detail label={range ? t('report.period') : t('report.asOf')}>
-            {range ?? formatDate(generatedAt)}
-          </Detail>
-          <Detail label={t('report.generated')}>
-            <span className="tabular">{formatDateTime(generatedAt)}</span>
-          </Detail>
-          {meta && (
-            <div className="col-span-2 sm:col-span-1 print:col-span-1">
-              <Detail label={t('report.contents')}>{meta}</Detail>
-            </div>
-          )}
-        </dl>
+        {details ? (
+          <dl className="print-block mb-7 grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl bg-subtle px-4 py-3.5 sm:grid-cols-4 print:mb-5 print:grid-cols-4">
+            {details.map((detail) => (
+              <Detail key={detail.label} label={detail.label}>
+                {detail.value}
+              </Detail>
+            ))}
+          </dl>
+        ) : (
+          <dl className="print-block mb-7 grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl bg-subtle px-4 py-3.5 sm:grid-cols-3 print:mb-5 print:grid-cols-3">
+            <Detail label={range ? t('report.period') : t('report.asOf')}>
+              {range ?? formatDate(generatedAt)}
+            </Detail>
+            <Detail label={t('report.generated')}>
+              <span className="tabular">{formatDateTime(generatedAt)}</span>
+            </Detail>
+            {meta && (
+              <div className="col-span-2 sm:col-span-1 print:col-span-1">
+                <Detail label={t('report.contents')}>{meta}</Detail>
+              </div>
+            )}
+          </dl>
+        )}
 
         {children}
       </div>
@@ -314,7 +341,7 @@ export function ReportSection({
 }) {
   return (
     <section
-      className={cn('mb-8 min-w-0', breakBefore && 'print-break', className)}
+      className={cn('mb-8 min-w-0 print:mb-6', breakBefore && 'print-break', className)}
       style={landscape ? { page: 'landscape-sheet' } : undefined}
     >
       {landscape && <style>{'@media print { @page landscape-sheet { size: A4 landscape; } }'}</style>}
@@ -341,7 +368,7 @@ export function ReportSection({
  */
 export function KeyFigures({ children }: { children: React.ReactNode }) {
   return (
-    <div className="print-block mb-8 grid grid-cols-2 gap-2.5 sm:grid-cols-4 sm:gap-3 print:grid-cols-4">
+    <div className="print-block mb-8 grid grid-cols-2 gap-2.5 sm:grid-cols-4 sm:gap-3 print:mb-6 print:grid-cols-4">
       {children}
     </div>
   );
@@ -520,17 +547,28 @@ export function ReportEmpty() {
  *
  * `signatures` adds the two ruled lines a sheet that is handed over needs — who
  * prepared it and who checked it — so a dispatch sheet or a dues list can be
- * signed off on paper the way an invoice is.
+ * signed off on paper the way an invoice is. A receipt names its own two
+ * signers instead (the seller and the buyer).
  */
-export function ReportFooter({ note, signatures }: { note?: string; signatures?: boolean }) {
+export function ReportFooter({
+  note,
+  signatures,
+  closing,
+}: {
+  note?: string;
+  signatures?: boolean | readonly [string, string];
+  /** The last line on the right. "কম্পিউটারে তৈরি রিপোর্ট" unless the sheet is not a report. */
+  closing?: string;
+}) {
   const brand = useBrand();
   const settings = brand.data?.settings;
+  const signers = Array.isArray(signatures) ? signatures : [t('report.preparedBy'), t('report.checkedBy')];
 
   return (
-    <footer className="print-block mt-10">
+    <footer className="print-block mt-10 print:mt-4">
       {signatures && (
-        <div className="mb-10 grid grid-cols-2 gap-8 pt-8 sm:gap-20">
-          {[t('report.preparedBy'), t('report.checkedBy')].map((label) => (
+        <div className="mb-10 grid grid-cols-2 gap-8 pt-8 sm:gap-20 print:mb-5 print:pt-10">
+          {signers.map((label) => (
             <div
               key={label}
               className="border-t border-foreground pt-1.5 text-center text-xs text-muted-foreground"
@@ -545,7 +583,7 @@ export function ReportFooter({ note, signatures }: { note?: string; signatures?:
 
       <div className="flex flex-col gap-1 border-t border-border pt-3 text-[0.6875rem] text-muted-foreground sm:flex-row sm:items-center sm:justify-between print:flex-row print:justify-between">
         <p className="font-semibold text-foreground">
-          {settings?.businessName}
+          {brandName(settings)}
           {settings?.supportPhone && (
             <span className="tabular font-normal text-muted-foreground">
               {' '}
@@ -553,7 +591,7 @@ export function ReportFooter({ note, signatures }: { note?: string; signatures?:
             </span>
           )}
         </p>
-        <p>{t('report.computerGenerated')}</p>
+        <p>{closing ?? t('report.computerGenerated')}</p>
       </div>
     </footer>
   );

@@ -130,7 +130,9 @@ function SettingsForm({ initial }: { initial: Settings }) {
   const creditLimitCheck = checkMoney(draft.defaultCreditLimit, { allowZero: true });
   const smsPriceCheck = checkMoney(draft.smsPricePerCredit, { allowZero: true });
   const hours = agingHours(draft.orderAgingHours);
-  const valid = creditLimitCheck.ok && smsPriceCheck.ok && hours !== null;
+  // Printed at the head of every report and receipt, so it may not be blank.
+  const nameOk = draft.businessName.trim().length >= 2;
+  const valid = nameOk && creditLimitCheck.ok && smsPriceCheck.ok && hours !== null;
 
   const errors = fieldErrors(saveState.error);
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => {
@@ -175,6 +177,8 @@ function SettingsForm({ initial }: { initial: Settings }) {
     set('features', { ...draft.features, sms: on });
   };
 
+  const nameError =
+    errors.businessName ?? (tried && !nameOk ? t('settings.businessNameRequired') : undefined);
   const agingError =
     errors.orderAgingHours ?? (tried && hours === null ? t('settings.agingHoursInvalid') : undefined);
   const creditError =
@@ -219,11 +223,11 @@ function SettingsForm({ initial }: { initial: Settings }) {
         <Card className="mb-4">
           <CardHeader title={t('settings.groupBusiness')} />
 
-          <Field label={t('settings.businessName')} htmlFor="businessName" error={errors.businessName}>
+          <Field label={t('settings.businessName')} htmlFor="businessName" error={nameError}>
             <Input
               id="businessName"
               value={draft.businessName}
-              invalid={Boolean(errors.businessName)}
+              invalid={Boolean(nameError)}
               onChange={(e) => set('businessName', e.target.value)}
             />
           </Field>

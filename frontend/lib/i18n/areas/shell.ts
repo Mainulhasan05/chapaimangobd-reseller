@@ -114,6 +114,7 @@ export const shell = {
   'settings.groupSms': 'SMS',
   'settings.groupChannels': 'বিজ্ঞপ্তির মাধ্যম',
   'settings.businessName': 'ব্যবসার নাম',
+  'settings.businessNameRequired': 'ব্যবসার নাম লিখুন — রিপোর্ট আর রসিদের মাথায় এটাই ছাপা হয়',
   'settings.supportPhone': 'সাহায্যের নম্বর (ক্রেতারা দেখবে)',
   'settings.supportPhoneHint': 'দোকান ও ট্র্যাকিং পাতায় এই নম্বরে কল করার বোতাম থাকবে',
   'settings.agingHours': 'কত ঘণ্টা পর অর্ডার পুরনো ধরা হবে',

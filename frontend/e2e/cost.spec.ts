@@ -1,6 +1,7 @@
 import { expect, test, type BrowserContext } from '@playwright/test';
 import { t } from '@/lib/i18n/bn';
 import { formatMoney, formatNumber } from '@/lib/format';
+import { amountInWords } from '@/lib/amount-words';
 import {
   OWNER_STATE,
   apiJson,
@@ -122,6 +123,38 @@ test('2. a purchase shows what a crate really cost, not what was quoted', async 
   const page = await owner.newPage();
   await page.goto('/owner/purchases');
   await expect(page.getByText(formatMoney(purchase.total)).first()).toBeVisible();
+  await expectNoHorizontalScroll(page);
+  await page.close();
+});
+
+test('2b. the purchase prints as a receipt the seller can sign', async () => {
+  const list = await owner.newPage();
+  await list.goto('/owner/purchases');
+  // Every purchase offers its receipt; on a phone that is the card's button.
+  await list.getByRole('link', { name: t('purchase.printReceiptLong') }).first().click();
+  await expect(list).toHaveURL(new RegExp(`/owner/reports/print/purchase/${ids.purchase}$`));
+  await list.close();
+
+  const page = await owner.newPage();
+  await page.goto(`/owner/reports/print/purchase/${ids.purchase}`);
+  await expect(page.getByRole('heading', { name: t('receipt.title') })).toBeVisible();
+  await expectNoHorizontalScroll(page);
+
+  // The letterhead always names the business, even before settings are saved.
+  await expect(page.locator('article header p').first()).not.toBeEmpty();
+  await expect(page.getByText(PAYEE.name, { exact: true })).toBeVisible();
+
+  // The seller's figure is the goods and their own charge, said in words too;
+  // the van hire handed over at the gate is added only to reach the cost.
+  const payable = CRATE_RATE * CRATES + LOADING;
+  await expect(page.getByText(formatMoney(payable)).first()).toBeVisible();
+  await expect(page.getByText(amountInWords(payable))).toBeVisible();
+  await expect(page.getByText(formatMoney(payable + VAN_HIRE)).first()).toBeVisible();
+
+  // The landed cost is the owner's business: off for the seller's copy, on for the file.
+  await expect(page.getByText(formatMoney(LANDED))).toHaveCount(0);
+  await page.getByRole('switch', { name: new RegExp(t('receipt.showLanded').slice(0, 8)) }).click();
+  await expect(page.getByText(formatMoney(LANDED)).first()).toBeVisible();
   await expectNoHorizontalScroll(page);
   await page.close();
 });

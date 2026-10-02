@@ -29,6 +29,7 @@ import { Alert, EmptyState, ErrorState } from '@/components/ui/layout';
 import { BackLink } from '@/components/ui/back-link';
 import { Button } from '@/components/ui/button';
 import { Skeleton, ListSkeleton } from '@/components/ui/skeleton';
+import { brandName as letterheadName } from '@/components/report/sheet';
 import { itemAmount, shopOf } from '@/components/orders-panel';
 
 /*
@@ -136,13 +137,13 @@ export default function ParcelLabelsPage() {
       <div className="label-sheet mx-auto grid max-w-[210mm] gap-3 sm:grid-cols-2">
         {ids.length
           ? ids.map((id) => (
-              <LabelById key={id} id={id} brandName={brand?.businessName} supportPhone={brand?.supportPhone} />
+              <LabelById key={id} id={id} brandName={letterheadName(brand)} supportPhone={brand?.supportPhone} />
             ))
           : sheet.data?.orders.map((order) => (
               <ParcelLabel
                 key={order.id}
                 order={order}
-                brandName={brand?.businessName}
+                brandName={letterheadName(brand)}
                 supportPhone={brand?.supportPhone}
               />
             ))}

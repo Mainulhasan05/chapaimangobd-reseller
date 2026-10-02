@@ -19,6 +19,7 @@
  */
 
 import { Suspense } from 'react';
+import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { t, tf, tUnit } from '@/lib/i18n/bn';
 import { formatDate, formatMoney, formatNumber } from '@/lib/format';
@@ -124,68 +125,30 @@ function PurchaseReportView() {
           range={covered ? formatRange(covered) : t('range.all')}
           meta={tf('report.rowCount', { n: formatNumber(totals.purchases) })}
         >
-          <KeyFigures>
-            <Figure label={t('nav.purchases')} value={formatNumber(totals.purchases)} />
-            <Figure label={t('purchase.goodsCost')} value={formatMoney(totals.goodsCost)} />
-            <Figure
-              label={t('purchase.chargeTotal')}
-              value={formatMoney(totals.chargeTotal)}
-              hint={t('purchase.landedHint')}
-            />
-            <Figure label={t('purchase.spent')} value={formatMoney(totals.spent)} />
-          </KeyFigures>
-
           {/*
-           * Where the money went, split by who is owed. The two rows at the bottom
-           * are not two views of the same total: one is a debt the sellers carry on
-           * the books, the other is cash that left and is owed to nobody.
+           * Where the money went, split by who is owed. The middle two are not two
+           * views of the same total: one is a debt the sellers carry on the books,
+           * the other is cash that left and is owed to nobody. The first one says
+           * what it is made of, which is what the old summary table under these
+           * boxes used to repeat line for line.
            */}
-          <ReportSection title={t('report.summary')}>
-            <ReportTable
-              head={
-                <>
-                  <RTh>{t('report.summary')}</RTh>
-                  <RTh align="right">{t('expense.amount')}</RTh>
-                </>
-              }
-            >
-              <tr>
-                <RTd>{t('purchase.goodsCost')}</RTd>
-                <RTd align="right">{formatMoney(totals.goodsCost)}</RTd>
-              </tr>
-              <tr>
-                <RTd>
-                  {t('purchase.chargeTotal')}
-                  <span className="block text-xs text-muted-foreground">{t('purchase.landedHint')}</span>
-                </RTd>
-                <RTd align="right">{formatMoney(totals.chargeTotal)}</RTd>
-              </tr>
-              <RTotalRow>
-                <RTd>{t('purchase.spent')}</RTd>
-                <RTd align="right">{formatMoney(totals.spent)}</RTd>
-              </RTotalRow>
-              <tr>
-                <RTd className="font-semibold">
-                  {t('purchase.payeeTotal')}
-                  <span className="block text-xs font-normal text-muted-foreground">{t('payee.dueHint')}</span>
-                </RTd>
-                <RTd align="right" className="font-semibold">
-                  {formatMoney(totals.billedByPayees)}
-                </RTd>
-              </tr>
-              <tr>
-                <RTd className="font-semibold">
-                  {t('purchase.otherCharge')}
-                  <span className="block text-xs font-normal text-muted-foreground">
-                    {t('purchase.paidToHint')}
-                  </span>
-                </RTd>
-                <RTd align="right" className="font-semibold">
-                  {formatMoney(totals.otherCharge)}
-                </RTd>
-              </tr>
-            </ReportTable>
-          </ReportSection>
+          <KeyFigures>
+            <Figure
+              label={t('purchase.spent')}
+              value={formatMoney(totals.spent)}
+              hint={tf('purchase.breakdownLine', {
+                goods: formatMoney(totals.goodsCost),
+                charges: formatMoney(totals.chargeTotal),
+              })}
+            />
+            <Figure
+              label={t('purchase.payeeTotal')}
+              value={formatMoney(totals.billedByPayees)}
+              hint={t('payee.dueHint')}
+            />
+            <Figure label={t('purchase.otherCharge')} value={formatMoney(totals.otherCharge)} />
+            <Figure label={t('nav.purchases')} value={formatNumber(totals.purchases)} />
+          </KeyFigures>
 
           <ReportSection title={t('purchase.payee')}>
             {data.byPayee.length === 0 ? (
@@ -228,11 +191,12 @@ function PurchaseReportView() {
           </ReportSection>
 
           {/*
-           * The buying decision lives in the last column, which is why the section
-           * gets its own sheet: a unit rate and a landed unit cost can be far apart,
-           * and it is the second one that says whether the crate was cheap.
+           * The buying decision lives in the last column: a unit rate and a landed
+           * unit cost can be far apart, and it is the second one that says whether
+           * the crate was cheap. Not forced onto a sheet of its own any more: a
+           * month with one purchase printed three mostly empty pages.
            */}
-          <ReportSection title={t('nav.supplies')} hint={t('purchase.landedHint')} breakBefore>
+          <ReportSection title={t('nav.supplies')} hint={t('purchase.landedHint')}>
             {data.bySupply.length === 0 ? (
               <ReportEmpty />
             ) : (
@@ -255,9 +219,9 @@ function PurchaseReportView() {
                     <RTd align="right">{formatNumber(row.quantity)}</RTd>
                     <RTd align="right">{formatMoney(row.goodsCost)}</RTd>
                     <RTd align="right">{formatMoney(row.landedCost)}</RTd>
+                    {/* The unit is in its own column; repeating it here doubled every row's height. */}
                     <RTd align="right" className="font-bold">
                       {formatMoney(row.avgLandedUnitCost)}
-                      <span className="block text-xs font-normal text-muted-foreground">{tUnit(row.unit)}</span>
                     </RTd>
                   </tr>
                 ))}
@@ -270,7 +234,7 @@ function PurchaseReportView() {
            * memos. A cancelled one is listed, struck through and labelled, and never
            * added: the totals above count received purchases only.
            */}
-          <ReportSection title={t('report.purchaseRows')} breakBefore>
+          <ReportSection title={t('report.purchaseRows')}>
             {data.truncated && (
               <Alert tone="warning">
                 {tf('report.rowsTruncated', {
@@ -300,7 +264,13 @@ function PurchaseReportView() {
                       <tr key={row.id} className={cn(cancelled && 'text-muted-foreground')}>
                         <RTd className="whitespace-nowrap">{formatDate(row.businessDate)}</RTd>
                         <RTd className="tabular">
-                          <span className={cn('font-medium', cancelled && 'line-through')}>{row.purchaseCode}</span>
+                          {/* On screen, the way to that purchase's own receipt. On paper, just the number. */}
+                          <Link
+                            href={`/owner/reports/print/purchase/${row.id}`}
+                            className={cn('font-medium text-primary-ink hover:underline', cancelled && 'line-through')}
+                          >
+                            {row.purchaseCode}
+                          </Link>
                           {row.invoiceNo && <span className="block text-xs text-muted-foreground">{row.invoiceNo}</span>}
                           {cancelled && <span className="block text-xs font-semibold">{t('purchase.cancelled')}</span>}
                         </RTd>
@@ -332,7 +302,7 @@ function PurchaseReportView() {
             )}
           </ReportSection>
 
-          <ReportFooter note={t('purchase.landedHint')} />
+          <ReportFooter />
         </ReportSheet>
       </SheetBody>
     </>

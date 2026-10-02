@@ -8,9 +8,9 @@ const ResellerProfile = require('../models/ResellerProfile');
 const Source = require('../models/Source');
 const Product = require('../models/Product');
 const ResellerProduct = require('../models/ResellerProduct');
-const DeliveryZone = require('../models/DeliveryZone');
 
 const seedOwner = require('./seedOwner');
+const seedZones = require('./seedZones');
 const { normalizeBdPhone } = require('../utils/phone');
 const { toPoisha } = require('../utils/money');
 const { toMilli } = require('../utils/quantity');
@@ -23,31 +23,8 @@ const { ROLES, KYC_STATUS } = require('../domain/constants');
 async function seedDemo() {
   await seedOwner();
 
-  const zones = [
-    { name: 'চাঁপাইনবাবগঞ্জ', districts: ['Chapainawabganj'], charge: 60 },
-    { name: 'ঢাকার ভিতরে', districts: ['Dhaka'], charge: 80 },
-    {
-      name: 'ঢাকার বাইরে',
-      districts: ['Rajshahi', 'Chattogram', 'Khulna', 'Sylhet', 'Rangpur', 'Barishal', 'Mymensingh'],
-      charge: 140,
-    },
-  ];
-
-  for (const zone of zones) {
-    // eslint-disable-next-line no-await-in-loop
-    await DeliveryZone.findOneAndUpdate(
-      { name: zone.name },
-      {
-        $setOnInsert: {
-          name: zone.name,
-          districts: zone.districts,
-          chargePoisha: toPoisha(zone.charge),
-          isActive: true,
-        },
-      },
-      { upsert: true }
-    );
-  }
+  // Every district orderable at the default rates. See seed/seedZones.js.
+  await seedZones();
 
   /*
    * Two sources, not one. A source is chosen per order line at accept, so a

@@ -24,6 +24,7 @@ cd backend
 npm install
 cp .env.example .env          # fill in the two JWT secrets and MONGODB_URI
 npm run seed:owner            # creates the single owner account
+npm run seed:zones            # every district orderable at default rates (seed:demo runs it)
 npm run seed:demo             # optional catalog, zones and a demo reseller
 npm run dev                   # http://localhost:4000
 

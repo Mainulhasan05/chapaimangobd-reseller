@@ -448,7 +448,7 @@ const listFinance = z.object({
 
 /* settings */
 const updateSettings = z.object({
-  businessName: z.string().trim().max(120).optional(),
+  businessName: z.string().trim().min(2, 'Business name is required').max(120).optional(),
   supportPhone: z.string().max(20).optional(),
   poweredByText: z.string().max(200).optional(),
   defaultCreditLimit: money.optional(),

@@ -12,6 +12,7 @@
     "start": "node src/server.js",
     "seed:owner": "node src/seed/seedOwner.js",
     "seed:demo": "node src/seed/seedDemo.js",
+    "seed:zones": "node src/seed/seedZones.js",
     "test": "node --test --test-concurrency=1",
     "test:watch": "node --test --watch --test-concurrency=1",
     "smoke": "node scripts/smoke.js",

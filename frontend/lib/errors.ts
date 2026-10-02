@@ -236,6 +236,7 @@ const FIELD_COPY: Record<string, string> = {
   'Already registered': 'এই নম্বরটি আগেই ব্যবহৃত',
   'Already in use': 'এটি আগেই ব্যবহৃত',
   'Name is required': 'নাম লিখুন',
+  'Business name is required': 'ব্যবসার নাম লিখুন — রিপোর্ট আর রসিদের মাথায় এটাই ছাপা হয়',
   'Phone number is required': 'মোবাইল নম্বর লিখুন',
   'Use at least 6 characters': 'অন্তত ৬টি অক্ষর দিন',
   'Must be above your price': 'আপনার বিক্রয়মূল্যের চেয়ে বেশি দিন',
