@@ -454,7 +454,11 @@ async function setProductCover(req, res) {
 
   const reordered = [product.images[index], ...product.images.filter((_img, i) => i !== index)];
   const updated = await Product.findOneAndUpdate(
-    { _id: product._id, images: { $size: product.images.length }, [`images.${index}._id`]: product.images[index]._id },
+    {
+      _id: product._id,
+      images: { $size: product.images.length },
+      $or: [{ [`images.${index}.id`]: handle }, { [`images.${index}.key`]: handle }],
+    },
     { $set: { images: reordered } },
     { new: true }
   );

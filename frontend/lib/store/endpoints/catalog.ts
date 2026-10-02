@@ -173,6 +173,16 @@ export const catalogApi = api.injectEndpoints({
         error ? [] : [...EFFECTS.stock(), { type: 'Product', id }],
     }),
 
+    // The cover is what every shop's product card shows, so the reseller catalog moves too.
+    setProductCover: build.mutation<{ product: OwnerProduct }, { id: string; imageId: string }>({
+      query: ({ id, imageId }) => ({
+        url: `/owner/products/${id}/images/${encodeURIComponent(imageId)}/cover`,
+        method: 'POST',
+      }),
+      invalidatesTags: (_result, error, { id }) =>
+        error ? [] : [{ type: 'Product', id: LIST }, { type: 'Product', id }, 'Catalog'],
+    }),
+
     // A recipe changes estimates (they provide the product list) and the supply's "used by".
     saveVariantPackaging: build.mutation<
       unknown,
@@ -395,6 +405,7 @@ export const {
   useSetVariantStockMutation,
   useArchiveProductMutation,
   useRestoreProductMutation,
+  useSetProductCoverMutation,
   useSaveVariantPackagingMutation,
   useGetSourcesQuery,
   useGetSourceQuery,

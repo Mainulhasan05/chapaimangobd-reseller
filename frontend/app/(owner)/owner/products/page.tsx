@@ -16,6 +16,7 @@ import {
   useRestoreProductMutation,
   useSetVariantStockMutation,
   useUpdateProductMutation,
+  useSetProductCoverMutation,
 } from '@/lib/store/endpoints/catalog';
 import {
   Alert,
@@ -1480,6 +1481,21 @@ function ProductPhotos({ product }: { product: OwnerProduct }) {
   const [removing, setRemoving] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [update, state] = useUpdateProductMutation();
+  const [setCover] = useSetProductCoverMutation();
+
+  const makeCover = async (imageId: string) => {
+    setRemoving((prev) => [...prev, imageId]);
+    setError(null);
+    try {
+      const { product: fresh } = await setCover({ id: product.id, imageId }).unwrap();
+      setImages(fresh.images);
+      toast(t('photos.coverSet'));
+    } catch (failure) {
+      setError(errorMessage(failure));
+    } finally {
+      setRemoving((prev) => prev.filter((value) => value !== imageId));
+    }
+  };
 
   const upload = async (files: File[]) => {
     setPending(files);
@@ -1534,6 +1550,7 @@ function ProductPhotos({ product }: { product: OwnerProduct }) {
           else setPending(files);
         }}
         onRemoveExisting={(id) => void remove(id)}
+        onMakeCover={(id) => void makeCover(id)}
       />
       <p className="mt-1 text-xs text-muted-foreground">{t('products.photosInstant')}</p>
       {pending.length > 0 && !state.isLoading && (

@@ -228,4 +228,6 @@ export const catalog = {
   /* photos ------------------------------------------------------------------ */
   'photos.uploading': 'আপলোড হচ্ছে',
   'photos.removeAsk': 'সরাবেন?',
+  'photos.makeCover': 'কভার করুন',
+  'photos.coverSet': 'কভার ছবি বদলানো হয়েছে',
 } as const;

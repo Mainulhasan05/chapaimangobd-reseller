@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useId, useRef, useState } from 'react';
-import { Camera, ImagePlus, X } from 'lucide-react';
+import { Camera, ImagePlus, Star, X } from 'lucide-react';
 import { t } from '@/lib/i18n/bn';
 import { formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -65,6 +65,7 @@ export function ImagesField({
   uploading,
   busyIds,
   confirmRemove,
+  onMakeCover,
 }: {
   label: string;
   /** Newly chosen files, not yet uploaded. */
@@ -90,6 +91,12 @@ export function ImagesField({
    * removal is immediate and there is no Save to back out of.
    */
   confirmRemove?: boolean;
+  /**
+   * Offers "কভার করুন" on every stored photo but the first. The first photo is
+   * what the catalog card and every shop show, and choosing it used to mean
+   * deleting the photos in front of it and uploading them again.
+   */
+  onMakeCover?: (id: string) => void;
 }) {
   const generatedId = useId();
   const fieldId = id ?? generatedId;
@@ -201,6 +208,9 @@ export function ImagesField({
                 busy={busyIds?.includes(image.id)}
                 confirm={confirmRemove}
                 onRemove={onRemoveExisting ? () => onRemoveExisting(image.id) : undefined}
+                onMakeCover={
+                  onMakeCover && index > 0 ? () => onMakeCover(image.id) : undefined
+                }
               />
             ))}
 
@@ -310,6 +320,7 @@ function Tile({
   busy,
   confirm,
   onRemove,
+  onMakeCover,
 }: {
   /** A stored image, already on the server. */
   src?: string;
@@ -323,6 +334,7 @@ function Tile({
   /** Ask "সরাবেন?" on the tile before calling `onRemove`. */
   confirm?: boolean;
   onRemove?: () => void;
+  onMakeCover?: () => void;
 }) {
   const [asking, setAsking] = useState(false);
 
@@ -375,6 +387,21 @@ function Tile({
         >
           <span className="flex h-7 w-7 items-center justify-center rounded-full bg-foreground/60 text-background transition-colors group-hover:bg-danger group-hover:text-danger-foreground">
             <X className="h-4 w-4" />
+          </span>
+        </button>
+      )}
+
+      {/* The opposite corner from the ✕, with the same 44px hit area. */}
+      {onMakeCover && !busy && !asking && (
+        <button
+          type="button"
+          onClick={onMakeCover}
+          aria-label={t('photos.makeCover')}
+          title={t('photos.makeCover')}
+          className="group absolute left-0 top-0 flex h-11 w-11 items-start justify-start p-1"
+        >
+          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-foreground/60 text-background transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
+            <Star className="h-4 w-4" />
           </span>
         </button>
       )}

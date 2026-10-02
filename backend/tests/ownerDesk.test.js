@@ -586,3 +586,30 @@ test('complaints are searched by code, phone or name, carry the name, and reopen
 
   assert.equal((await setup.api.post(`/api/owner/complaints/${rahim._id}/reopen`)).status, 404);
 });
+
+test('any photo can be made the cover, and a stale reorder is refused', async () => {
+  const setup = await scene();
+  const photo = (id) => ({ provider: 'imgbb', id, url: `https://i.ibb.co/${id}.jpg` });
+  await Product.updateOne(
+    { _id: setup.product._id },
+    { $set: { images: [photo('a'), photo('b'), photo('c')] } }
+  );
+
+  const cover = await setup.api.post(`/api/owner/products/${setup.product._id}/images/c/cover`);
+  assert.equal(cover.status, 200, JSON.stringify(cover.body));
+  const saved = await Product.findById(setup.product._id);
+  assert.deepEqual(
+    saved.images.map((img) => img.id),
+    ['c', 'a', 'b']
+  );
+
+  // Already the cover: nothing moves, nothing is audited.
+  assert.equal((await setup.api.post(`/api/owner/products/${setup.product._id}/images/c/cover`)).status, 200);
+
+  const missing = await setup.api.post(`/api/owner/products/${setup.product._id}/images/zzz/cover`);
+  assert.equal(missing.status, 404);
+
+  const entries = await AuditLog.find({ action: 'product.cover' });
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].after.cover, 'c');
+});
