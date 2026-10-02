@@ -71,6 +71,8 @@ export default function ComplaintsPage() {
   const sourceDetail = useGetSourceQuery(filters.source ? { id: filters.source } : skipToken);
 
   const rows = complaints.data?.pages.flatMap((page) => page.complaints) ?? [];
+  // A filter whose request failed: the rows on screen are the previous filter's.
+  const stale = complaints.isError && !complaints.currentData;
   const total = complaints.data?.pages[0]?.total ?? 0;
   const filtered =
     Boolean(term) || Boolean(filters.kind) || Boolean(filters.source) || !isDefault || state !== 'open';
@@ -157,7 +159,7 @@ export default function ComplaintsPage() {
 
       {complaints.isLoading && <ListSkeleton />}
 
-      {complaints.isError && !complaints.data && (
+      {stale && (
         <ErrorState
           onRetry={() => complaints.refetch()}
           isRetrying={complaints.isFetching}
@@ -165,7 +167,7 @@ export default function ComplaintsPage() {
         />
       )}
 
-      {complaints.data && rows.length === 0 &&
+      {complaints.currentData && rows.length === 0 &&
         (filtered ? (
           <FilteredEmpty onClear={clearAll} />
         ) : (
@@ -178,8 +180,14 @@ export default function ComplaintsPage() {
 
       {rows.length > 0 && (
         // Dimmed, not blanked, while a new filter loads: the old rows stay readable.
-        <div className={cn('transition-opacity', complaints.isFetching && !complaints.isFetchingNextPage && 'opacity-60')}>
-          <ComplaintList complaints={rows} showOrder />
+        <div
+          className={cn(
+            'transition-opacity',
+            ((complaints.isFetching && !complaints.isFetchingNextPage) || stale) && 'opacity-60'
+          )}
+          inert={stale || undefined}
+        >
+          <ComplaintList complaints={rows} showOrder from="complaints" />
 
           <LoadMore
             hasMore={Boolean(complaints.hasNextPage)}

@@ -14,7 +14,7 @@ import {
 } from '@/lib/store/endpoints/cost';
 import { Button } from '@/components/ui/button';
 import { Field, Input, Select } from '@/components/ui/form';
-import { Modal } from '@/components/ui/modal';
+import { Modal, ModalCancel } from '@/components/ui/modal';
 import { useToast } from '@/components/ui/toast';
 import { scopeHint, scopeLabel } from './expense-parts';
 
@@ -81,11 +81,8 @@ export function CategoriesModal({ onClose }: { onClose: () => void }) {
       onClose={onClose}
       title={t('expense.categories')}
       dirty={Boolean(nameBn.trim())}
-      footer={
-        <Button variant="outline" onClick={onClose}>
-          {t('app.close')}
-        </Button>
-      }
+      // Through the guard, so a half-typed new category is not thrown away unasked.
+      footer={<ModalCancel label={t('app.close')} />}
     >
       {all.isLoading ? (
         <p className="mb-4 text-sm text-muted-foreground">{t('app.loading')}</p>

@@ -56,6 +56,23 @@ const paidOn = dateString.refine(
   'A payment cannot be dated in the future'
 );
 
+/**
+ * The day goods came in. A purchase is recorded when the goods are in hand
+ * (docs/adr/0024), so a date after today describes crates nobody has yet, and
+ * would shelve them and bill the seller for a delivery that has not happened.
+ */
+const receivedOn = dateString.refine(
+  (v) => v <= businessDate(),
+  'A purchase is recorded once the goods are in hand, so it cannot be dated in the future'
+);
+
+/**
+ * Whole poisha. A taka amount with a third decimal has no poisha to land on:
+ * 0.001 became zero after rounding and reached the ledger as a zero entry, which
+ * the ledger refuses with a server error rather than a field the owner can fix.
+ */
+const wholePoisha = (v) => Math.abs(v * 100 - Math.round(v * 100)) < 1e-6;
+
 /** An empty select sends `status=`; read that as no filter, not as a bad value. */
 const optionalEnum = (list) =>
   z.preprocess((v) => (v === '' ? undefined : v), z.enum(list).optional());
@@ -204,6 +221,7 @@ const manualPayeeEntry = z.object({
     .number()
     .min(-10000000, 'That amount is too large')
     .max(10000000, 'That amount is too large')
+    .refine(wholePoisha, 'Use at most two decimal places')
     .refine((v) => v !== 0, 'An entry cannot be zero'),
   nonce,
   note: z.string().trim().max(500).optional(),
@@ -231,7 +249,7 @@ const createPurchase = z.object({
   lines: z.array(purchaseLine).min(1, 'A purchase needs at least one line').max(30),
   charges: z.array(purchaseCharge).max(10).optional(),
   allocationBasis: z.enum(values(ALLOCATION_BASIS)).optional(),
-  date: dateString.optional(),
+  date: receivedOn.optional(),
   invoiceNo: z.string().trim().max(60).optional(),
   note: z.string().trim().max(1000).optional(),
 });

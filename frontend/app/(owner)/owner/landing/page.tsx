@@ -189,15 +189,18 @@ function LandingEditor({ live }: { live: LandingContent }) {
       requestAnimationFrame(() => focusFirstInvalid(editorRef.current));
       return;
     }
-    const { body, sent } = payloadOf(draft);
+    const snapshot = draft;
+    const { body, sent } = payloadOf(snapshot);
     sentRef.current = sent;
     try {
       const { landing } = await updateLanding(body).unwrap();
       // What was saved becomes the new "nothing to save", including the empty
-      // rows the save dropped, so the form matches the page.
+      // rows the save dropped, so the form matches the page. Anything typed
+      // while the request was in flight is a newer draft (a new object) and is
+      // kept: it simply stays unsaved against the new baseline.
       const fresh = draftOf(landing);
       setBaseline(fresh);
-      setDraft(fresh);
+      setDraft((current) => (current === snapshot ? fresh : current));
       setTried(false);
       toast(t('landingEdit.saved'));
     } catch (error) {
@@ -432,34 +435,6 @@ function LandingEditor({ live }: { live: LandingContent }) {
           </ListCard>
 
           <Reviews reviews={live.reviews} onPendingChange={setReviewPending} />
-
-          {/*
-           * The one Save for the text, pinned above the bottom navigation while
-           * the form scrolls, and saying whether there is anything to save. It
-           * used to sit at the end of the cards, a screen below most edits.
-           */}
-          <div className="above-nav sticky bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-20 mt-2 lg:bottom-4">
-            <div className="card elev-3 flex items-center gap-3 px-4 py-3">
-              <div className="min-w-0 flex-1 text-sm" aria-live="polite">
-                {barError ? (
-                  <p className="font-semibold text-danger">{barError}</p>
-                ) : dirty ? (
-                  <p className="flex items-center gap-2 font-semibold">
-                    <span aria-hidden className="h-2 w-2 shrink-0 rounded-full bg-warning" />
-                    {t('app.unsavedBar')}
-                  </p>
-                ) : (
-                  <p className="text-muted-foreground">{t('landingEditor.allSaved')}</p>
-                )}
-                {reviewPending && (
-                  <p className="mt-0.5 text-xs font-medium text-warning-ink">{t('landingEditor.pendingReview')}</p>
-                )}
-              </div>
-              <Button loading={saving.isLoading} disabled={!dirty} onClick={save}>
-                {t('app.save')}
-              </Button>
-            </div>
-          </div>
         </div>
 
         <div className={cn('min-w-0 lg:sticky lg:top-20', view.tab !== 'preview' && 'hidden lg:block')}>
@@ -469,6 +444,36 @@ function LandingEditor({ live }: { live: LandingContent }) {
             template={template}
             onTemplate={(next) => setView({ template: next })}
           />
+        </div>
+      </div>
+
+      {/*
+       * The one Save for the text, pinned above the bottom navigation while the
+       * page scrolls, and saying whether there is anything to save. It used to
+       * sit at the end of the cards, a screen below most edits. Outside both
+       * columns, so it is there on the "প্রিভিউ" tab too, where the owner checks
+       * the result and then wants to save it.
+       */}
+      <div className="above-nav sticky bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-20 mt-4 lg:bottom-4">
+        <div className="card elev-3 flex items-center gap-3 px-4 py-3">
+          <div className="min-w-0 flex-1 text-sm" aria-live="polite">
+            {barError ? (
+              <p className="font-semibold text-danger">{barError}</p>
+            ) : dirty ? (
+              <p className="flex items-center gap-2 font-semibold">
+                <span aria-hidden className="h-2 w-2 shrink-0 rounded-full bg-warning" />
+                {t('app.unsavedBar')}
+              </p>
+            ) : (
+              <p className="text-muted-foreground">{t('landingEditor.allSaved')}</p>
+            )}
+            {reviewPending && (
+              <p className="mt-0.5 text-xs font-medium text-warning-ink">{t('landingEditor.pendingReview')}</p>
+            )}
+          </div>
+          <Button loading={saving.isLoading} disabled={!dirty} onClick={save}>
+            {t('app.save')}
+          </Button>
         </div>
       </div>
     </>
@@ -732,7 +737,10 @@ function HeroImages({ images }: { images: LandingContent['heroImages'] }) {
   const [pending, setPending] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [upload, uploading] = useUploadLandingHeroImagesMutation();
-  const [removeImage, removing] = useRemoveLandingHeroImageMutation();
+  const [removeImage] = useRemoveLandingHeroImageMutation();
+  // Every removal in flight, not just the latest call's: two quick removals must
+  // both keep their spinner, and a tile mid-removal must not be removable again.
+  const [removing, setRemoving] = useState<string[]>([]);
 
   const send = async (files: File[]) => {
     setPending(files);
@@ -749,12 +757,16 @@ function HeroImages({ images }: { images: LandingContent['heroImages'] }) {
   };
 
   const remove = async (imageId: string) => {
+    if (removing.includes(imageId)) return;
+    setRemoving((prev) => [...prev, imageId]);
     setError(null);
     try {
       await removeImage({ imageId }).unwrap();
       toast(t('file.removed'));
     } catch (failure) {
       setError(errorMessage(failure));
+    } finally {
+      setRemoving((prev) => prev.filter((id) => id !== imageId));
     }
   };
 
@@ -771,7 +783,7 @@ function HeroImages({ images }: { images: LandingContent['heroImages'] }) {
         existing={images}
         max={LANDING_LIMITS.heroImages}
         uploading={uploading.isLoading}
-        busyIds={removing.isLoading && removing.originalArgs ? [removing.originalArgs.imageId] : []}
+        busyIds={removing}
         confirmRemove
         error={error ?? undefined}
         onChange={(files) => {

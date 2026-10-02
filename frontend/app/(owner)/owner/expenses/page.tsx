@@ -284,6 +284,12 @@ export default function OwnerExpensesPage() {
         <Button variant="outline" onClick={() => setManaging(true)} className="flex-1">
           {t('expense.categories')}
         </Button>
+        {/* One tap to undo the filters without opening the sheet. */}
+        {filterCount > 0 && (
+          <Button variant="ghost" onClick={reset} className="w-full">
+            {t('app.clearFilters')}
+          </Button>
+        )}
       </Toolbar>
 
       <div className="mb-4 hidden gap-3 sm:grid sm:grid-cols-2 lg:grid-cols-4">{filterControls('inline')}</div>
@@ -588,7 +594,10 @@ function ExpenseCard({
             <p className="truncate text-xs text-muted-foreground">
               {t('expense.payee')}:{' '}
               {expense.payee ? (
-                <Link href={`/owner/payees/${expense.payee}`} className="font-semibold text-primary-ink underline">
+                <Link
+                  href={`/owner/payees/${expense.payee}`}
+                  className="tap inline-flex items-center font-semibold text-primary-ink underline"
+                >
                   {expense.payeeNameBn}
                 </Link>
               ) : (

@@ -98,7 +98,25 @@ async function postEntry(session, input) {
 
   // Fast path: this exact entry was already posted, so the balance already moved.
   const existing = await LedgerEntry.findOne({ idempotencyKey }).session(session);
-  if (existing) return existing;
+  if (existing) {
+    /*
+     * Only if it really is this entry. The same key on a different reseller,
+     * kind or amount is a different request reusing a client nonce, and handing
+     * back the old entry would report money that did not move. See the same
+     * guard in services/payeeLedger.js.
+     */
+    if (
+      String(existing.reseller) !== String(resellerId) ||
+      existing.kind !== kind ||
+      existing.amountPoisha !== amountPoisha
+    ) {
+      throw conflict(
+        'NONCE_REUSED',
+        'This form was already submitted with different details; refresh and enter it again'
+      );
+    }
+    return existing;
+  }
 
   const filter = { _id: resellerId };
   const isDebit = amountPoisha < 0;

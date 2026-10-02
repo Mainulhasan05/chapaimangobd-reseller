@@ -144,6 +144,13 @@ export default function OwnerReportsPage() {
   const spentPurchases = purchaseTotals.data?.pages[0]?.totals.spent;
   const spentExpenses = expenseTotals.data?.pages[0]?.totals.all;
 
+  // A range change refetches; the old figures stay on screen, dimmed, until the new ones land.
+  const glanceBusy =
+    (profit.isFetching && !profit.isLoading) ||
+    (purchaseTotals.isFetching && !purchaseTotals.isLoading) ||
+    (expenseTotals.isFetching && !expenseTotals.isLoading);
+  const spentReady = spentPurchases !== undefined && spentExpenses !== undefined;
+
   const netProfit = profit.data?.totals.netProfit ?? 0;
   const isLoss = netProfit < 0;
   const preview = (kind: Parameters<typeof reportHref>[0]) => reportHref(kind, range, { preset, auto: false });
@@ -163,9 +170,12 @@ export default function OwnerReportsPage() {
        * how much went out in these days. Each opens its sheet.
        */}
       <Section title={t('report.costGlance')} hint={formatRange(range)}>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4">
+        {/* One per row on a phone: a lakh figure does not fit half of a 360px screen. */}
+        <div
+          aria-busy={glanceBusy || undefined}
+          className={cn('grid gap-3 transition-opacity sm:grid-cols-3 sm:gap-4', glanceBusy && 'opacity-60')}
+        >
           <Stat
-            className="col-span-2 sm:col-span-1"
             label={isLoss ? t('profit.netLoss') : t('profit.net')}
             value={figure(profit.isSuccess, profit.isError, () => formatMoney(Math.abs(netProfit)))}
             hint={t('profit.netHint')}
@@ -179,23 +189,25 @@ export default function OwnerReportsPage() {
             tone={(payables.data?.totals.due ?? 0) > 0 ? 'warning' : 'neutral'}
             href={preview('payables')}
           />
-          <Stat
-            label={t('report.spendInRange')}
-            value={figure(
-              spentPurchases !== undefined && spentExpenses !== undefined,
-              purchaseTotals.isError || expenseTotals.isError,
-              () => formatMoney((spentPurchases ?? 0) + (spentExpenses ?? 0))
+          {/* Two halves, each opening its own sheet, so the card itself is not one link. */}
+          <Card className="p-5">
+            <p className="text-xs font-semibold text-muted-foreground">{t('report.spendInRange')}</p>
+            <p className="tabular mt-1 text-[1.625rem] font-bold leading-tight tracking-tight [overflow-wrap:anywhere] sm:text-[2rem]">
+              {figure(spentReady, purchaseTotals.isError || expenseTotals.isError, () =>
+                formatMoney((spentPurchases ?? 0) + (spentExpenses ?? 0))
+              )}
+            </p>
+            {spentReady && (
+              <div className="mt-1 flex flex-wrap gap-x-3 text-xs">
+                <Link href={preview('purchases')} className="tap inline-flex items-center font-semibold text-primary-ink underline">
+                  {tf('report.spendPurchases', { amount: formatMoney(spentPurchases) })}
+                </Link>
+                <Link href={preview('expenses')} className="tap inline-flex items-center font-semibold text-primary-ink underline">
+                  {tf('report.spendExpenses', { amount: formatMoney(spentExpenses) })}
+                </Link>
+              </div>
             )}
-            hint={
-              spentPurchases !== undefined && spentExpenses !== undefined
-                ? tf('report.spendSplit', {
-                    purchases: formatMoney(spentPurchases),
-                    expenses: formatMoney(spentExpenses),
-                  })
-                : undefined
-            }
-            href={preview('purchases')}
-          />
+          </Card>
         </div>
       </Section>
 
@@ -255,7 +267,7 @@ export default function OwnerReportsPage() {
       </Section>
 
       <Section title={t('report.glance')}>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4">
+        <div className="grid gap-3 sm:grid-cols-3 sm:gap-4">
           <Stat
             icon={TrendingDown}
             label={t('owner.receivable')}
@@ -274,7 +286,7 @@ export default function OwnerReportsPage() {
             href="/owner/orders?status=accepted,packed,shipped"
           />
           {/* The check and its answer together, not the answer at the foot of the page. */}
-          <Card className="col-span-2 flex flex-col justify-center p-4 sm:col-span-1">
+          <Card className="flex flex-col justify-center p-4">
             <Button variant="outline" loading={reconcile.isFetching} onClick={() => runReconcile()}>
               {t('owner.reconcile')}
             </Button>
@@ -353,7 +365,7 @@ export default function OwnerReportsPage() {
                   <div className="min-w-0">
                     <Link
                       href={`/owner/resellers/${row.id}` as Route}
-                      className="block truncate font-semibold text-primary-ink hover:underline"
+                      className="block truncate py-2.5 font-semibold leading-6 text-primary-ink hover:underline"
                     >
                       {row.shopName}
                     </Link>

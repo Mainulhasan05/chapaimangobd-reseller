@@ -113,7 +113,8 @@ export const cost = {
   /* ------------------------------------------------------------ reports */
   'report.costGlance': 'খরচ ও লাভ',
   'report.spendInRange': 'এই সময়ে টাকা গেছে',
-  'report.spendSplit': 'কেনা {purchases} · খরচ {expenses}',
+  'report.spendPurchases': 'কেনা {amount}',
+  'report.spendExpenses': 'খরচ {amount}',
   'report.openOrders': 'চলমান অর্ডার',
   'report.filteredBy': 'ফিল্টার: {list}',
   'report.searchedFor': 'খোঁজা: “{q}”',

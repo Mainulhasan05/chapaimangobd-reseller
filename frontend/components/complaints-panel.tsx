@@ -32,6 +32,7 @@ export function ComplaintList({
   showOrder,
   showSource = true,
   compactEmpty,
+  from,
 }: {
   complaints: Complaint[];
   /** On the orchard screen and the complaints page, where the order is not implied. */
@@ -39,6 +40,8 @@ export function ComplaintList({
   showSource?: boolean;
   /** One quiet line instead of a boxed empty state, inside a card that has its own frame. */
   compactEmpty?: boolean;
+  /** Where the order page's back arrow returns when there is no history, e.g. `complaints`. */
+  from?: string;
 }) {
   const toast = useToast();
   const [resolving, setResolving] = useState<Complaint | null>(null);
@@ -79,7 +82,7 @@ export function ComplaintList({
                   )}
                   {showOrder && (
                     <Link
-                      href={`/owner/orders/${complaint.order}` as Route}
+                      href={`/owner/orders/${complaint.order}${from ? `?from=${from}` : ''}` as Route}
                       className="tabular inline-flex min-h-11 items-center rounded-md px-1.5 text-xs font-semibold text-primary-ink hover:bg-primary-softer sm:min-h-0 sm:bg-subtle sm:py-0.5"
                     >
                       {complaint.orderCode}

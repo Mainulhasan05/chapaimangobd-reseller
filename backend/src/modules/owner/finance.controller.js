@@ -230,12 +230,22 @@ async function manualEntry(req, res) {
 
   const amountPoisha = direction === 'credit' ? magnitude : -magnitude;
 
+  /*
+   * Keyed on the form's nonce when it sends one, scoped to this reseller, so a
+   * submit retried after its response was lost credits once. The same nonce with
+   * a different amount or direction is refused by the ledger as NONCE_REUSED.
+   */
+  const idempotencyKey = ledger.keys.manual(
+    req.body.nonce ? `${req.params.id}:${req.body.nonce}` : crypto.randomUUID()
+  );
+  const replay = req.body.nonce ? await LedgerEntry.exists({ idempotencyKey }) : null;
+
   const entry = await withTransaction((session) =>
     ledger.postEntry(session, {
       reseller: req.params.id,
       kind: direction === 'credit' ? LEDGER_KIND.MANUAL_CREDIT : LEDGER_KIND.MANUAL_DEBIT,
       amountPoisha,
-      idempotencyKey: ledger.keys.manual(crypto.randomUUID()),
+      idempotencyKey,
       refType: 'manual',
       note,
       createdBy: req.user._id,
@@ -244,14 +254,17 @@ async function manualEntry(req, res) {
     })
   );
 
-  await audit.record({
-    actor: req.user._id,
-    action: 'ledger.manual',
-    targetType: 'ResellerProfile',
-    targetId: req.params.id,
-    after: { amountPoisha, note },
-    ip: req.ip,
-  });
+  // A retry of a posted entry is not a second adjustment, so it is not audited twice.
+  if (!replay) {
+    await audit.record({
+      actor: req.user._id,
+      action: 'ledger.manual',
+      targetType: 'ResellerProfile',
+      targetId: req.params.id,
+      after: { amountPoisha, note },
+      ip: req.ip,
+    });
+  }
 
   return ok(res, { entry: present.ledgerEntry(entry) }, 201);
 }

@@ -352,6 +352,33 @@ test('documents already submitted stay visible after the requirement is lifted',
   assert.ok(state.body.data.submission);
 });
 
+test('the KYC history says why a submission was rejected, by whom and when', async () => {
+  const owner = await f.makeOwner();
+  const reseller = await f.makeReseller({ kycRequired: true, kycStatus: KYC_STATUS.PENDING });
+  const submission = await KycSubmission.create({
+    reseller: reseller.profile._id,
+    documents: [{ type: 'nid_front', storageKey: 'kyc/a.jpg' }],
+    status: REVIEW_STATUS.PENDING,
+  });
+
+  const decided = await as(owner.user)
+    .post(`/api/owner/kyc/${submission._id}/reject`)
+    .send({ reason: 'Photo is blurred' });
+  assert.equal(decided.status, 200, JSON.stringify(decided.body));
+
+  const res = await as(owner.user).get('/api/owner/kyc?status=rejected');
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  const [row] = res.body.data.submissions;
+  assert.equal(row.note, 'Photo is blurred');
+  assert.ok(row.reviewedAt);
+  assert.equal(row.reviewedBy.id, String(owner.user._id));
+  assert.equal(row.reviewedBy.name, owner.user.name);
+
+  // Pending rows carry the same fields, empty.
+  const pending = await as(owner.user).get('/api/owner/kyc?status=pending');
+  assert.equal(pending.body.data.submissions.length, 0);
+});
+
 test('a second KYC submission is refused while one is pending', async () => {
   const reseller = await f.makeReseller({
     kycRequired: true,

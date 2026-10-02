@@ -1,6 +1,5 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
 import { useAppDispatch } from '@/lib/store/hooks';
 import { api } from '@/lib/store/api';
 import { useGetSessionQuery, useLogoutMutation } from '@/lib/store/endpoints/session';
@@ -19,8 +18,6 @@ export function useSession() {
 }
 
 export function useLogout() {
-  const router = useRouter();
-  const dispatch = useAppDispatch();
   const [logout, state] = useLogoutMutation();
 
   return {

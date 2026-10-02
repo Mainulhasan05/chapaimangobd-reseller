@@ -65,7 +65,11 @@ export default function OwnerKycPage() {
     null
   );
 
-  // The pending count is the dashboard's, so it matches the nav badge.
+  /*
+   * The pending count is the dashboard's, so it matches the nav badge. The
+   * approved and rejected tabs carry none: no endpoint counts them, and a
+   * count of the loaded page would be wrong once there is a second page.
+   */
   const dashboard = useGetDashboardQuery(undefined, LIVE);
 
   /*
@@ -117,7 +121,8 @@ export default function OwnerKycPage() {
                     <div className="min-w-0">
                       <Link
                         href={`/owner/resellers/${submission.reseller?._id}` as Route}
-                        className="block truncate font-semibold underline-offset-2 hover:underline"
+                        // Padded to a thumb's height on a phone: the phone link sits right under it.
+                        className="block truncate py-2.5 font-semibold underline-offset-2 hover:underline sm:py-0"
                       >
                         {submission.reseller?.shopName ?? '—'}
                       </Link>
@@ -145,6 +150,22 @@ export default function OwnerKycPage() {
                   <p className="mt-2 text-xs text-muted-foreground">
                     {tf('kycReview.submittedAt', { at: formatDateTime(submission.createdAt) })}
                   </p>
+                  {/* The decision, on the history tabs: who, when, and the reason they gave. */}
+                  {submission.status !== 'pending' && submission.reviewedAt && (
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {submission.reviewedBy
+                        ? tf('finance.reviewedBy', {
+                            name: submission.reviewedBy.name,
+                            at: formatDateTime(submission.reviewedAt),
+                          })
+                        : tf('finance.reviewedAt', { at: formatDateTime(submission.reviewedAt) })}
+                    </p>
+                  )}
+                  {submission.status === 'rejected' && submission.note && (
+                    <p className="mt-1 break-words text-xs text-danger-ink">
+                      {tf('finance.reasonShown', { reason: submission.note })}
+                    </p>
+                  )}
                   <Button
                     className="mt-3"
                     variant={submission.status === 'pending' ? 'primary' : 'outline'}

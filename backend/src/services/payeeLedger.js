@@ -44,7 +44,12 @@ const keys = {
   purchase: (purchaseId) => `purchase:${purchaseId}:due:v1`,
   purchaseCancel: (purchaseId) => `purchase:${purchaseId}:cancel:v1`,
   expense: (expenseId) => `expense:${expenseId}:due:v1`,
-  payment: (paymentId) => `payment:${paymentId}:v1`,
+  /*
+   * A payment or a hand-typed entry, keyed on the client's form nonce. Scoped to
+   * the payee, so the same nonce can never resolve to another payee's entry, and
+   * versioned, so a key can never collide with one written in the old format.
+   */
+  payment: (payeeId, nonce) => `payment:${payeeId}:${nonce}:v2`,
   /*
    * Settling an unpaid expense. `seq` is the expense's own settlement count, so
    * settling it again after a reversed settlement is a new payment and not the
@@ -52,6 +57,17 @@ const keys = {
    */
   expensePayment: (expenseId, seq) => `expense:${expenseId}:paid:${seq}:v1`,
   reversal: (entryId, reason) => `payee-reversal:${entryId}:${reason}`,
+  manual: (payeeId, nonce) => `payee-manual:${payeeId}:${nonce}:v2`,
+};
+
+/*
+ * The global keys these replaced. Still read, never written: an entry posted
+ * under one of them must still answer a retry of the same form, and there is no
+ * migration because the old rows keep their keys and the new format cannot
+ * collide with them.
+ */
+const legacyKeys = {
+  payment: (nonce) => `payment:${nonce}:v1`,
   manual: (nonce) => `payee-manual:${nonce}`,
 };
 
@@ -67,6 +83,9 @@ const keys = {
  * @param {number} input.amountPoisha Signed. Positive increases what we owe.
  * @param {string} [input.businessDate] The Dhaka date the movement belongs to.
  *   Today when left out, which is right for anything typed as it happens.
+ * @param {string[]} [input.legacyKeys] Older keys the same entry may have been
+ *   posted under; treated exactly like `idempotencyKey` when looking for it.
+ * @throws 409 NONCE_REUSED when the key already names a different entry.
  */
 async function postEntry(session, input) {
   const {
@@ -80,6 +99,7 @@ async function postEntry(session, input) {
     note,
     createdBy = null,
     businessDate: day = businessDate(),
+    legacyKeys: olderKeys = [],
   } = input;
 
   if (!session) throw new Error('postEntry must be called inside a transaction session');
@@ -90,8 +110,10 @@ async function postEntry(session, input) {
   const payeeId = payee._id || payee;
 
   // Fast path: this exact entry was already posted, so the due already moved.
-  const existing = await PayeeLedgerEntry.findOne({ idempotencyKey }).session(session);
-  if (existing) return existing;
+  const existing = await PayeeLedgerEntry.findOne({
+    idempotencyKey: { $in: [idempotencyKey, ...olderKeys] },
+  }).session(session);
+  if (existing) return assertSameEntry(existing, { payeeId, kind, amountPoisha });
 
   // No filter beyond identity. Nothing about a payee due may be refused.
   const profile = await Payee.findOneAndUpdate(
@@ -131,6 +153,28 @@ async function postEntry(session, input) {
     }
     throw err;
   }
+}
+
+/**
+ * A key is a promise that the request is the one already posted. A retry of the
+ * same form answers with the entry it made; the same key carrying a different
+ * payee, kind or amount is a different request, and answering it with the old
+ * entry would tell the owner "৳500 paid" over a ledger that says ৳5,000. The
+ * classic case: the response to "pay 5000" is lost, the owner corrects it to 500
+ * and submits the same sheet again.
+ */
+function assertSameEntry(existing, { payeeId, kind, amountPoisha }) {
+  const same =
+    String(existing.payee) === String(payeeId) &&
+    existing.kind === kind &&
+    existing.amountPoisha === amountPoisha;
+  if (!same) {
+    throw conflict(
+      'NONCE_REUSED',
+      'This form was already submitted with different details; refresh and enter it again'
+    );
+  }
+  return existing;
 }
 
 /**
@@ -284,6 +328,7 @@ async function totalPayablePoisha() {
 
 module.exports = {
   keys,
+  legacyKeys,
   postEntry,
   postReversal,
   entriesFor,

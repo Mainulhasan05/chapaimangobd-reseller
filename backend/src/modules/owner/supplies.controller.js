@@ -23,6 +23,7 @@ const { holdingValuePoisha, isLow } = require('../../domain/supplyValue');
 const { recipeAccuracy } = require('../../domain/packaging');
 const { startOfBusinessDay } = require('../../utils/dhakaTime');
 const { variantLabel } = require('../../domain/variants');
+const { escapeRegex } = require('../../utils/orderSearch');
 
 /**
  * Supplies: the things the business buys and uses up. See docs/adr/0022.
@@ -130,7 +131,8 @@ async function listSupplies(req, res) {
   let filter = { isArchived: false };
   if (req.query.includeArchived === 'true') filter = {};
   if (req.query.archivedOnly === 'true') filter = { isArchived: true };
-  if (req.query.q) filter.nameBn = { $regex: req.query.q, $options: 'i' };
+  // Escaped: a typed "(" reached the regex engine raw and answered with a 500.
+  if (req.query.q) filter.nameBn = { $regex: escapeRegex(req.query.q), $options: 'i' };
 
   let supplies = await Supply.find(filter).sort({ sortOrder: 1, nameBn: 1 });
   if (req.query.lowOnly === 'true') supplies = supplies.filter(isLow);

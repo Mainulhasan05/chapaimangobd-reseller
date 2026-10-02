@@ -363,6 +363,9 @@ async function reverseEntry(req, res) {
       reversed,
       // The expense this payment had settled, now back to unpaid; else null.
       reopenedExpenseId: expense ? expense._id : null,
+      // Its order, when it was an order-scope expense, so that order's cost
+      // panel can be refreshed. Null for a period expense or none.
+      reopenedExpenseOrderId: expense && expense.order ? expense.order : null,
     },
     201
   );
@@ -388,7 +391,8 @@ async function manualEntry(req, res) {
       payee: payee._id,
       kind,
       amountPoisha: toPoisha(signed),
-      idempotencyKey: payeeLedger.keys.manual(nonce),
+      idempotencyKey: payeeLedger.keys.manual(payee._id, nonce),
+      legacyKeys: [payeeLedger.legacyKeys.manual(nonce)],
       refType: 'manual',
       note,
       createdBy: req.user._id,

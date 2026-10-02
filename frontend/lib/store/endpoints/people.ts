@@ -151,6 +151,10 @@ export type KycSubmission = {
   };
   status: string;
   documentTypes: string[];
+  /** The owner's reason on a decision; null while pending or when none was given. */
+  note?: string | null;
+  reviewedAt?: string | null;
+  reviewedBy?: { id: string; name: string } | null;
   createdAt: string;
 };
 

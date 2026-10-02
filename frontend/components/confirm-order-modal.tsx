@@ -80,6 +80,19 @@ function ConfirmForm({ order, onClose }: { order: Order; onClose: () => void }) 
     }))
   );
   const [paymentMode, setPaymentMode] = useState<PaymentMode>(order.paymentMode);
+  // While a field has the keyboard up, the pinned totals shrink to one line so
+  // the field being typed in is not squeezed out of a 360px screen.
+  const [typing, setTyping] = useState(false);
+
+  // Anything changed from the order as placed is worth asking about before a
+  // swipe or a tap on the backdrop throws it away.
+  const dirty =
+    paymentMode !== order.paymentMode ||
+    drafts.some(
+      (draft, index) =>
+        draft.quantity !== String(order.items[index].boxes ?? order.items[index].quantity) ||
+        draft.sellPrice !== formatMoneyPlain(order.items[index].sellPrice)
+    );
 
   const serverErrors = fieldErrors(confirmState.error);
   const generalError =
@@ -141,6 +154,7 @@ function ConfirmForm({ order, onClose }: { order: Order; onClose: () => void }) 
       wide
       onClose={confirmState.isLoading ? () => {} : onClose}
       title={`${t('order.confirmOrder')} · ${order.orderCode}`}
+      dirty={dirty}
       /*
        * This is the moment money moves, so the numbers behind the decision are
        * pinned above the button rather than left at the end of the scroll. On a
@@ -149,16 +163,27 @@ function ConfirmForm({ order, onClose }: { order: Order; onClose: () => void }) 
       footerLead={
         <>
           {tried && problemCount > 0 && <FormErrorSummary message={t('app.fixFields')} />}
-          <dl className="space-y-1 rounded-lg bg-muted p-3 text-sm">
-            <Row label={t('order.customerTotal')} value={formatMoney(customerTotal)} strong />
-            <Row label={t('order.walletDebit')} value={formatMoney(walletDebit)} tone="danger" />
-            <Row
-              label={t('order.yourProfit')}
-              value={formatMoney(profit)}
-              tone={profit < 0 ? 'danger' : 'success'}
-              strong
-            />
-          </dl>
+          {typing ? (
+            <p className="tabular flex justify-between gap-3 rounded-lg bg-muted px-3 py-2 text-sm">
+              <span>
+                {t('order.customerTotal')} {formatMoney(customerTotal)}
+              </span>
+              <span className={profit < 0 ? 'font-semibold text-danger' : 'font-semibold text-success'}>
+                {t('order.yourProfit')} {formatMoney(profit)}
+              </span>
+            </p>
+          ) : (
+            <dl className="space-y-1 rounded-lg bg-muted p-3 text-sm">
+              <Row label={t('order.customerTotal')} value={formatMoney(customerTotal)} strong />
+              <Row label={t('order.walletDebit')} value={formatMoney(walletDebit)} tone="danger" />
+              <Row
+                label={t('order.yourProfit')}
+                value={formatMoney(profit)}
+                tone={profit < 0 ? 'danger' : 'success'}
+                strong
+              />
+            </dl>
+          )}
         </>
       }
       footer={
@@ -170,7 +195,11 @@ function ConfirmForm({ order, onClose }: { order: Order; onClose: () => void }) 
         </>
       }
     >
-      <div ref={bodyRef}>
+      <div
+        ref={bodyRef}
+        onFocusCapture={(event) => setTyping(event.target instanceof HTMLInputElement)}
+        onBlurCapture={() => setTyping(false)}
+      >
         {generalError && <Alert tone="danger">{generalError}</Alert>}
         {/* A loss is allowed only if somebody means it; it should never be a typo. */}
         {profit < 0 && <Alert tone="warning">{t('orders.negativeProfit')}</Alert>}

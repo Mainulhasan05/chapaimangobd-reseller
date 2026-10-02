@@ -416,6 +416,11 @@ const manualEntry = z.object({
   amount: z.coerce.number().max(10000000),
   direction: z.enum(['credit', 'debit']),
   note: z.string().trim().min(3, 'Say why this adjustment exists').max(500),
+  /*
+   * The form's own key, so a retry after a lost response posts once. Optional
+   * only because older screens never sent one; without it every submit is new.
+   */
+  nonce: z.string().trim().min(8, 'A request key is required').max(64).optional(),
 });
 
 const approveWithdrawal = z.object({

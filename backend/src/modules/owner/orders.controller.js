@@ -43,12 +43,12 @@ async function filterFor(query) {
  * nobody has confirmed yet. Mongo cannot sort a find by an expression, so the
  * page is chosen by an aggregation and the documents are then read the normal
  * way, which keeps the populate and the presentation identical to the default
- * sort. The filter is cast first: an aggregation, unlike a find, does not turn
- * a reseller id string into an ObjectId.
+ * sort. The filter arrives already cast by `filterFor`, which an aggregation
+ * needs and a find does not.
  */
 async function oldestFirstPage(filter, { skip, limit }) {
   const ids = await Order.aggregate([
-    { $match: Order.where().cast(Order, filter) },
+    { $match: filter },
     { $addFields: { sortAt: { $ifNull: ['$confirmedAt', '$createdAt'] } } },
     { $sort: { sortAt: 1, _id: 1 } },
     { $skip: skip },

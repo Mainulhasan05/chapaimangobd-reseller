@@ -335,14 +335,24 @@ async function getSource(req, res) {
   if (!source) throw notFound('Source not found');
 
   const { from, to } = req.query;
+  /*
+   * The same dates as the record above them, on the business date both carry,
+   * so the complaints and orders listed are the ones the rates were built from.
+   */
+  const dated = { 'items.source': source._id };
+  if (from || to) {
+    dated.businessDate = {};
+    if (from) dated.businessDate.$gte = from;
+    if (to) dated.businessDate.$lte = to;
+  }
 
   const [record, complaints, orders] = await Promise.all([
     sourceRecord(source._id, { from, to }),
-    Complaint.find({ 'items.source': source._id })
+    Complaint.find(dated)
       .sort({ createdAt: -1 })
       .limit(20)
       .populate('reseller', 'shopName'),
-    Order.find({ 'items.source': source._id })
+    Order.find(dated)
       .sort({ createdAt: -1 })
       .limit(20)
       .populate('reseller', 'shopName'),

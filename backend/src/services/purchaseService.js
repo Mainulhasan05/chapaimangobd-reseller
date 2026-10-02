@@ -298,7 +298,8 @@ async function payPayee({ payeeId, amountPoisha, nonce, paidFrom, note, date, ac
       kind: PAYEE_LEDGER_KIND.PAYMENT,
       // Negative: a payment reduces what we owe.
       amountPoisha: -amountPoisha,
-      idempotencyKey: payeeLedger.keys.payment(nonce),
+      idempotencyKey: payeeLedger.keys.payment(payee._id, nonce),
+      legacyKeys: [payeeLedger.legacyKeys.payment(nonce)],
       refType: 'payment',
       businessDate: day,
       note: note || (paidFrom ? `Paid by ${paidFrom}` : 'Payment'),
