@@ -296,7 +296,8 @@ test('4. a customer orders cash on delivery from the shop and tracks it', async 
   const page = await customer.newPage();
 
   await page.goto(`/r/${shared.slug}`);
-  await expect(page.getByRole('heading', { level: 1, name: RESELLER.shopName })).toBeVisible();
+  // The shop's name rides in the header; the page's heading is the landing headline.
+  await expect(page.getByText(RESELLER.shopName, { exact: true }).first()).toBeVisible();
   await expectNoHorizontalScroll(page);
 
   const product = cardWith(page, PRODUCT.name);
@@ -369,10 +370,11 @@ test('6. the owner accepts, packs, ships and delivers, and the margin lands', as
     .getByRole('combobox', { name: `${t('order.chooseSource')} · ${PRODUCT.name}` })
     .selectOption({ label: SOURCE_NAME });
 
-  // No SMS gateway in this run: the customer SMS box is shown, off, and says why.
+  // No SMS gateway in this run: the customer SMS box is shown, off, and says why,
+  // naming the actual reason rather than a generic "unavailable".
   const sms = accept.getByRole('switch', { name: new RegExp(t('customerSms.send')) });
   await expect(sms).toBeVisible();
-  await expect(sms).toContainText(t('customerSms.unavailable'));
+  await expect(sms).toContainText(t('orders.smsNotConfigured'));
   await expect(sms).toBeDisabled();
   await expect(sms).toHaveAttribute('aria-checked', 'false');
   await expectNoHorizontalScroll(page);
@@ -392,21 +394,21 @@ test('6. the owner accepts, packs, ships and delivers, and the margin lands', as
   await field(ship, 'order.courier').fill('Sundarban Courier');
   await field(ship, 'order.trackingNumber').fill(`SC-${RUN}`);
   await expect(ship.getByRole('switch', { name: new RegExp(t('customerSms.send')) })).toContainText(
-    t('customerSms.unavailable')
+    t('orders.smsNotConfigured')
   );
   await expectNoHorizontalScroll(page);
   await button(ship, 'order.ship').click();
   await expect(page.getByText(`${shared.firstOrderCode} → ${t('orders.status.shipped')}`)).toBeVisible();
   await expect(ship).toBeHidden();
 
-  // Deliver.
-  await button(page, 'order.deliver').click();
+  // Deliver. The button is a command; the status it leads to says "ডেলিভারি সম্পন্ন".
+  await button(page, 'orders.deliverShort').click();
   // Delivery is final and credits the COD money, so it is confirmed on its own sheet.
   const deliver = page.getByRole('dialog');
   await expect(deliver.getByText(t('orders.courierCollects'))).toBeVisible();
   await button(deliver, 'orders.markDelivered').click();
   await expect(deliver).toBeHidden();
-  await expect(button(page, 'order.deliver')).toBeHidden();
+  await expect(button(page, 'orders.deliverShort')).toBeHidden();
   await expect(page.getByText(tStatus('delivered'), { exact: true }).first()).toBeVisible();
   await expect(page.getByText(`SC-${RUN}`).first()).toBeVisible();
   await expectNoHorizontalScroll(page);
@@ -424,11 +426,12 @@ test('7. a shipped COD order comes back and the owner puts it back in stock', as
     data: {
       submissionId: crypto.randomUUID(),
       paymentMode: 'cod',
-      customer: { ...CUSTOMER, name: 'ফেরত ক্রেতা' },
+      // The district goes as its stored value, never the picker's display object.
+      customer: { ...CUSTOMER, district: CUSTOMER.district.value, name: 'ফেরত ক্রেতা' },
       items: [{ product: shared.productId, variant: shared.variantId, quantity: BOXES }],
     },
   });
-  expect(placed.status()).toBe(201);
+  expect(placed.status(), await placed.text()).toBe(201);
   const { orderCode } = (await placed.json()).data as { orderCode: string };
 
   const pending = await resellerOrder(orderCode);
@@ -456,7 +459,7 @@ test('7. a shipped COD order comes back and the owner puts it back in stock', as
   const page = await owner.newPage();
   await page.goto(`/owner/orders/${id}`);
   await expect(page.getByRole('heading', { name: orderCode })).toBeVisible();
-  await button(page, 'order.return').click();
+  await button(page, 'orders.markReturnedShort').click();
 
   const dialog = page.getByRole('dialog');
   const restock = dialog.getByRole('switch', { name: new RegExp(t('order.restock')) });
@@ -466,7 +469,7 @@ test('7. a shipped COD order comes back and the owner puts it back in stock', as
   await expect(restock).toHaveAttribute('aria-checked', 'true');
   await dialog.getByRole('textbox', { name: new RegExp(t('order.returnReason')) }).fill('ক্রেতা বাড়িতে ছিলেন না');
   await expectNoHorizontalScroll(page);
-  await button(dialog, 'order.return').click();
+  await button(dialog, 'orders.markReturned').click();
 
   await expect(page.getByText(`${orderCode} → ${t('order.returned')}`)).toBeVisible();
   await expect(dialog).toBeHidden();

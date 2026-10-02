@@ -34,8 +34,13 @@ export type { SortState, SortDirection, MenuItem, ColumnDef } from './table';
 
 /* ----------------------------------------------------------------- card -- */
 
+/**
+ * `min-w-0` because cards sit in grids and flex rows, where an item defaults
+ * to the width of its content: one long name or table inside a card used to
+ * push the whole page a few pixels past a 360px screen.
+ */
 export function Card({ className, ...props }: React.ComponentProps<'div'>) {
-  return <div className={cn('card p-5 sm:p-6', className)} {...props} />;
+  return <div className={cn('card min-w-0 p-5 sm:p-6', className)} {...props} />;
 }
 
 /**

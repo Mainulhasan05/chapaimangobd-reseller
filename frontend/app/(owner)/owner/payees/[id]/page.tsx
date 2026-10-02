@@ -295,7 +295,7 @@ export default function PayeeDetailPage({ params }: { params: Promise<{ id: stri
         />
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-2">
+      <div className="grid gap-5 lg:grid-cols-2 [&>*]:min-w-0">
         <Card className="p-4 sm:p-6">
           <CardHeader title={t('payee.ledger')} />
 

@@ -222,7 +222,7 @@ export default function SourceDetailPage({ params }: { params: Promise<{ id: str
         />
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-2">
+      <div className="grid gap-5 lg:grid-cols-2 [&>*]:min-w-0">
         <Card>
           <CardHeader title={t('complaint.plural')} subtitle={t('source.record')} />
           {complaints.length === 0 ? (

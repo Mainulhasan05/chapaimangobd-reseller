@@ -215,7 +215,7 @@ export default function SupplyDetailPage({ params }: { params: Promise<{ id: str
 
       {/* --- the numbers. The two the system worked out explain themselves. --- */}
 
-      <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4 [&>*]:min-w-0">
         <ExplainedStat
           label={t('supply.onHand')}
           value={qty(supply.onHand, supply.unit)}
@@ -230,7 +230,9 @@ export default function SupplyDetailPage({ params }: { params: Promise<{ id: str
         />
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-2">
+      {/* Children may shrink: a grid item defaults to its content's width, which pushed
+        * these cards 3px past a 360px screen. */}
+      <div className="grid gap-5 lg:grid-cols-2 [&>*]:min-w-0">
         {/* --- which boxes drain this, which is the answer to "why is it going down" --- */}
         <Card>
           <CardHeader title={t('supply.usedBy')} subtitle={t('recipe.estimateNote')} />

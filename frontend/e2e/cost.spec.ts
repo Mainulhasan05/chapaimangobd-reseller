@@ -63,7 +63,8 @@ test('1. the owner adds the things a parcel is packed with', async () => {
   await button(dialog, 'app.save').click();
   await expect(dialog).toBeHidden();
 
-  await expect(page.getByText(CRATE.name)).toBeVisible();
+  // On a phone the card list is what shows; the table copy is hidden below `sm`.
+  await expect(page.getByText(CRATE.name, { exact: true }).first()).toBeVisible();
   await page.close();
 
   // The second one through the API: the form is proved above and this suite is
@@ -143,11 +144,16 @@ test('3. the shelf and the due both moved, and the screen says so', async () => 
 
 test('4. a box gets a recipe, fractions and all', async () => {
   // A product to hang the recipe on, and a variant to put it on.
-  const { products } = await apiJson<{
-    products: { id: string; name: string; variants: { id: string }[] }[];
-  }>(owner, 'GET', '/owner/products');
-  const product = products[0];
-  expect(product, 'the journeys suite seeds a product this can borrow').toBeTruthy();
+  // This file runs before the journeys suite on a fresh database, so it makes
+  // its own product rather than borrowing one that may not exist yet.
+  const { product } = await apiJson<{
+    product: { id: string; name: string; variants: { id: string }[] };
+  }>(owner, 'POST', '/owner/products', {
+    name: `ল্যাংড়া ${RUN}`,
+    unit: 'kg',
+    variants: [{ content: 5, costPrice: 900, isAvailable: true }],
+    isAvailable: true,
+  });
 
   const saved = await apiJson<{ packaging: { quantity: number }[] }>(
     owner,
@@ -296,9 +302,13 @@ test('8. a period expense never lands on one parcel', async () => {
 
   const page = await owner.newPage();
   await page.goto('/owner/expenses');
-  await expect(page.getByText(labour.nameBn).first()).toBeVisible();
-  // Shown as a day's cost, kept apart from the per-order figure.
-  await expect(page.getByText(t('expense.scopeGeneral'))).toBeVisible();
+  // Visible text only: on a phone the category filter (with the same name as an
+  // option) sits in a closed sheet.
+  await expect(page.getByText(labour.nameBn, { exact: true }).filter({ visible: true }).first()).toBeVisible();
+  // Shown as a general cost, kept apart from the per-order figure.
+  await expect(
+    page.getByText(t('expense.scopeGeneral'), { exact: true }).filter({ visible: true }).first()
+  ).toBeVisible();
   await expectNoHorizontalScroll(page);
   await page.close();
 });
@@ -326,7 +336,7 @@ test('9. the profit report adds up, and prints', async () => {
   await expect(page.getByText(t('report.profit')).first()).toBeVisible();
   await expect(page.getByText(formatMoney(totals.revenue)).first()).toBeVisible();
   // Gross margin is never called profit; the net figure is the only one that is.
-  await expect(page.getByText(t('profit.grossMarginGeneral'))).toBeVisible();
+  await expect(page.getByText(t('profit.grossMarginGeneral'), { exact: true }).first()).toBeVisible();
   await page.close();
 });
 
