@@ -8,6 +8,7 @@ import {
   Boxes,
   ClipboardCheck,
   PackageOpen,
+  Pencil,
   ShoppingCart,
   SlidersHorizontal,
   TriangleAlert,
@@ -34,6 +35,7 @@ import { ListSkeleton, StatSkeleton } from '@/components/ui/skeleton';
 import { Segmented } from '@/components/ui/toolbar';
 import { useToast } from '@/components/ui/toast';
 import { AvgCostWhyModal, ExplainedStat, OnHandWhyModal, useWhy } from '@/components/why';
+import { SupplySheet } from '../supply-sheet';
 
 /**
  * One item of মালামাল: what is on the shelf, what it cost, and where both of
@@ -59,12 +61,16 @@ const QTY = new Intl.NumberFormat('bn-BD', { maximumFractionDigits: 3 });
 const qty = (value: number, unit: string) => `${QTY.format(value)} ${tUnit(unit)}`;
 const signedQty = (value: number, unit: string) => `${value > 0 ? '+' : ''}${qty(value, unit)}`;
 
+/** The purchases list, opened on that one purchase. */
+const purchaseHref = (id: string) => `/owner/purchases?purchase=${id}` as Route;
+
 export default function SupplyDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const toast = useToast();
   const why = useWhy();
   const [counting, setCounting] = useState(false);
   const [adjusting, setAdjusting] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   const query = useGetSupplyQuery({ id });
   const [setArchived, restoring] = useSetSupplyArchivedMutation();
@@ -115,10 +121,16 @@ export default function SupplyDetailPage({ params }: { params: Promise<{ id: str
         subtitle={`${t('supply.unit')}: ${tUnit(supply.unit)}`}
         action={
           supply.isArchived ? (
-            <Button variant="outline" loading={restoring.isLoading} onClick={restore}>
-              <ArchiveRestore className="h-4 w-4" />
-              {t('app.restore')}
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="outline" loading={restoring.isLoading} onClick={restore}>
+                <ArchiveRestore className="h-4 w-4" />
+                {t('app.restore')}
+              </Button>
+              <Button variant="quiet" onClick={() => setEditing(true)}>
+                <Pencil className="h-4 w-4" />
+                {t('app.edit')}
+              </Button>
+            </div>
           ) : (
             <div className="flex flex-wrap items-center gap-2">
               {/*
@@ -133,6 +145,10 @@ export default function SupplyDetailPage({ params }: { params: Promise<{ id: str
               <Button variant="outline" onClick={() => setAdjusting(true)}>
                 <SlidersHorizontal className="h-4 w-4" />
                 {t('supply.adjust')}
+              </Button>
+              <Button variant="quiet" onClick={() => setEditing(true)}>
+                <Pencil className="h-4 w-4" />
+                {t('app.edit')}
               </Button>
             </div>
           )
@@ -155,13 +171,20 @@ export default function SupplyDetailPage({ params }: { params: Promise<{ id: str
         </Alert>
       )}
 
+      {/*
+        * The server's problem lines are developer English ("Movement … has seq
+        * 3"), so they stay out of the screen. What the owner can do about a drift
+        * is count the shelf, which resets the figure.
+        */}
       {!health.ok && (
-        <Alert tone="danger" icon={TriangleAlert} title={t('supply.healthBad')}>
-          <ul className="mt-1 space-y-0.5 text-xs">
-            {health.problems.map((problem) => (
-              <li key={problem}>{problem}</li>
-            ))}
-          </ul>
+        <Alert tone="danger" icon={TriangleAlert} title={t('supplies.healthTitle')}>
+          <p>{t('supplies.healthHelp')}</p>
+          {!supply.isArchived && (
+            <Button size="sm" variant="outline" className="mt-2" onClick={() => setCounting(true)}>
+              <ClipboardCheck className="h-4 w-4" />
+              {t('supply.stockTake')}
+            </Button>
+          )}
         </Alert>
       )}
 
@@ -260,35 +283,40 @@ export default function SupplyDetailPage({ params }: { params: Promise<{ id: str
           {neverBought ? (
             <p className="text-sm text-muted-foreground">{t('costSetup.noPurchaseYet')}</p>
           ) : (
-            <ul className="space-y-3">
+            <ul className="-my-1 divide-y divide-border">
               {purchases.map((row) => (
-                <li key={row.id} className="text-sm">
-                  <div className="flex items-baseline justify-between gap-3">
-                    <span className="min-w-0">
-                      {row.payeeNameBn}
-                      {row.status === 'cancelled' && (
-                        <Badge tone="danger" className="ml-2">
-                          {t('supplies.purchaseCancelled')}
-                        </Badge>
-                      )}
-                    </span>
-                    <span className={cn('tabular whitespace-nowrap', row.status === 'cancelled' && 'line-through')}>
-                      {qty(row.quantity, supply.unit)}
-                    </span>
-                  </div>
-                  <div className="flex items-baseline justify-between gap-3 text-xs text-muted-foreground">
-                    <span className="tabular">
-                      {formatDate(row.businessDate)} · {row.purchaseCode}
-                    </span>
-                    <span className="tabular">
-                      {/*
-                        * The rate and what it actually cost, together. The gap
-                        * between them is the whole reason this feature exists.
-                        */}
-                      {t('why.rate')} {formatMoney(row.unitCost)} →{' '}
-                      <span className="font-semibold text-foreground">{formatMoney(row.landedUnitCost)}</span>
-                    </span>
-                  </div>
+                <li key={row.id}>
+                  <Link
+                    href={purchaseHref(row.id)}
+                    className="-mx-2 block rounded-lg px-2 py-2 text-sm transition-colors hover:bg-muted"
+                  >
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="min-w-0">
+                        {row.payeeNameBn}
+                        {row.status === 'cancelled' && (
+                          <Badge tone="danger" className="ml-2">
+                            {t('supplies.purchaseCancelled')}
+                          </Badge>
+                        )}
+                      </span>
+                      <span className={cn('tabular whitespace-nowrap', row.status === 'cancelled' && 'line-through')}>
+                        {qty(row.quantity, supply.unit)}
+                      </span>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-3 text-xs text-muted-foreground">
+                      <span className="tabular">
+                        {formatDate(row.businessDate)} · {row.purchaseCode}
+                      </span>
+                      <span className="tabular">
+                        {/*
+                          * The rate and what it actually cost, together. The gap
+                          * between them is the whole reason this feature exists.
+                          */}
+                        {t('why.rate')} {formatMoney(row.unitCost)} →{' '}
+                        <span className="font-semibold text-foreground">{formatMoney(row.landedUnitCost)}</span>
+                      </span>
+                    </div>
+                  </Link>
                 </li>
               ))}
             </ul>
@@ -377,6 +405,7 @@ export default function SupplyDetailPage({ params }: { params: Promise<{ id: str
       {/* Mounted only while open, so each opening holds its own nonce and its own typing. */}
       {counting && <CountSheet id={id} supply={supply} onClose={() => setCounting(false)} />}
       {adjusting && <AdjustSheet id={id} supply={supply} onClose={() => setAdjusting(false)} />}
+      {editing && <SupplySheet supply={supply} onClose={() => setEditing(false)} />}
     </>
   );
 }
@@ -404,7 +433,7 @@ function MovementSource({ movement, className }: { movement: SupplyMovement; cla
     parts.push(
       <Link
         key="ref"
-        href="/owner/purchases"
+        href={purchaseHref(movement.refId)}
         className="font-semibold text-primary-ink underline-offset-2 hover:underline"
       >
         {tf('supplies.purchaseRef', { code: code ?? '' })}

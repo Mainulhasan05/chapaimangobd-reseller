@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useState } from 'react';
+import { use, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import type { Route } from 'next';
@@ -11,7 +11,7 @@ import { formatNumber } from '@/lib/format';
 import { useGetOrderComplaintsQuery } from '@/lib/store/endpoints/complaints';
 import { useGetOwnerOrdersInfiniteQuery } from '@/lib/store/endpoints/orders';
 import type { Order } from '@/lib/types';
-import { Alert, Card, CardHeader, ErrorState } from '@/components/ui/layout';
+import { Card, CardHeader, ErrorState } from '@/components/ui/layout';
 import { ListSkeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { OrderPage } from '@/components/order-page';
@@ -34,7 +34,11 @@ export default function OwnerOrderPage({ params }: { params: Promise<{ id: strin
   const searchParams = useSearchParams();
   const list = searchParams.get('list');
   const queue = list !== null ? readOrdersQueue(new URLSearchParams(list)) : null;
-  const backHref = (list ? `/owner/orders?${list}` : '/owner/orders') as Route;
+  // Opened from somewhere other than the orders list, the way back is to there.
+  const from = searchParams.get('from');
+  const backHref = (
+    from === 'complaints' ? '/owner/complaints' : list ? `/owner/orders?${list}` : '/owner/orders'
+  ) as Route;
 
   const actions = useOrderActions();
 
@@ -59,6 +63,47 @@ export default function OwnerOrderPage({ params }: { params: Promise<{ id: strin
   }
   const next = found !== undefined ? found : remembered?.for === id ? remembered.next : null;
 
+  // The last loaded row of a longer list: bring the next page in so "next" has somewhere to go.
+  const lastLoaded = index >= 0 && index === rows.length - 1;
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = queueRows;
+  useEffect(() => {
+    if (lastLoaded && hasNextPage && !isFetchingNextPage) void fetchNextPage();
+  }, [lastLoaded, hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+  const hasComplaints = (complaints.data?.complaints.length ?? 0) > 0;
+
+  /*
+   * What was said about this order, with the way to write one down. The
+   * orchard behind each line is named on every complaint.
+   */
+  const complaintsCard = (order: Order) => (
+    <Card id="complaints" className="scroll-mt-20">
+      <CardHeader
+        title={
+          openComplaints > 0
+            ? tf('orders.complaintsOpenTitle', { count: formatNumber(openComplaints) })
+            : t('complaint.title')
+        }
+        subtitle={t('complaint.addHint')}
+        action={
+          <Button variant="outline" size="sm" onClick={() => actions.open('complaint', order)}>
+            <MessageSquareWarning className="h-4 w-4" />
+            {t('complaint.add')}
+          </Button>
+        }
+      />
+      {complaints.isLoading && <ListSkeleton rows={2} />}
+      {complaints.isError && !complaints.currentData && (
+        <ErrorState
+          onRetry={() => complaints.refetch()}
+          isRetrying={complaints.isFetching}
+          error={complaints.error}
+        />
+      )}
+      {complaints.data && <ComplaintList complaints={complaints.data.complaints} compactEmpty />}
+    </Card>
+  );
+
   const actionsFor = (order: Order) => {
     const primary = primaryActionOf(order);
     const canReturn = order.actions.includes('return');
@@ -78,7 +123,7 @@ export default function OwnerOrderPage({ params }: { params: Promise<{ id: strin
         )}
         {canReturn && (
           <Button variant="outline" onClick={() => actions.open('return', order)}>
-            {t('order.return')}
+            {t('orders.markReturnedShort')}
           </Button>
         )}
         {canCancel && (
@@ -99,19 +144,8 @@ export default function OwnerOrderPage({ params }: { params: Promise<{ id: strin
         actions={actionsFor}
         onEditDeliveryCharge={(order) => actions.open('charge', order)}
         onEditCourier={(order) => actions.open('courier', order)}
-        top={() => (
+        top={(order) => (
           <>
-            {/*
-             * An open complaint is the first thing to know before touching the
-             * order, so it is said here and not only in the card at the bottom.
-             */}
-            {openComplaints > 0 && (
-              <Alert tone="danger" icon={MessageSquareWarning}>
-                <a href="#complaints" className="tap inline-flex items-center font-semibold hover:underline">
-                  {tf('orders.openComplaintsHere', { count: formatNumber(openComplaints) })}
-                </a>
-              </Alert>
-            )}
             {next && list !== null && (
               <div className="mb-3 flex justify-end">
                 <Link
@@ -125,41 +159,22 @@ export default function OwnerOrderPage({ params }: { params: Promise<{ id: strin
                 </Link>
               </div>
             )}
+            {/*
+             * Anything a customer has said about this order comes before the
+             * order itself: it is the first thing to know before touching it.
+             */}
+            {hasComplaints && <div className="mb-5">{complaintsCard(order)}</div>}
           </>
         )}
         /*
-         * Complaints first under the order, on the owner's copy only. This is
-         * the screen somebody lands on when a customer rings about a bad parcel,
-         * so it is where it has to be possible to write that down — and where
-         * the orchard behind each line is already named. Then the owner's side
-         * of the books: what this parcel cost and what packing it takes. A
-         * reseller is party to `order.totals` and to nothing here (docs/adr/0027).
+         * The owner's side of the books: what this parcel cost and what packing
+         * it takes. A reseller is party to `order.totals` and to nothing here
+         * (docs/adr/0027). With no complaints yet, the card to write one sits
+         * here too, since this is the screen a customer's call lands on.
          */
         below={(order) => (
           <div className="space-y-5">
-            <Card id="complaints" className="scroll-mt-20">
-              <CardHeader
-                title={t('complaint.title')}
-                subtitle={t('complaint.addHint')}
-                action={
-                  <Button variant="outline" size="sm" onClick={() => actions.open('complaint', order)}>
-                    <MessageSquareWarning className="h-4 w-4" />
-                    {t('complaint.add')}
-                  </Button>
-                }
-              />
-              {complaints.isLoading && <ListSkeleton rows={2} />}
-              {complaints.isError && !complaints.data && (
-                <ErrorState
-                  onRetry={() => complaints.refetch()}
-                  isRetrying={complaints.isFetching}
-                  error={complaints.error}
-                />
-              )}
-              {complaints.data && (
-                <ComplaintList complaints={complaints.data.complaints} compactEmpty />
-              )}
-            </Card>
+            {!hasComplaints && complaintsCard(order)}
             <OrderCostPanel id={id} />
             <PackagingPanel id={id} />
           </div>

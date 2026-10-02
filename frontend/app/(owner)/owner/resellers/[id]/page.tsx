@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useState } from 'react';
+import { use, useEffect, useState } from 'react';
 import Link from 'next/link';
 import type { Route } from 'next';
 import {
@@ -93,9 +93,15 @@ export default function OwnerResellerPage({ params }: { params: Promise<{ id: st
   const { id } = use(params);
   const detail = useGetResellerQuery({ id });
   const [filters, setFilters] = useUrlState({ section: 'account' });
+  // A temporary password on screen and not yet copied: switching section asks first.
+  const [passwordUnsaved, setPasswordUnsaved] = useState(false);
   const section: Section = SECTIONS.includes(filters.section as Section)
     ? (filters.section as Section)
     : 'account';
+  // A section mounts the first time it is opened and then stays, so the ledger
+  // is not fetched until asked for and nothing typed is lost on a switch.
+  const [opened, setOpened] = useState<Section[]>([section]);
+  if (!opened.includes(section)) setOpened([...opened, section]);
 
   if (detail.isLoading) {
     return (
@@ -198,7 +204,10 @@ export default function OwnerResellerPage({ params }: { params: Promise<{ id: st
         className="mb-4"
         label={t('resellerDetail.sections')}
         value={section}
-        onChange={(value) => setFilters({ section: value })}
+        onChange={(value) => {
+          if (passwordUnsaved && !window.confirm(t('resellerDetail.tempNotCopiedSwitch'))) return;
+          setFilters({ section: value });
+        }}
         options={[
           { value: 'account', label: t('resellerDetail.tabAccount') },
           { value: 'money', label: t('resellerDetail.tabMoney') },
@@ -206,9 +215,26 @@ export default function OwnerResellerPage({ params }: { params: Promise<{ id: st
         ]}
       />
 
-      {section === 'account' && <AccountSection detail={detail.data} />}
-      {section === 'money' && <MoneySection reseller={reseller} />}
-      {section === 'ledger' && <LedgerSection resellerId={reseller.id} />}
+      {/*
+       * Opened sections stay mounted and only the chosen one shows. Unmounting them
+       * threw away a one-time temporary password, the list of orders a
+       * deactivation cancelled and a half-typed ledger entry on every switch.
+       */}
+      {opened.includes('account') && (
+        <div hidden={section !== 'account'}>
+          <AccountSection detail={detail.data} onPasswordUnsaved={setPasswordUnsaved} />
+        </div>
+      )}
+      {opened.includes('money') && (
+        <div hidden={section !== 'money'}>
+          <MoneySection reseller={reseller} />
+        </div>
+      )}
+      {opened.includes('ledger') && (
+        <div hidden={section !== 'ledger'}>
+          <LedgerSection resellerId={reseller.id} />
+        </div>
+      )}
     </>
   );
 }
@@ -309,7 +335,13 @@ function PendingRequests({ resellerId }: { resellerId: string }) {
 
 /* --------------------------------------------------------------- account -- */
 
-function AccountSection({ detail }: { detail: ResellerDetail }) {
+function AccountSection({
+  detail,
+  onPasswordUnsaved,
+}: {
+  detail: ResellerDetail;
+  onPasswordUnsaved: (unsaved: boolean) => void;
+}) {
   const toast = useToast();
   const { reseller, kyc } = detail;
   const [update, updating] = useUpdateResellerMutation();
@@ -426,7 +458,7 @@ function AccountSection({ detail }: { detail: ResellerDetail }) {
         />
       </div>
 
-      <PasswordReset resellerId={reseller.id} />
+      <PasswordReset resellerId={reseller.id} onUnsavedChange={onPasswordUnsaved} />
 
       {confirming === 'deactivate' && (
         <DeactivateSheet
@@ -487,6 +519,8 @@ function DeactivateSheet({
       title={t('reseller.deactivateTitle')}
       tone="danger"
       confirmLabel={t('reseller.deactivate')}
+      // The count is the point of this sheet; it is not confirmed blind.
+      confirmDisabled={preview.isLoading}
       onClose={onClose}
       onConfirm={async () => {
         const result = await update({ id: reseller.id, isActive: false }).unwrap();
@@ -522,14 +556,22 @@ function DeactivateSheet({
  * it has been copied, leaving the page asks first, so a stray tap on the nav
  * cannot throw it away.
  */
-function PasswordReset({ resellerId }: { resellerId: string }) {
+function PasswordReset({
+  resellerId,
+  onUnsavedChange,
+}: {
+  resellerId: string;
+  onUnsavedChange: (unsaved: boolean) => void;
+}) {
   const toast = useToast();
   const [confirming, setConfirming] = useState(false);
   const [temporary, setTemporary] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [reset] = useResetResellerPasswordMutation();
 
-  useUnsavedChanges(Boolean(temporary) && !copied);
+  const unsaved = Boolean(temporary) && !copied;
+  useUnsavedChanges(unsaved);
+  useEffect(() => onUnsavedChange(unsaved), [unsaved, onUnsavedChange]);
 
   return (
     <div className="mt-2 border-t border-border pt-3">

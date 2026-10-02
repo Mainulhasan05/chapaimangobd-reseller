@@ -178,6 +178,13 @@ export const costApi = api.injectEndpoints({
         listTags('Purchase', result?.pages.flatMap((page) => page.purchases)),
     }),
 
+    // One purchase by id, for a link from a supply movement or a payee's খাতা,
+    // whatever range the list happens to be on.
+    getPurchase: build.query<{ purchase: Purchase }, { id: string }>({
+      query: ({ id }) => `/owner/purchases/${id}`,
+      providesTags: (_result, _error, { id }) => [{ type: 'Purchase', id }],
+    }),
+
     createPurchase: build.mutation<{ purchase: Purchase }, PurchaseInput>({
       query: (body) => ({ url: '/owner/purchases', method: 'POST', body }),
       invalidatesTags: (_result, error) => (error ? [] : purchaseMoved()),
@@ -363,6 +370,7 @@ export const costApi = api.injectEndpoints({
 
 export const {
   useGetPurchasesInfiniteQuery,
+  useGetPurchaseQuery,
   useCreatePurchaseMutation,
   useCancelPurchaseMutation,
   useGetPayeesQuery,

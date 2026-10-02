@@ -5,6 +5,7 @@ export const cost = {
   'purchase.allStatuses': 'সব অবস্থা',
   'purchase.filterSeller': 'বিক্রেতা',
   'purchase.totalsHint': 'এই তারিখ আর ফিল্টারের সব কেনা ধরে',
+  'purchase.breakdownLine': 'মালের দাম {goods} + আনার খরচ {charges}',
   'report.csvOf': '{name} — CSV',
 
   /* --------------------------------------------------------- purchases */
@@ -43,6 +44,7 @@ export const cost = {
   'payee.archiveDue': 'এখনো {amount} দিতে হবে। সরালেও এই বাকি মোট হিসাবে থেকে যাবে।',
   'payee.archiveAdvance': 'তার কাছে {amount} অগ্রিম দেওয়া আছে। সরালেও এটা হিসাবে থেকে যাবে।',
   'payee.showArchived': 'সরানো পার্টিও দেখান',
+  'payee.owingCountLine': '{count} জনের মধ্যে {owing} জনকে টাকা দিতে হবে',
   'payee.archivedBadge': 'সরানো',
   'payee.archivedToast': '{name}-কে তালিকা থেকে সরানো হয়েছে',
   'payee.restoredToast': '{name} আবার তালিকায় ফিরেছে',
@@ -121,6 +123,7 @@ export const cost = {
   'report.cancelledNotCounted': 'বাতিল করা কেনা তালিকায় আছে, কিন্তু কোনো যোগফলে ধরা হয়নি।',
   'profit.grossMarginGeneral': 'সাধারণ খরচ বাদের আগে',
   'profit.generalExpenses': 'সাধারণ খরচ',
+  'profit.netHint': 'যা বিল করেছি − অর্ডারের খরচ − সাধারণ খরচ',
 
   /* -------------------------------------------------------- amount words */
   'amountWords.crore': 'কোটি',

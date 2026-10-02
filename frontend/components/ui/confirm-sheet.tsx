@@ -45,6 +45,7 @@ export function ConfirmSheet({
   reason,
   children,
   dismissLabel,
+  confirmDisabled,
 }: {
   title: string;
   onClose: () => void;
@@ -66,9 +67,18 @@ export function ConfirmSheet({
     presets?: string[];
     minLength?: number;
   };
-  /** Anything else the decision needs to see, such as a payment screenshot. */
-  children?: React.ReactNode;
+  /**
+   * Anything else the decision needs to see, such as a payment screenshot. A
+   * function receives `busy`, so a control inside (a "reject instead" button)
+   * can stand still while the confirm request is in flight.
+   */
+  children?: React.ReactNode | ((state: { busy: boolean }) => React.ReactNode);
   dismissLabel?: string;
+  /**
+   * Holds the button while the numbers the decision rests on are still loading,
+   * such as how many pending orders a deactivation will cancel.
+   */
+  confirmDisabled?: boolean;
 }) {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -109,7 +119,7 @@ export function ConfirmSheet({
       footer={
         <>
           <ModalCancel label={dismissLabel ?? t('app.dismiss')} disabled={busy} />
-          <Button variant={tone} loading={busy} onClick={submit}>
+          <Button variant={tone} loading={busy} disabled={confirmDisabled} onClick={submit}>
             {confirmLabel}
           </Button>
         </>
@@ -146,7 +156,7 @@ export function ConfirmSheet({
         </ul>
       )}
 
-      {children}
+      {typeof children === 'function' ? children({ busy }) : children}
 
       {reason && (
         <div className="mt-2">

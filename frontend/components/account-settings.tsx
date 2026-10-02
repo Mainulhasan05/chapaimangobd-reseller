@@ -235,6 +235,12 @@ function PhoneCard({ current }: { current: string }) {
               {t('auth.changeNumber')}
             </button>
           </p>
+          {/* A refused number belongs with the number, not under the password. */}
+          {changeErrors.newPhone && (
+            <p role="alert" className="-mt-3 mb-4 text-xs font-medium text-danger">
+              {changeErrors.newPhone}
+            </p>
+          )}
 
           <OtpField id="phoneOtp" value={code} onChange={setCode} error={changeErrors.otp} className="mb-2" />
           <ResendCode secondsLeft={secondsLeft} pending={sendState.isLoading} onResend={() => void send()} />
@@ -244,7 +250,7 @@ function PhoneCard({ current }: { current: string }) {
             label={t('account.passwordForPhone')}
             value={password}
             onChange={setPassword}
-            error={changeErrors.password ?? changeErrors.newPhone}
+            error={changeErrors.password}
             required
           />
 

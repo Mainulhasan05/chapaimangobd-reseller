@@ -24,7 +24,8 @@ import {
 } from 'lucide-react';
 import { skipToken } from '@reduxjs/toolkit/query/react';
 import { useSession } from '@/lib/session';
-import { LIVE } from '@/lib/store/api';
+import { LIST, LIVE } from '@/lib/store/api';
+import { useRefreshOnRise } from '@/lib/store/live';
 import { useGetDashboardQuery } from '@/lib/store/endpoints/dashboard';
 import { useGetNotificationsInfiniteQuery } from '@/lib/store/endpoints/notifications';
 import { AppShell, type NavItem } from '@/components/app-shell';
@@ -46,7 +47,13 @@ const NAV: NavItem[] = [
   { href: '/owner', labelKey: 'nav.dashboard', icon: LayoutDashboard, section: 'nav.groupDaily' },
   { href: '/owner/orders', labelKey: 'nav.orders', icon: ClipboardList, section: 'nav.groupDaily' },
   { href: '/owner/products', labelKey: 'nav.products', icon: Package, section: 'nav.groupDaily' },
-  { href: '/owner/finance', labelKey: 'nav.finance', icon: Wallet, section: 'nav.groupDaily' },
+  {
+    href: '/owner/finance',
+    labelKey: 'nav.finance',
+    shortLabelKey: 'nav.financeShort',
+    icon: Wallet,
+    section: 'nav.groupDaily',
+  },
   { href: '/owner/resellers', labelKey: 'nav.resellers', icon: Users, section: 'nav.groupMoney' },
   { href: '/owner/customers', labelKey: 'nav.customers', icon: Contact, section: 'nav.groupMoney' },
   { href: '/owner/kyc', labelKey: 'nav.kyc', icon: BadgeCheck, section: 'nav.groupMoney' },
@@ -115,6 +122,33 @@ export default function OwnerLayout({ children }: { children: React.ReactNode })
     ready ? { role: 'owner', limit: 1 } : skipToken,
     LIVE
   );
+
+  /*
+   * The queues themselves are not polled: these two small requests are, and a
+   * rise in a count refreshes the lists behind it. See lib/store/live.ts.
+   */
+  useRefreshOnRise(
+    counts
+      ? [
+          counts.awaitingAcceptance,
+          counts.agingOrders,
+          counts.pendingDeposits,
+          counts.pendingWithdrawals,
+          counts.pendingKyc,
+          counts.openComplaints,
+        ]
+      : undefined,
+    [
+      { type: 'Order', id: LIST },
+      'OrderSummary',
+      { type: 'Deposit', id: LIST },
+      { type: 'Withdrawal', id: LIST },
+      { type: 'Kyc', id: LIST },
+      { type: 'Complaint', id: LIST },
+    ]
+  );
+  const unread = inbox?.pages[0]?.unread;
+  useRefreshOnRise(unread === undefined ? undefined : [unread], [{ type: 'Notification', id: LIST }]);
 
   const badges: Partial<Record<string, number>> = {
     // A confirmed order is one the reseller committed to and nobody has touched.

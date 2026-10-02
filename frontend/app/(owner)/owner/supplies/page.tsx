@@ -1,22 +1,16 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import type { Route } from 'next';
 import { Archive, ArchiveRestore, Boxes, Plus, ShoppingCart, TriangleAlert } from 'lucide-react';
-import { errorMessage, fieldErrors } from '@/lib/api';
+import { errorMessage } from '@/lib/api';
 import { t, tf, tUnit } from '@/lib/i18n/bn';
 import { formatMoney, formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useUrlSearch, useUrlState } from '@/lib/use-url-state';
 import type { Supply } from '@/lib/types';
-import {
-  useCreateSupplyMutation,
-  useGetSuppliesQuery,
-  useGetSupplyQuery,
-  useSetSupplyArchivedMutation,
-  useUpdateSupplyMutation,
-} from '@/lib/store/endpoints/catalog';
+import { useGetSuppliesQuery, useSetSupplyArchivedMutation } from '@/lib/store/endpoints/catalog';
 import {
   Alert,
   Badge,
@@ -27,14 +21,12 @@ import {
   Stat,
 } from '@/components/ui/layout';
 import { Td, Th, Tr, TableWrap } from '@/components/ui/table';
-import { Field, Input, Select, Textarea, focusFirstInvalid } from '@/components/ui/form';
 import { Button } from '@/components/ui/button';
-import { Modal, ModalCancel } from '@/components/ui/modal';
 import { ListSkeleton } from '@/components/ui/skeleton';
-import { Switch } from '@/components/ui/switch';
 import { Segmented, SearchInput, Toolbar, ToolbarSpacer } from '@/components/ui/toolbar';
 import { DownloadMenu } from '@/components/report/download-menu';
 import { useToast } from '@/components/ui/toast';
+import { SupplySheet } from './supply-sheet';
 
 /**
  * মালামাল — everything bought to get a parcel out the door, and never sold.
@@ -43,8 +35,6 @@ import { useToast } from '@/components/ui/toast';
  * out, and what has gone wrong. The arithmetic lives on the detail page, where
  * there is room to show the working. See `[id]/page.tsx` and `components/why.tsx`.
  */
-
-const UNITS = ['pcs', 'sheet', 'roll', 'kg', 'gram', 'metre', 'packet', 'bundle', 'litre'];
 
 type Filter = 'all' | 'low' | 'archived';
 
@@ -132,7 +122,7 @@ export default function OwnerSuppliesPage() {
           )}
         </Alert>
       )}
-      {filter === 'all' && totals && totals.lowCount > 0 && totals.negativeCount === 0 && (
+      {filter === 'all' && totals && totals.lowCount > 0 && (
         <Alert tone="warning" title={tf('supplies.lowBanner', { count: formatNumber(totals.lowCount) })}>
           <p>{t('supplies.reorderHint')}</p>
           <Button size="sm" variant="outline" className="mt-2" onClick={() => setFilters({ filter: 'low' })}>
@@ -346,167 +336,5 @@ function StateBadges({ supply }: { supply: Supply }) {
       {!supply.isNegative && supply.isLow && <Badge tone="warning">{t('supply.low')}</Badge>}
       {supply.isArchived && <Badge tone="neutral">{t('app.archived')}</Badge>}
     </div>
-  );
-}
-
-/**
- * Add or change one item.
- *
- * The unit is offered only when creating. Changing it afterwards would silently
- * restate every quantity ever recorded against this item, so the API refuses it
- * and this form does not pretend otherwise.
- *
- * No field takes focus on open: on a phone that pushes the keyboard up over the
- * sheet before the owner has read what it is for.
- */
-function SupplySheet({ supply, onClose }: { supply: Supply | null; onClose: () => void }) {
-  const toast = useToast();
-  const bodyRef = useRef<HTMLDivElement>(null);
-  const [nameBn, setNameBn] = useState(supply?.nameBn ?? '');
-  const [unit, setUnit] = useState(supply?.unit ?? 'pcs');
-  // Empty, not '0': a box pre-filled with a zero is a box to clear before typing.
-  // A plain number, not a money format: this is a count of things.
-  const [reorderLevel, setReorderLevel] = useState(
-    supply && supply.reorderLevel > 0 ? String(supply.reorderLevel) : ''
-  );
-  const [note, setNote] = useState(supply?.note ?? '');
-  const [isArchived, setIsArchived] = useState(Boolean(supply?.isArchived));
-  const [tried, setTried] = useState(false);
-
-  const [createSupply, creating] = useCreateSupplyMutation();
-  const [updateSupply, updating] = useUpdateSupplyMutation();
-  const saving = creating.isLoading || updating.isLoading;
-  const error = supply ? updating.error : creating.error;
-  const errors = fieldErrors(error);
-
-  // Only asked for once archiving is on the table: which boxes still name this.
-  const detail = useGetSupplyQuery(
-    { id: supply?.id ?? '' },
-    { skip: !supply || !isArchived || supply.isArchived }
-  );
-  const usedBy = detail.data?.usedBy ?? [];
-
-  const nameProblem = nameBn.trim().length < 2 ? t('supplies.nameRequired') : undefined;
-  const dirty =
-    nameBn !== (supply?.nameBn ?? '') ||
-    note !== (supply?.note ?? '') ||
-    reorderLevel !== (supply && supply.reorderLevel > 0 ? String(supply.reorderLevel) : '') ||
-    isArchived !== Boolean(supply?.isArchived) ||
-    (!supply && unit !== 'pcs');
-
-  const save = async () => {
-    setTried(true);
-    if (nameProblem) {
-      requestAnimationFrame(() => focusFirstInvalid(bodyRef.current));
-      return;
-    }
-    const body = {
-      nameBn: nameBn.trim(),
-      reorderLevel: Number(reorderLevel) || 0,
-      note: note.trim(),
-    };
-    try {
-      const result = supply
-        ? await updateSupply({ id: supply.id, ...body, isArchived }).unwrap()
-        : await createSupply({ ...body, unit }).unwrap();
-      toast(tf(supply ? 'supplies.saved' : 'supplies.created', { name: result.supply.nameBn }));
-      onClose();
-    } catch {
-      requestAnimationFrame(() => focusFirstInvalid(bodyRef.current));
-    }
-  };
-
-  const nameError = errors.nameBn ?? (tried ? nameProblem : undefined);
-
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      dirty={dirty}
-      title={supply ? t('supply.edit') : t('supply.new')}
-      footerLead={
-        error && !Object.keys(errors).length ? (
-          <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm font-medium text-danger-ink">
-            {errorMessage(error)}
-          </p>
-        ) : undefined
-      }
-      footer={
-        <>
-          <ModalCancel disabled={saving} />
-          <Button loading={saving} onClick={save}>
-            {t('app.save')}
-          </Button>
-        </>
-      }
-    >
-      <div ref={bodyRef}>
-        <Field label={t('supply.name')} htmlFor="supply-name" error={nameError} required>
-          <Input
-            id="supply-name"
-            value={nameBn}
-            invalid={Boolean(nameError)}
-            onChange={(e) => setNameBn(e.target.value)}
-            placeholder={t('supplies.namePlaceholder')}
-          />
-        </Field>
-
-        {!supply && (
-          <Field label={t('supply.unit')} htmlFor="supply-unit" error={errors.unit} required>
-            <Select id="supply-unit" value={unit} onChange={(e) => setUnit(e.target.value)}>
-              {UNITS.map((u) => (
-                <option key={u} value={u}>
-                  {tUnit(u)}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        )}
-
-        <Field
-          label={t('supply.reorderLevel')}
-          htmlFor="supply-reorder"
-          hint={t('supplies.reorderHint')}
-          error={errors.reorderLevel}
-        >
-          <Input
-            id="supply-reorder"
-            type="number"
-            inputMode="decimal"
-            min="0"
-            step="0.001"
-            value={reorderLevel}
-            onChange={(e) => setReorderLevel(e.target.value)}
-            className="tabular"
-            trailing={<span className="text-sm text-muted-foreground">{tUnit(supply?.unit ?? unit)}</span>}
-          />
-        </Field>
-
-        <Field label={t('expense.note')} htmlFor="supply-note" error={errors.note}>
-          <Textarea id="supply-note" value={note} onChange={(e) => setNote(e.target.value)} rows={2} />
-        </Field>
-
-        {supply && (
-          <div className="rounded-xl border border-border px-3">
-            <Switch
-              checked={isArchived}
-              onChange={setIsArchived}
-              label={t('supplies.archiveSwitch')}
-              hint={t('supplies.archiveHint')}
-            />
-          </div>
-        )}
-
-        {/* Archiving something a recipe still names leaves that box consuming nothing. */}
-        {supply && isArchived && !supply.isArchived && usedBy.length > 0 && (
-          <Alert tone="warning" className="mt-3">
-            {tf('supplies.usedByWarn', {
-              count: formatNumber(usedBy.length),
-              boxes: usedBy.map((row) => `${row.productNameBn} · ${row.variantLabel}`).join(', '),
-            })}
-          </Alert>
-        )}
-      </div>
-    </Modal>
   );
 }

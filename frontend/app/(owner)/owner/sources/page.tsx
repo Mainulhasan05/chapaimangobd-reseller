@@ -47,7 +47,10 @@ export default function OwnerSourcesPage() {
   const [creating, setCreating] = useState(false);
   const [archiving, setArchiving] = useState<Source | null>(null);
 
-  const all = useMemo(() => sources.data?.sources ?? [], [sources.data]);
+  // `currentData`, not `data`: the archived view must never show the live list's
+  // rows under its own buttons while it loads.
+  const view = sources.currentData;
+  const all = useMemo(() => view?.sources ?? [], [view]);
   const needle = search.term.trim().toLowerCase();
   const rows = useMemo(
     () =>
@@ -84,7 +87,7 @@ export default function OwnerSourcesPage() {
         <Segmented
           label={t('sources.filterLabel')}
           value={archivedView ? 'archived' : 'live'}
-          onChange={(view) => setFilters({ view })}
+          onChange={(next) => setFilters({ view: next })}
           options={[
             { value: 'live', label: t('sources.viewLive') },
             { value: 'archived', label: t('app.archived') },
@@ -99,13 +102,13 @@ export default function OwnerSourcesPage() {
         />
       </Toolbar>
 
-      {sources.isLoading && <ListSkeleton rows={3} />}
+      {!view && !sources.isError && <ListSkeleton rows={3} />}
 
-      {sources.isError && !sources.data && (
+      {sources.isError && !view && (
         <ErrorState onRetry={() => sources.refetch()} isRetrying={sources.isFetching} error={sources.error} />
       )}
 
-      {sources.data && all.length === 0 && !archivedView && (
+      {view && all.length === 0 && !archivedView && (
         <EmptyState
           icon={Store}
           title={t('sources.emptyTitle')}
@@ -119,14 +122,17 @@ export default function OwnerSourcesPage() {
         />
       )}
 
-      {sources.data && all.length === 0 && archivedView && (
+      {view && all.length === 0 && archivedView && (
         <EmptyState icon={Archive} title={t('sources.archivedEmpty')} />
       )}
 
       {all.length > 0 && rows.length === 0 && <FilteredEmpty onClear={() => search.setInput('')} />}
 
       {rows.length > 0 && (
-        <div className={cn('transition-opacity', sources.isFetching && 'opacity-60')}>
+        <div
+          aria-busy={sources.isFetching}
+          className={cn('transition-opacity', sources.isFetching && 'pointer-events-none opacity-60')}
+        >
           <ul className="space-y-3 sm:hidden">
             {rows.map((source) => (
               <li key={source._id} className="card p-4">

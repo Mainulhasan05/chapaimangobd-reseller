@@ -5,7 +5,7 @@ import Link from 'next/link';
 import type { Route } from 'next';
 import { ArrowUpRight } from 'lucide-react';
 import { ApiError, errorMessage } from '@/lib/api';
-import { t, tf, type DictKey } from '@/lib/i18n/bn';
+import { t, tf, tMaybe, type DictKey } from '@/lib/i18n/bn';
 import { formatNumber } from '@/lib/format';
 import { invalidChars, measure } from '@/lib/gsm7';
 import type { CustomerSmsAction } from '@/lib/types';
@@ -191,7 +191,7 @@ export function CustomerSmsTemplates({ initial }: { initial: CustomerSmsSettings
             >
               <span lang="en" className="font-mono">{`{${name}}`}</span>
               <span className="ml-1.5 text-muted-foreground">
-                {t(`placeholder.${name}` as DictKey) ?? name}
+                {tMaybe(`placeholder.${name}`, name)}
               </span>
             </button>
           ))}

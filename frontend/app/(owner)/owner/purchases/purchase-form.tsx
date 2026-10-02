@@ -187,7 +187,24 @@ export function PurchaseModal({
     if (showHint) writeStore(HINT_SEEN, '1');
   }, [showHint]);
 
-  const errors = fieldErrors(createState.error);
+  /*
+   * The server numbers charges as they were sent, which is after blank rows
+   * were dropped, so `charges.1` may be the third row on screen. The rows sent
+   * are remembered by key at submit, so an error still finds its row after
+   * the owner adds or removes one; an error for a row since removed is dropped.
+   */
+  const [sentCharges, setSentCharges] = useState<string[]>([]);
+  const errors: Record<string, string> = {};
+  Object.entries(fieldErrors(createState.error)).forEach(([key, text]) => {
+    const match = /^charges\.(\d+)(\..+)?$/.exec(key);
+    if (!match) {
+      errors[key] = text;
+      return;
+    }
+    const row = draft.charges.findIndex((charge) => charge.key === sentCharges[Number(match[1])]);
+    if (row >= 0) errors[`charges.${row}${match[2] ?? ''}`] = text;
+  });
+  const serverFieldErrors = Object.keys(errors).length > 0;
   const set = (patch: Partial<Draft>) => setDraft((prev) => ({ ...prev, ...patch }));
   const setLine = (index: number, patch: Partial<LineDraft>) =>
     setDraft((prev) => ({
@@ -266,6 +283,7 @@ export function PurchaseModal({
       requestAnimationFrame(() => focusFirstInvalid(root.current));
       return;
     }
+    setSentCharges(charges.map((charge) => charge.key));
     try {
       const { purchase } = await create({
         payeeId,
@@ -297,8 +315,15 @@ export function PurchaseModal({
       writeStore(LAST_SELLER, payeeId);
       toast(tf('purchase.savedToast', { code: purchase.purchaseCode }));
       onClose();
-    } catch {
-      // Field errors land beside their fields; anything else above the buttons.
+    } catch (failure) {
+      /*
+       * Field errors land beside their fields. The memo number and note live
+       * behind "আরও", so a complaint about either opens it; then the first
+       * marked field is brought into view, once the errors have rendered.
+       */
+      const failed = fieldErrors(failure);
+      if (failed.invoiceNo || failed.note) setMoreOpen(true);
+      requestAnimationFrame(() => requestAnimationFrame(() => focusFirstInvalid(root.current)));
     }
   };
 
@@ -318,12 +343,29 @@ export function PurchaseModal({
   const err = (key: string, problem: boolean) => errors[key] ?? (tried && problem ? t('app.required') : undefined);
   const payeeError = err('payeeId', !payeeId);
 
+  /*
+   * Every server complaint has a place on the form, except one this form has no
+   * field for. Those are said in the summary rather than lost.
+   */
+  const PLACED = [
+    /^(payeeId|date|invoiceNo|note|allocationBasis|lines|charges)$/,
+    /^lines\.\d+(\.(supplyId|quantity|unitCost))?$/,
+    /^charges\.\d+(\.(kind|amount|paidTo|payeeName|note))?$/,
+  ];
+  const unplaced = Object.entries(errors)
+    .filter(([key]) => !PLACED.some((pattern) => pattern.test(key)))
+    .map(([, text]) => text);
+
   const summary =
     tried && missingCount > 0
       ? tf('app.fieldsMissing', { count: formatNumber(missingCount) })
-      : createState.error && !Object.keys(errors).length
-        ? errorMessage(createState.error)
-        : null;
+      : serverFieldErrors
+        ? unplaced.length
+          ? unplaced.join(' · ')
+          : t('app.fixFields')
+        : createState.error
+          ? errorMessage(createState.error)
+          : null;
 
   const dirty = JSON.stringify(draft) !== JSON.stringify(initial) || Boolean(from);
 
@@ -496,6 +538,11 @@ export function PurchaseModal({
                 (tried || line.unitCost ? moneyError(line.unitCost, { allowZero: true }) : undefined);
               return (
                 <li key={line.key} className="rounded-xl border border-border p-3">
+                  {errors[`lines.${index}`] && (
+                    <p role="alert" aria-invalid className="mb-2 text-xs font-medium text-danger">
+                      {errors[`lines.${index}`]}
+                    </p>
+                  )}
                   <div className="mb-1 flex items-center justify-between gap-2">
                     <span className="text-sm font-semibold">
                       {supply ? supply.nameBn : tf('purchase.lineNumber', { n: formatNumber(index + 1) })}
@@ -611,9 +658,15 @@ export function PurchaseModal({
                 const amountError =
                   errors[`charges.${index}.amount`] ??
                   (tried || charge.amount ? moneyError(charge.amount, { allowZero: true }) : undefined);
-                const noteShown = noteOpen.includes(charge.key) || Boolean(charge.note);
+                const noteError = errors[`charges.${index}.note`];
+                const noteShown = noteOpen.includes(charge.key) || Boolean(charge.note) || Boolean(noteError);
                 return (
                   <li key={charge.key} className="rounded-xl border border-border p-3">
+                    {errors[`charges.${index}`] && (
+                      <p role="alert" aria-invalid className="mb-2 text-xs font-medium text-danger">
+                        {errors[`charges.${index}`]}
+                      </p>
+                    )}
                     <div className="mb-1 flex items-center justify-between gap-2">
                       <span className="text-sm font-semibold">{tChargeKind(charge.kind)}</span>
                       <button
@@ -695,9 +748,16 @@ export function PurchaseModal({
                     />
 
                     {noteShown ? (
-                      <Field className="mb-0 mt-2" label={t('app.notes')} htmlFor={`chargeNote-${index}`} hint={t('app.optional')}>
+                      <Field
+                        className="mb-0 mt-2"
+                        label={t('app.notes')}
+                        htmlFor={`chargeNote-${index}`}
+                        hint={t('app.optional')}
+                        error={noteError}
+                      >
                         <Input
                           id={`chargeNote-${index}`}
+                          invalid={Boolean(noteError)}
                           value={charge.note}
                           onChange={(event) => setCharge(index, { note: event.target.value })}
                         />

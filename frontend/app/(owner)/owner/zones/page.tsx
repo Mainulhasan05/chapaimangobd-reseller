@@ -439,7 +439,7 @@ function ZoneSheet({
         <Field
           label={t('order.deliveryCharge')}
           htmlFor="zone-charge"
-          hint={zone ? t('zones.chargeHint') : undefined}
+          hint={zone ? t('zones.chargeHintEdit') : t('zones.chargeHintNew')}
           error={show('charge')}
           required
         >

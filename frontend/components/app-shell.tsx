@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Suspense, useEffect, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import type { Route } from 'next';
 import {
   Bell,
@@ -24,6 +24,7 @@ import { formatNumber, formatToday } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { Alert, Avatar } from '@/components/ui/layout';
 import { Logo } from '@/components/ui/logo';
+import { IN_APP_KEY } from '@/components/ui/back-link';
 import { Skeleton, ListSkeleton } from '@/components/ui/skeleton';
 import type { Role } from '@/lib/types';
 
@@ -42,6 +43,11 @@ export type NavItem = {
    * no room for headings and the first four items are the whole story.
    */
   section?: DictKey;
+  /**
+   * A shorter name for the bottom bar, where a tab is about 70px wide at 11px.
+   * "জমা ও উত্তোলন" fits a sidebar row and not a tab.
+   */
+  shortLabelKey?: DictKey;
 };
 
 /**
@@ -55,9 +61,9 @@ const TABS = 4;
  *
  * Navigation has moved twice. It began as a horizontally scrolling strip in the
  * header, then became a bottom bar on a phone and a centred row of pills above
- * `sm`. The pills were the weak half: the owner has ten destinations, six fitted,
- * and the remaining four hid behind a More menu on the widest screens in the
- * product, which is precisely where there was room to spare.
+ * `sm`. The pills were the weak half: the owner had ten destinations (now about
+ * twenty), six fitted, and the rest hid behind a More menu on the widest screens
+ * in the product, which is precisely where there was room to spare.
  *
  * So a wide screen now gets a sidebar. Every destination is visible at once,
  * grouped by how often it is touched, and the horizontal band across the top is
@@ -88,6 +94,9 @@ export function AppShell({
   const logout = useLogout();
   const online = useOnline();
   const [menuOpen, setMenuOpen] = useState(false);
+  // Stable, so the drawer's open effect (which pins the page and moves focus)
+  // does not re-run each time the shell re-renders on a background refresh.
+  const closeMenu = useCallback(() => setMenuOpen(false), []);
   const accountHref = (role === 'owner' ? '/owner/account' : '/reseller/account') as Route;
 
   useEffect(() => {
@@ -110,6 +119,55 @@ export function AppShell({
    * middleware, so the redirect above and the read-only banner follow it. See
    * lib/store/store.ts.
    */
+
+  /*
+   * Remembers that this tab has moved between pages, which is what lets a
+   * detail page's back arrow go back instead of opening its list fresh. The
+   * first page of a visit (opened from a notification or a shared link) has
+   * nothing behind it in the app, so the flag is only set from the second.
+   */
+  const firstPath = useRef(pathname);
+  useEffect(() => {
+    if (pathname === firstPath.current) return;
+    try {
+      window.sessionStorage.setItem(IN_APP_KEY, '1');
+    } catch {
+      // Storage refused (private mode): back arrows fall back to their list.
+    }
+  }, [pathname]);
+
+  /*
+   * While a field has the keyboard open on a phone, the bottom bar steps aside.
+   * With the keyboard taking half the screen, a 4rem bar and a save bar riding
+   * above it left a sliver for the field being typed in. Bars that sit above
+   * the nav use the `above-nav` utility, which drops to the bottom edge then.
+   */
+  useEffect(() => {
+    const isField = (node: EventTarget | null) =>
+      node instanceof HTMLElement &&
+      (node.matches('textarea, select, [contenteditable="true"]') ||
+        (node instanceof HTMLInputElement &&
+          !['checkbox', 'radio', 'button', 'submit', 'file', 'range'].includes(node.type)));
+    const root = document.documentElement;
+    const onFocusIn = (event: FocusEvent) => {
+      if (isField(event.target) && window.matchMedia('(max-width: 1023px)').matches) {
+        root.dataset.keyboard = '1';
+      }
+    };
+    const onFocusOut = () => {
+      // Focus moving from one field to the next keeps the keyboard up.
+      window.setTimeout(() => {
+        if (!isField(document.activeElement)) delete root.dataset.keyboard;
+      }, 50);
+    };
+    document.addEventListener('focusin', onFocusIn);
+    document.addEventListener('focusout', onFocusOut);
+    return () => {
+      document.removeEventListener('focusin', onFocusIn);
+      document.removeEventListener('focusout', onFocusOut);
+      delete root.dataset.keyboard;
+    };
+  }, []);
 
   // Keeps the push worker's idea of who is signed in here current, so a tapped
   // notification opens this role's pages even after an account switch.
@@ -320,7 +378,7 @@ export function AppShell({
       </div>
 
       {/* The bottom bar. Everything below the sidebar breakpoint. */}
-      <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-surface/95 pb-safe backdrop-blur lg:hidden">
+      <nav className="bottom-nav fixed inset-x-0 bottom-0 z-30 border-t border-border bg-surface/95 pb-safe backdrop-blur lg:hidden">
         <div className="flex">
           {tabs.map((item) => (
             <TabLink key={item.href} item={item} active={isActive(item.href)} />
@@ -352,7 +410,7 @@ export function AppShell({
 
       <NavDrawer
         open={menuOpen}
-        onClose={() => setMenuOpen(false)}
+        onClose={closeMenu}
         nav={nav}
         sections={sections}
         isActive={isActive}
@@ -634,7 +692,7 @@ function TabLink({ item, active }: { item: NavItem; active: boolean }) {
           </span>
         ) : null}
       </span>
-      <span className="max-w-full truncate px-1">{t(item.labelKey)}</span>
+      <span className="max-w-full truncate px-1">{t(item.shortLabelKey ?? item.labelKey)}</span>
     </Link>
   );
 }

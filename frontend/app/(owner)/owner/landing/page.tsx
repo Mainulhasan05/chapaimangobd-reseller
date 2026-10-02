@@ -438,7 +438,7 @@ function LandingEditor({ live }: { live: LandingContent }) {
            * the form scrolls, and saying whether there is anything to save. It
            * used to sit at the end of the cards, a screen below most edits.
            */}
-          <div className="sticky bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-20 mt-2 lg:bottom-4">
+          <div className="above-nav sticky bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-20 mt-2 lg:bottom-4">
             <div className="card elev-3 flex items-center gap-3 px-4 py-3">
               <div className="min-w-0 flex-1 text-sm" aria-live="polite">
                 {barError ? (

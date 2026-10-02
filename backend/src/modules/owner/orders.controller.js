@@ -1,5 +1,6 @@
 'use strict';
 
+const env = require('../../config/env');
 const Order = require('../../models/Order');
 const { buildOwnerOrderFilter } = require('../../utils/orderFilter');
 const orderService = require('../../services/orderService');
@@ -23,10 +24,15 @@ const { ROLES, ORDER_STATUS } = require('../../domain/constants');
 /**
  * The filter for this request. Aging is the only one that has to ask the
  * database anything, so the settings read is skipped unless it is on.
+ *
+ * Cast here, once, because the summary feeds it to aggregations: a find casts
+ * a reseller or source id string to an ObjectId and an aggregation does not, so
+ * an uncast filter matched nothing and every tab read 0 under `?reseller=`.
  */
 async function filterFor(query) {
   const agingHours = query.aging ? (await getSettings()).orderAgingHours : undefined;
-  return buildOwnerOrderFilter(query, { agingHours });
+  const filter = await buildOwnerOrderFilter(query, { agingHours });
+  return Order.where().cast(Order, filter);
 }
 
 /**
@@ -295,7 +301,7 @@ async function customerSmsPreview(req, res) {
   const order = await Order.findById(req.params.id);
   if (!order) throw notFound('Order not found');
 
-  const available = customerSms.isAvailable();
+  const unavailable = customerSms.unavailableReason(order);
   const preview = await customerSms.buildCustomerSms({
     order,
     action,
@@ -304,7 +310,21 @@ async function customerSmsPreview(req, res) {
     reason,
   });
 
-  return ok(res, { ...preview, available });
+  /*
+   * What it costs, at the gateway's own rate, when that rate is configured;
+   * null rather than a guess otherwise (the price a reseller pays per credit is
+   * what the owner sells at, not what a segment costs). See sms.controller.js.
+   */
+  const perSegmentPoisha = env.SMS_COST_PER_SEGMENT_POISHA;
+  const costPerSegment = perSegmentPoisha == null ? null : toTaka(perSegmentPoisha);
+
+  return ok(res, {
+    ...preview,
+    available: unavailable === null,
+    unavailableReason: unavailable,
+    costPerSegment,
+    cost: costPerSegment == null ? null : toTaka(perSegmentPoisha * preview.segments),
+  });
 }
 
 /**

@@ -10,12 +10,26 @@ type Primitive = string | number | boolean;
 type Defaults = Record<string, Primitive>;
 
 /**
- * Reads the current query string at call time rather than from the render that
- * created the setter, so two updates in one tick (a tab and its page reset)
- * build on each other instead of the second undoing the first.
+ * The query string most recently asked for, until the router has written it.
+ *
+ * `router.replace` does not touch `window.location` straight away: the App
+ * Router writes history after the render commits. Two updates in one handler
+ * ("clear filters" resetting the filters and then the date range) both read the
+ * old address, and the second overwrote the first. Each update now builds on
+ * the last one asked for, for as long as the address has not caught up with it.
  */
-function currentParams(): URLSearchParams {
-  return new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search);
+let pending: { pathname: string; query: string; at: number } | null = null;
+const PENDING_MS = 2000;
+
+function currentParams(pathname: string): URLSearchParams {
+  if (typeof window === 'undefined') return new URLSearchParams();
+  const live = window.location.search.replace(/^\?/, '');
+  if (pending) {
+    const fresh = pending.pathname === pathname && Date.now() - pending.at < PENDING_MS;
+    // Caught up, or stale (Back, another page): the address is the truth again.
+    if (!fresh || live === pending.query) pending = null;
+  }
+  return new URLSearchParams(pending ? pending.query : live);
 }
 
 function parse<T extends Primitive>(raw: string | null, fallback: T): T {
@@ -67,7 +81,7 @@ export function useUrlState<T extends Defaults>(defaults: T) {
 
   const set = useCallback(
     (patch: Partial<T> | ((current: T) => Partial<T>)) => {
-      const params = currentParams();
+      const params = currentParams(pathname);
       const read = {} as T;
       (Object.keys(initial) as (keyof T)[]).forEach((key) => {
         read[key] = parse(params.get(key as string), initial[key]);
@@ -78,6 +92,7 @@ export function useUrlState<T extends Defaults>(defaults: T) {
         else params.set(key, serialise(value as Primitive));
       });
       const query = params.toString();
+      pending = { pathname, query, at: Date.now() };
       router.replace(`${pathname}${query ? `?${query}` : ''}` as Route, { scroll: false });
     },
     [initial, pathname, router]

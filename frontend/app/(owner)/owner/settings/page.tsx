@@ -164,10 +164,11 @@ function SettingsForm({ initial }: { initial: Settings }) {
     }
   };
 
-  const credits = smsOverview.data?.stats.resellerCredits ?? 0;
+  // Unknown while the overview loads or if it failed; the confirm still shows, just without the count.
+  const credits = smsOverview.data?.stats.resellerCredits;
   const setResellerSms = (on: boolean) => {
     // Credits already bought stop working while it is off; say so before it happens.
-    if (!on && saved.features.sms && credits > 0) {
+    if (!on && saved.features.sms && credits !== 0) {
       setConfirmingSmsOff(true);
       return;
     }
@@ -368,7 +369,7 @@ function SettingsForm({ initial }: { initial: Settings }) {
          * navigation or the templates card below the form.
          */}
         {dirty && (
-          <div className="sticky bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-20 mb-4 lg:bottom-4">
+          <div className="above-nav sticky bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-20 mb-4 lg:bottom-4">
             <div className="card elev-3 flex flex-wrap items-center gap-3 px-4 py-3">
               <div className="min-w-0 flex-1">
                 <FormErrorSummary message={tried && !valid ? t('app.fixFields') : null} />
@@ -401,7 +402,9 @@ function SettingsForm({ initial }: { initial: Settings }) {
           tone="danger"
           confirmLabel={t('settings.smsOffConfirm')}
           consequences={[
-            tf('settings.smsOffCredits', { count: formatNumber(credits) }),
+            credits === undefined
+              ? t('settings.smsOffCreditsUnknown')
+              : tf('settings.smsOffCredits', { count: formatNumber(credits) }),
             t('settings.smsOffConsequence'),
           ]}
           onClose={() => setConfirmingSmsOff(false)}

@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { t } from '@/lib/i18n/bn';
 import { cn } from '@/lib/utils';
@@ -55,14 +55,26 @@ export function Modal({
   const [dragY, setDragY] = useState(0);
   const dragStart = useRef<number | null>(null);
 
+  /*
+   * The latest `dirty` and `onClose`, read when a dismissal happens rather than
+   * baked into the effect below. The effect pins the page and moves focus, so
+   * re-running it whenever a parent re-rendered with a new `onClose`, or a field
+   * became dirty on its first keystroke, pulled focus out of the field being
+   * typed in and closed the phone's keyboard after one character.
+   */
+  const latest = useRef({ dirty, onClose });
+  useLayoutEffect(() => {
+    latest.current = { dirty, onClose };
+  });
+
   /** Every dismissal path goes through here, so `dirty` guards all of them. */
   const requestClose = useCallback(() => {
-    if (dirty) {
+    if (latest.current.dirty) {
       setConfirmingClose(true);
       return;
     }
-    onClose();
-  }, [dirty, onClose]);
+    latest.current.onClose();
+  }, []);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -134,7 +146,7 @@ export function Modal({
       window.scrollTo(0, scrollY);
       previouslyFocused?.focus?.();
     };
-  }, [open, requestClose]);
+  }, [open, requestClose]); // `requestClose` is stable: this runs on open and close only.
 
   if (!open) return null;
 

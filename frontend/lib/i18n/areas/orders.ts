@@ -28,11 +28,12 @@ export const orders = {
   'orders.tabEmpty': 'এই ধাপে এখন কোনো অর্ডার নেই',
   'orders.labels': 'লেবেল',
   'orders.labelsAll': 'সবগুলোর লেবেল',
-  'orders.deliverShort': 'ডেলিভারি হয়েছে',
+  'orders.deliverShort': 'ডেলিভারি চিহ্নিত করুন',
+  'orders.markReturnedShort': 'ফেরত চিহ্নিত করুন',
   'orders.markDelivered': 'ডেলিভারি হয়েছে চিহ্নিত করুন',
   'orders.markReturned': 'ফেরত এসেছে চিহ্নিত করুন',
   'orders.movedTo': '{code} → {status}',
-  'orders.bulkDone': '{count}টি অর্ডার: {action} হয়েছে',
+  'orders.bulkDone': '{count}টি অর্ডার → {status}',
   'orders.bulkPartial': '{done}/{total} হয়েছে, {code}-এ আটকেছে: {reason}',
   'orders.retryRest': 'বাকি {count}টি আবার',
 
@@ -73,6 +74,10 @@ export const orders = {
   'orders.courierCostHint':
     'কুরিয়ারকে যা দেবেন সেটা এখানে নয় — অর্ডারের পাতায় "খরচ যোগ করুন" দিয়ে লিখুন।',
   'orders.chargeUnchanged': 'চার্জ বদলায়নি',
+  'orders.smsWillNotSend': 'তাই SMS যাবে না; অর্ডারের কাজ চালিয়ে যেতে পারেন।',
+  'orders.smsNotConfigured': 'SMS গেটওয়ে সেট করা নেই, তাই ক্রেতাকে SMS পাঠানো যাবে না',
+  'orders.smsNoPhone': 'এই অর্ডারে ক্রেতার মোবাইল নম্বর নেই',
+  'orders.smsCost': 'খরচ প্রায় {amount}',
 
   // Cancel and return.
   'orders.cancelPreset.customer': 'ক্রেতা আর নিতে চান না',
@@ -102,7 +107,7 @@ export const orders = {
   'orders.ownerMargin': 'আপনার মার্জিন',
   'orders.ownerMarginHint': 'রিসেলারের বিল থেকে এই অর্ডারের সব খরচ বাদে',
   'orders.nextOrder': 'পরের অর্ডার',
-  'orders.openComplaintsHere': 'এই অর্ডারে {count}টি খোলা অভিযোগ আছে — দেখুন',
+  'orders.complaintsOpenTitle': 'অভিযোগ · {count}টি খোলা',
 
   // Order expense.
   'orders.expenseSaved': 'খরচ লেখা হয়েছে',

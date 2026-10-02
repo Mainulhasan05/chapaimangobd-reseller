@@ -51,7 +51,7 @@ export function OrderPage({
   onEditDeliveryCharge?: (order: Order) => void;
   /** Owner only. Offered while the parcel is with the courier. */
   onEditCourier?: (order: Order) => void;
-  /** Above the order: what needs attention before reading on, and the way to the next one. */
+  /** Under the actions, above the order: what needs attention first, and the way to the next one. */
   top?: (order: Order) => React.ReactNode;
   /**
    * Anything that belongs under the order but is not part of it. The owner puts
@@ -120,13 +120,13 @@ export function OrderPage({
       {back}
       <PageHeader title={order.orderCode} subtitle={order.customer.name} />
 
-      {top && <div className="mx-auto max-w-3xl">{top(order)}</div>}
-
       {actionNodes && (
         <div className="mx-auto mb-4 flex max-w-3xl flex-wrap gap-2 [&>button]:flex-1 sm:[&>button]:flex-none">
           {actionNodes}
         </div>
       )}
+
+      {top && <div className="mx-auto max-w-3xl">{top(order)}</div>}
 
       <Card className="mx-auto max-w-3xl">
         <OrderDetailBody

@@ -114,6 +114,12 @@ const REASON_FIX: Record<string, DictKey> = {
   empty_text: 'smsPanel.fixEmptyText',
 };
 
+/**
+ * A number in the local 01… form the owner dials, whatever the log stored.
+ * Masked numbers (a sign-in code's) keep their stars.
+ */
+const localPhone = (phone: string) => phone.replace(/^+?880/, '0');
+
 /** What one row says happened, in one phrase. */
 function outcomeOf(log: Pick<SmsLog, 'status' | 'blockedReason'>): string {
   if (log.status === 'blocked' && log.blockedReason && REASON_LABEL[log.blockedReason]) {
@@ -234,8 +240,11 @@ export default function OwnerSmsPage() {
           />
           {overview.data?.spent30d != null ? (
             <Stat
+              // Whole taka, across the row on a phone: a paisa figure in a half
+              // tile overflowed at 360px and said nothing the owner needs.
+              className="col-span-2 lg:col-span-1"
               label={t('smsPanel.spent30')}
-              value={formatMoney(overview.data.spent30d)}
+              value={formatMoney(Math.round(overview.data.spent30d))}
               icon={Wallet}
               hint={
                 overview.data.costPerSegment != null
@@ -326,7 +335,7 @@ export default function OwnerSmsPage() {
                   className="card card-interactive min-w-0 p-4 text-left"
                 >
                   <div className="mb-2 flex items-start justify-between gap-2">
-                    <span className="tabular text-sm font-semibold">{log.phone}</span>
+                    <span className="tabular text-sm font-semibold">{localPhone(log.phone)}</span>
                     <Badge tone={STATUS_TONE[log.status]} dot>
                       {outcomeOf(log)}
                     </Badge>
@@ -366,7 +375,7 @@ export default function OwnerSmsPage() {
                     className="cursor-pointer focus-visible:bg-muted focus-visible:outline-none"
                     tabIndex={0}
                     role="button"
-                    aria-label={`${log.phone} · ${outcomeOf(log)}`}
+                    aria-label={`${localPhone(log.phone)} · ${outcomeOf(log)}`}
                     onClick={() => setOpen(log.id)}
                     onKeyDown={(event) => {
                       if (event.key === 'Enter' || event.key === ' ') {
@@ -378,7 +387,7 @@ export default function OwnerSmsPage() {
                     <Td className="whitespace-nowrap text-sm text-muted-foreground">
                       {formatDateTime(log.createdAt)}
                     </Td>
-                    <Td className="tabular whitespace-nowrap text-sm font-medium">{log.phone}</Td>
+                    <Td className="tabular whitespace-nowrap text-sm font-medium">{localPhone(log.phone)}</Td>
                     <Td className="max-w-md">
                       <span className="line-clamp-1 text-sm">{log.text}</span>
                       <span className="text-xs text-muted-foreground">{purposeOf(log.purpose)}</span>
@@ -483,7 +492,9 @@ function MasterSwitch({ overview }: { overview?: SmsOverviewData }) {
 
       {overview.configured && overview.balanceLow && (
         <Alert tone="danger" icon={TriangleAlert} title={t('smsPanel.lowBalanceTitle')}>
-          {tf('smsPanel.lowBalance', { n: formatNumber(overview.lowBalanceAt ?? 0) })}
+          {overview.lowBalanceAt != null
+            ? tf('smsPanel.lowBalance', { n: formatNumber(overview.lowBalanceAt) })
+            : t('smsPanel.lowBalanceNoCount')}
         </Alert>
       )}
 
@@ -564,13 +575,19 @@ function LogDetail({
 }) {
   const toast = useToast();
   const log = useGetSmsLogQuery({ id });
-  const [resend, resending] = useResendSmsMutation();
+  const [resend] = useResendSmsMutation();
+  const [confirmingResend, setConfirmingResend] = useState(false);
   const row = log.data?.log;
 
   // A sign-in code is logged masked and a test is sent again from the test form.
   const resendable = row ? row.resendable !== false && row.purpose !== 'otp' && row.purpose !== 'test' : false;
   const canResend = Boolean(row) && row!.status !== 'sent' && resendable;
 
+  /*
+   * A resend is another message off the gateway, charged again to the same
+   * reseller, so it is confirmed rather than spent on one tap. A refusal is
+   * shown in the confirm, next to the button that caused it.
+   */
   const doResend = async () => {
     try {
       const { result } = await resend({ id }).unwrap();
@@ -578,12 +595,9 @@ function LogDetail({
       else toast(tf('smsPanel.resendOutcome', { outcome: outcomeOf(result) }), 'danger');
       onClose();
     } catch (error) {
-      toast(
-        error instanceof ApiError && error.code === 'SMS_NOT_RESENDABLE'
-          ? t('smsPanel.notResendable')
-          : errorMessage(error),
-        'danger'
-      );
+      throw error instanceof ApiError && error.code === 'SMS_NOT_RESENDABLE'
+        ? new Error(t('smsPanel.notResendable'))
+        : error;
     }
   };
 
@@ -595,6 +609,26 @@ function LogDetail({
         : t(REASON_FIX[row.blockedReason])
       : null;
 
+  // The confirm takes the sheet's place rather than opening over it.
+  if (confirmingResend && row) {
+    return (
+      <ConfirmSheet
+        title={t('smsPanel.resendTitle')}
+        confirmLabel={t('sms.resend')}
+        onClose={() => setConfirmingResend(false)}
+        onConfirm={doResend}
+        summary={
+          <>
+            <p className="tabular font-semibold">{localPhone(row.phone)}</p>
+            <p className="mt-1 line-clamp-3 break-words text-muted-foreground">{row.text}</p>
+          </>
+        }
+        rows={[{ label: t('sms.segments'), value: formatNumber(row.segments) }]}
+        consequences={[t('sms.resendHelp'), ...(fix ? [fix] : [])]}
+      />
+    );
+  }
+
   return (
     <Modal
       open
@@ -602,7 +636,7 @@ function LogDetail({
       title={t('sms.detail')}
       footer={
         canResend ? (
-          <Button loading={resending.isLoading} onClick={doResend} full>
+          <Button onClick={() => setConfirmingResend(true)} full>
             {t('sms.resend')}
           </Button>
         ) : undefined
@@ -621,7 +655,7 @@ function LogDetail({
       {row && (
         <>
           <div className="mb-4 flex items-center justify-between gap-3">
-            <span className="tabular text-base font-bold">{row.phone}</span>
+            <span className="tabular text-base font-bold">{localPhone(row.phone)}</span>
             <Badge tone={STATUS_TONE[row.status]} dot>
               {outcomeOf(row)}
             </Badge>
@@ -746,7 +780,7 @@ function TestSend({ onClose }: { onClose: () => void }) {
       open
       onClose={onClose}
       title={t('sms.test')}
-      dirty={Boolean(text) && !result}
+      dirty={Boolean(text.trim() || phone.trim()) && !result}
       footerLead={
         cost ? (
           <p className={cn('tabular text-xs', cost.encoding === 'UCS-2' ? 'text-warning-ink' : 'text-muted-foreground')}>

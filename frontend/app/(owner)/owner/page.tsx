@@ -273,7 +273,7 @@ export default function OwnerDashboardPage() {
        */}
       <QueueTile
         icon={BadgeCheck}
-        label={t('owner.pendingKyc')}
+        label={t('dash.pendingKyc')}
         count={formatNumber(data.pendingKyc)}
         href={'/owner/kyc?status=pending' as Route}
       />
@@ -332,7 +332,7 @@ export default function OwnerDashboardPage() {
               kind="pick-list"
               range={null}
               label={t('report.pickList')}
-              className="block [&>button]:w-full"
+              full
             />
           </div>
         </>
@@ -469,7 +469,7 @@ export default function OwnerDashboardPage() {
             icon={Wallet}
             tone="primary"
             label={t('dash.todaySales')}
-            value={formatMoney(money.ownerRevenue)}
+            value={wholeTaka(money.ownerRevenue)}
             hint={t('dash.todaySalesHint')}
             href={ordersHref('range=today')}
             className={STAT_COMPACT}
@@ -582,7 +582,7 @@ export default function OwnerDashboardPage() {
                 </Link>
 
                 <Link
-                  href={ordersHref('status=delivered')}
+                  href={ordersHref('status=delivered&range=today')}
                   className="rounded-xl bg-muted px-3 py-2.5 transition-colors hover:bg-subtle"
                 >
                   <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -653,6 +653,12 @@ export default function OwnerDashboardPage() {
              * usually empty teaches the reader to skip it, and this is the one
              * that must not be skipped. A negative count outranks a low one.
              */}
+            {supplies.isError && !supplies.data && (
+              <Card>
+                <CardHeader title={t('supply.low')} href="/owner/supplies" hrefLabel={t('nav.supplies')} />
+                <LoadFailed onRetry={() => supplies.refetch()} retrying={supplies.isFetching} />
+              </Card>
+            )}
             {(() => {
               const rows = supplies.data?.supplies ?? [];
               const bad = rows.filter((r) => r.isNegative);
@@ -764,6 +770,9 @@ export default function OwnerDashboardPage() {
  */
 const STAT_COMPACT = 'p-4 sm:p-5 [&>.tabular]:text-[1.375rem] sm:[&>.tabular]:text-[2rem]';
 
+/** Tile money in whole taka: paisa add two characters a half-width tile cannot spare. */
+const wholeTaka = (value: number) => formatMoney(Math.round(value));
+
 /**
  * A stat whose figure comes from its own query, so it never shows ৳০ for a
  * number it does not have: a skeleton while it loads, and "—" with a retry when
@@ -820,7 +829,7 @@ function QueryStat<T>({
       href={href}
       tone={value !== undefined && toneFor ? toneFor(value) : 'neutral'}
       className={STAT_COMPACT}
-      value={value === undefined ? <Skeleton className="h-7 w-24" /> : formatMoney(value)}
+      value={value === undefined ? <Skeleton className="h-7 w-24" /> : wholeTaka(value)}
     />
   );
 }

@@ -16,6 +16,7 @@ import {
   useApproveWithdrawalMutation,
   useGetDepositScreenshotQuery,
   useGetDepositsInfiniteQuery,
+  useGetResellerQuery,
   useGetWithdrawalsInfiniteQuery,
   useRejectDepositMutation,
   useRejectWithdrawalMutation,
@@ -154,7 +155,8 @@ function ResellerCell({ reseller }: { reseller: ResellerRef }) {
       {id ? (
         <Link
           href={`/owner/resellers/${id}` as Route}
-          className="block truncate font-medium underline-offset-2 hover:underline"
+          // Padded to a thumb's height on a phone: it sits right above the phone link.
+          className="block truncate py-2.5 font-medium underline-offset-2 hover:underline sm:py-0"
         >
           {reseller?.shopName}
         </Link>
@@ -250,7 +252,10 @@ function QueueEmpty({
 }
 
 /** Shown while the list is narrowed to one reseller, with the way back to everyone. */
-function ResellerFilter({ shopName, onClear }: { shopName?: string; onClear: () => void }) {
+function ResellerFilter({ id, onClear }: { id: string; onClear: () => void }) {
+  // Read from the reseller, not from the first row: an empty list still has a name.
+  const reseller = useGetResellerQuery({ id });
+  const shopName = reseller.data?.reseller.shopName;
   return (
     <div className="mb-3 flex items-center justify-between gap-2 rounded-xl bg-primary-softer px-3 py-1 text-sm text-primary-ink">
       <span className="min-w-0 truncate font-medium">
@@ -265,6 +270,19 @@ function ResellerFilter({ shopName, onClear }: { shopName?: string; onClear: () 
         {t('finance.showAll')}
       </button>
     </div>
+  );
+}
+
+/**
+ * The way from an approve sheet to the reject one. Given the sheet's `busy`
+ * (its children function) so it is held while the approval is in flight:
+ * switching mid-request would unmount the sheet about to report the answer.
+ */
+function RejectInstead({ label, busy, onReject }: { label: string; busy: boolean; onReject: () => void }) {
+  return (
+    <Button variant="outline" full className="mb-2 text-danger" disabled={busy} onClick={onReject}>
+      {label}
+    </Button>
   );
 }
 
@@ -419,17 +437,19 @@ function ApproveDepositSheet({
         tf('finance.depositConsequence', { amount }),
       ]}
     >
-      <ResellerNote note={row.note} />
-      <div className="mb-3 mt-3">
-        {row.hasScreenshot ? (
-          <DepositScreenshot id={row.id} />
-        ) : (
-          <p className="rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">{t('finance.noScreenshot')}</p>
-        )}
-      </div>
-      <Button variant="outline" full className="mb-2 text-danger" onClick={onReject}>
-        {t('finance.rejectInstead')}
-      </Button>
+      {({ busy }) => (
+        <>
+          <ResellerNote note={row.note} />
+          <div className="mb-3 mt-3">
+            {row.hasScreenshot ? (
+              <DepositScreenshot id={row.id} />
+            ) : (
+              <p className="rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">{t('finance.noScreenshot')}</p>
+            )}
+          </div>
+          <RejectInstead label={t('finance.rejectInstead')} busy={busy} onReject={onReject} />
+        </>
+      )}
     </ConfirmSheet>
   );
 }
@@ -471,7 +491,7 @@ function Deposits({ status, reseller, clearReseller }: ListProps) {
 
   return (
     <>
-      {reseller && <ResellerFilter shopName={rows[0]?.reseller?.shopName} onClear={clearReseller} />}
+      {reseller && <ResellerFilter id={reseller} onClear={clearReseller} />}
 
       {deposits.isLoading ? (
         <ListLoading />
@@ -702,67 +722,69 @@ function ApproveWithdrawalSheet({
         placeholder: t('finance.payoutReferencePlaceholder'),
       }}
     >
-      {short && (
-        <Alert tone="danger" icon={TriangleAlert}>
-          {t('finance.overBalance')}
-        </Alert>
-      )}
+      {({ busy }) => (
+        <>
+          {short && (
+            <Alert tone="danger" icon={TriangleAlert}>
+              {t('finance.overBalance')}
+            </Alert>
+          )}
 
-      <div className="mb-4 rounded-xl border border-border px-4 py-3 text-sm">
-        <p className="mb-2 text-xs font-semibold text-muted-foreground">{t('wallet.payoutDestination')}</p>
-        {row.bank ? (
-          <dl className="space-y-1">
-            <div className="flex justify-between gap-3">
-              <dt className="text-muted-foreground">{t('wallet.bankName')}</dt>
-              <dd className="text-right">{row.bank.bankName}</dd>
-            </div>
-            <div className="flex justify-between gap-3">
-              <dt className="text-muted-foreground">{t('wallet.branchName')}</dt>
-              <dd className="text-right">{row.bank.branchName}</dd>
-            </div>
-            <div className="flex items-center justify-between gap-3">
-              <dt className="text-muted-foreground">{t('wallet.accountNumber')}</dt>
-              <dd className="min-w-0 text-right font-semibold">
-                <Copyable value={row.bank.accountNumber} label={t('finance.copyAccount')} />
-              </dd>
-            </div>
-            <div className="flex justify-between gap-3">
-              <dt className="text-muted-foreground">{t('wallet.accountName')}</dt>
-              <dd className="text-right">{row.bank.accountName}</dd>
-            </div>
-            {row.bank.routingNumber && (
-              <div className="flex justify-between gap-3">
-                <dt className="text-muted-foreground">{t('wallet.routingNumber')}</dt>
-                <dd className="tabular text-right">{row.bank.routingNumber}</dd>
+          <div className="mb-4 rounded-xl border border-border px-4 py-3 text-sm">
+            <p className="mb-2 text-xs font-semibold text-muted-foreground">{t('wallet.payoutDestination')}</p>
+            {row.bank ? (
+              <dl className="space-y-1">
+                <div className="flex justify-between gap-3">
+                  <dt className="text-muted-foreground">{t('wallet.bankName')}</dt>
+                  <dd className="text-right">{row.bank.bankName}</dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-muted-foreground">{t('wallet.branchName')}</dt>
+                  <dd className="text-right">{row.bank.branchName}</dd>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="text-muted-foreground">{t('wallet.accountNumber')}</dt>
+                  <dd className="min-w-0 text-right font-semibold">
+                    <Copyable value={row.bank.accountNumber} label={t('finance.copyAccount')} />
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-muted-foreground">{t('wallet.accountName')}</dt>
+                  <dd className="text-right">{row.bank.accountName}</dd>
+                </div>
+                {row.bank.routingNumber && (
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-muted-foreground">{t('wallet.routingNumber')}</dt>
+                    <dd className="tabular text-right">{row.bank.routingNumber}</dd>
+                  </div>
+                )}
+              </dl>
+            ) : row.destinationNumber ? (
+              <div className="flex items-center justify-between gap-3">
+                <span>{tMethod(row.method)}</span>
+                <span className="text-lg font-bold">
+                  <Copyable value={row.destinationNumber} label={t('finance.copyNumber')} />
+                </span>
               </div>
+            ) : (
+              <p>—</p>
             )}
-          </dl>
-        ) : row.destinationNumber ? (
-          <div className="flex items-center justify-between gap-3">
-            <span>{tMethod(row.method)}</span>
-            <span className="text-lg font-bold">
-              <Copyable value={row.destinationNumber} label={t('finance.copyNumber')} />
-            </span>
           </div>
-        ) : (
-          <p>—</p>
-        )}
-      </div>
 
-      <ResellerNote note={row.note} />
+          <ResellerNote note={row.note} />
 
-      <div className="my-4">
-        <p className="mb-1.5 text-xs font-semibold text-muted-foreground">{t('finance.stepsTitle')}</p>
-        <ol className="list-decimal space-y-1 pl-5 text-sm">
-          <li>{t('finance.step1')}</li>
-          <li>{t('finance.step2')}</li>
-          <li>{t('finance.step3')}</li>
-        </ol>
-      </div>
+          <div className="my-4">
+            <p className="mb-1.5 text-xs font-semibold text-muted-foreground">{t('finance.stepsTitle')}</p>
+            <ol className="list-decimal space-y-1 pl-5 text-sm">
+              <li>{t('finance.step1')}</li>
+              <li>{t('finance.step2')}</li>
+              <li>{t('finance.step3')}</li>
+            </ol>
+          </div>
 
-      <Button variant="outline" full className="mb-2 text-danger" onClick={onReject}>
-        {t('finance.rejectInsteadWithdrawal')}
-      </Button>
+          <RejectInstead label={t('finance.rejectInsteadWithdrawal')} busy={busy} onReject={onReject} />
+        </>
+      )}
     </ConfirmSheet>
   );
 }
@@ -806,7 +828,7 @@ function Withdrawals({ status, reseller, clearReseller }: ListProps) {
 
   return (
     <>
-      {reseller && <ResellerFilter shopName={rows[0]?.reseller?.shopName} onClear={clearReseller} />}
+      {reseller && <ResellerFilter id={reseller} onClear={clearReseller} />}
 
       {withdrawals.isLoading ? (
         <ListLoading />

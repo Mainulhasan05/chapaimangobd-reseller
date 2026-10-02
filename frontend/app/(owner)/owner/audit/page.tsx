@@ -17,6 +17,7 @@ import {
   tPayeeKind,
   tPayeeLedgerKind,
   tRequestStatus,
+  tMaybe,
   tStatus,
   tUnit,
   type DictKey,
@@ -213,7 +214,8 @@ export default function OwnerAuditPage() {
 
   // The one record whose history is open, named by whatever its entries call it.
   const focused = filters.targetId
-    ? (entries.find((entry) => entry.targetLabel)?.targetLabel ?? targetTypeLabel(filters.targetType))
+    ? (entries.find((entry) => entry.targetLabel)?.targetLabel ??
+      (filters.targetType ? targetTypeLabel(filters.targetType) : t('audit.record')))
     : null;
 
   // Drawn in two places (the card and the phone's sheet), so each copy gets its own ids.
@@ -700,6 +702,8 @@ function formatValue(entry: AuditEntry, key: string, value: unknown): React.Reac
     if (leaf === 'kind') return kindLabel(value);
     if (leaf === 'paidFrom') return tPaidFrom(value);
     if (leaf === 'unit') return tUnit(value);
+    // A picture is stored as an id or an address, neither of which says anything on screen.
+    if (/(cover|image|logo|url)$/i.test(leaf)) return t('audit.imageSet');
     if (leaf === 'role') return value === 'owner' ? t('role.owner') : value === 'reseller' ? t('role.reseller') : value;
     if (leaf === 'scope') return value === 'order' ? t('expense.scopeOrder') : value === 'period' ? t('expense.scopeGeneral') : value;
     if (leaf === 'paymentStatus') return value === 'paid' ? t('expense.paid') : value === 'unpaid' ? t('expense.unpaid') : value;
@@ -717,7 +721,8 @@ function formatValue(entry: AuditEntry, key: string, value: unknown): React.Reac
         .map((item) => {
           const text = String(item);
           if (leaf === 'fields') return fieldLabel(text);
-          if (leaf === 'channels' && known(`prefs.channel.${text}`)) return t(`prefs.channel.${text}` as DictKey);
+          // The outbox names push `web_push`; the screens call it ফোনে.
+          if (leaf === 'channels') return tMaybe(`prefs.channel.${text === 'web_push' ? 'push' : text}`, text);
           return formatValue(entry, leaf, item);
         })
         .join(', ');

@@ -241,7 +241,9 @@ export const notificationsApi = api.injectEndpoints({
     // Queued again; the worker sends it on its next tick. Leaves the list at once.
     retryFailedDelivery: build.mutation<{ message: FailedDelivery }, { id: string }>({
       query: ({ id }) => ({ url: `/owner/outbox/${id}/retry`, method: 'POST' }),
-      invalidatesTags: (_result, error) => (error ? [] : ['Dashboard']),
+      // The refetch closes the gap a removal leaves in page-number paging.
+      invalidatesTags: (_result, error) =>
+        error ? [] : ['Dashboard', { type: 'Outbox', id: LIST }],
       onQueryStarted: async ({ id }, { dispatch, getState, queryFulfilled }) => {
         const patches = notificationsApi.util
           .selectInvalidatedBy(getState(), [{ type: 'Outbox', id: LIST }])
@@ -266,7 +268,9 @@ export const notificationsApi = api.injectEndpoints({
     // Let go: kept on record, no longer counted as a fault.
     dismissFailedDelivery: build.mutation<{ message: FailedDelivery }, { id: string }>({
       query: ({ id }) => ({ url: `/owner/outbox/${id}/dismiss`, method: 'POST' }),
-      invalidatesTags: (_result, error) => (error ? [] : ['Dashboard']),
+      // The refetch closes the gap a removal leaves in page-number paging.
+      invalidatesTags: (_result, error) =>
+        error ? [] : ['Dashboard', { type: 'Outbox', id: LIST }],
       onQueryStarted: async ({ id }, { dispatch, getState, queryFulfilled }) => {
         const patches = notificationsApi.util
           .selectInvalidatedBy(getState(), [{ type: 'Outbox', id: LIST }])

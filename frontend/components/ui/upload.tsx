@@ -126,7 +126,7 @@ export function FileRow({
             type="button"
             onClick={onRemove}
             aria-label={removeLabel ?? t('file.remove')}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-surface hover:text-danger"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-surface hover:text-danger sm:h-8 sm:w-8"
           >
             {uploading ? <X className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
           </button>

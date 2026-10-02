@@ -221,7 +221,9 @@ export default function OwnerOrdersPage() {
 
   /** The order's own page, carrying this list so its "next" and "back" know where they are. */
   const detailHref = (order: Order) =>
-    `/owner/orders/${order.id}${search ? `?list=${encodeURIComponent(search)}` : ''}` as Route;
+    // Always carried, even when empty: an empty list is the default queue, and
+    // the order page needs to know it came from one to offer "পরের অর্ডার".
+    `/owner/orders/${order.id}?list=${encodeURIComponent(search)}` as Route;
 
   /*
    * After a sheet closes, the next row's main button takes focus, so a keyboard
@@ -280,8 +282,17 @@ export default function OwnerOrdersPage() {
    * tried, the ones that went through leave the selection, and the toast names
    * the first that did not and offers to try the rest again.
    */
-  const runBulk = async (label: string, targets: Order[], step: (order: Order) => Promise<unknown>) => {
-    if (progress || targets.length === 0) return;
+  // A ref, not the progress state: the toast's "try the rest" holds an older
+  // copy of this function, and must still see a run that is under way.
+  const bulkRunning = useRef(false);
+  const runBulk = async (
+    label: string,
+    to: OrderStatus,
+    targets: Order[],
+    step: (order: Order) => Promise<unknown>
+  ) => {
+    if (bulkRunning.current || targets.length === 0) return;
+    bulkRunning.current = true;
     const failed: { order: Order; message: string }[] = [];
     setProgress({ label, done: 0, total: targets.length });
     for (let index = 0; index < targets.length; index += 1) {
@@ -294,12 +305,13 @@ export default function OwnerOrdersPage() {
       setProgress({ label, done: index + 1, total: targets.length });
     }
     setProgress(null);
+    bulkRunning.current = false;
 
     selection.clear();
     failed.forEach(({ order }) => selection.toggle(order.id));
 
     if (failed.length === 0) {
-      toast(tf('orders.bulkDone', { count: formatNumber(targets.length), action: label }));
+      toast(tf('orders.bulkDone', { count: formatNumber(targets.length), status: ownerStatusLabel(to) }));
       return;
     }
     // A failed order may have moved under us; refresh what the list shows.
@@ -315,7 +327,7 @@ export default function OwnerOrdersPage() {
       {
         action: {
           label: tf('orders.retryRest', { count: formatNumber(failed.length) }),
-          onClick: () => void runBulk(label, failed.map(({ order }) => order), step),
+          onClick: () => void runBulk(label, to, failed.map(({ order }) => order), step),
         },
       }
     );
@@ -332,7 +344,7 @@ export default function OwnerOrdersPage() {
   const menuFor = (order: Order): MenuItem[] => [
     { label: t('order.viewDetail'), icon: Eye, onSelect: () => router.push(detailHref(order)) },
     ...(order.actions.includes('return')
-      ? [{ label: t('order.return'), icon: Undo2, onSelect: () => act('return', order) }]
+      ? [{ label: t('orders.markReturnedShort'), icon: Undo2, onSelect: () => act('return', order) }]
       : []),
     { label: t('complaint.add'), icon: MessageSquareWarning, onSelect: () => act('complaint', order) },
     ...(order.actions.includes('cancel')
@@ -388,6 +400,13 @@ export default function OwnerOrdersPage() {
       : [];
 
   const dimmed = orders.isFetching && !fresh;
+  /*
+   * A tab or filter whose request failed. RTK keeps the last good rows, which
+   * belong to the previous tab; showing them live under the new tab would let
+   * the owner act on the wrong list. They stay visible, dimmed and inert, under
+   * the error and its retry.
+   */
+  const stale = orders.isError && !fresh;
 
   return (
     <>
@@ -467,25 +486,32 @@ export default function OwnerOrdersPage() {
         onPickAging={() => setUrl({ status: 'confirmed', aging: !aging, sort: '' })}
       />
 
-      <Toolbar className="mb-2">
-        <SearchInput value={input} onChange={setInput} placeholder={t('app.searchOrders')} />
-        <button
-          type="button"
-          onClick={() => setFiltersOpen((open) => !open)}
-          aria-expanded={filtersOpen}
-          className={cn(
-            'tap inline-flex items-center gap-1.5 rounded-xl border px-3 text-sm font-medium sm:hidden',
-            extraFilters ? 'border-primary bg-primary-softer text-primary-ink' : 'border-border text-muted-foreground'
-          )}
-        >
-          <SlidersHorizontal aria-hidden className="h-4 w-4" />
-          {preset === 'all' ? t('app.filters') : formatRange(range)}
-          {extraFilters > 0 && <span className="tabular">({formatNumber(extraFilters)})</span>}
-        </button>
-        <div className="ml-auto hidden xl:block">
-          <ColumnToggle columns={COLUMNS} isVisible={columns.isVisible} onToggle={columns.toggle} />
-        </div>
-      </Toolbar>
+      {/*
+       * Search and the tabs stay under the thumb while the list scrolls beneath
+       * them on a phone; from `sm` they sit in the page like any toolbar.
+       */}
+      <div className="sticky top-16 z-20 -mx-4 mb-3 bg-background/95 px-4 pt-2 pb-1.5 backdrop-blur sm:static sm:mx-0 sm:bg-transparent sm:p-0 sm:backdrop-blur-none">
+        <Toolbar className="mb-2">
+          <SearchInput value={input} onChange={setInput} placeholder={t('app.searchOrders')} />
+          <button
+            type="button"
+            onClick={() => setFiltersOpen((open) => !open)}
+            aria-expanded={filtersOpen}
+            className={cn(
+              'tap inline-flex items-center gap-1.5 rounded-xl border px-3 text-sm font-medium sm:hidden',
+              extraFilters ? 'border-primary bg-primary-softer text-primary-ink' : 'border-border text-muted-foreground'
+            )}
+          >
+            <SlidersHorizontal aria-hidden className="h-4 w-4" />
+            {preset === 'all' ? t('app.filters') : formatRange(range)}
+            {extraFilters > 0 && <span className="tabular">({formatNumber(extraFilters)})</span>}
+          </button>
+          <div className="ml-auto hidden xl:block">
+            <ColumnToggle columns={COLUMNS} isVisible={columns.isVisible} onToggle={columns.toggle} />
+          </div>
+        </Toolbar>
+        <Segmented label={t('app.status')} value={tabValue} onChange={pickStatus} options={tabOptions} />
+      </div>
 
       {/*
        * The dates and the order, behind one chip on a phone (a row of eight date
@@ -518,11 +544,6 @@ export default function OwnerOrdersPage() {
             <option value="newest">{t('orders.sortNewest')}</option>
           </Select>
         </label>
-      </div>
-
-      {/* The tabs stay under the thumb while the list scrolls beneath them. */}
-      <div className="sticky top-16 z-20 -mx-4 mb-3 bg-background/95 px-4 py-1.5 backdrop-blur sm:static sm:mx-0 sm:bg-transparent sm:px-0 sm:py-0 sm:backdrop-blur-none">
-        <Segmented label={t('app.status')} value={tabValue} onChange={pickStatus} options={tabOptions} />
       </div>
 
       {status === 'pending' && <Alert tone="warning">{t('orders.pendingExplained')}</Alert>}
@@ -574,7 +595,7 @@ export default function OwnerOrdersPage() {
        * the list once the sidebar replaces the bottom bar.
        */}
       {(selection.count > 0 || progress) && (
-        <div className="fixed inset-x-0 bottom-[calc(4.25rem+env(safe-area-inset-bottom))] z-30 px-3 pb-2 lg:static lg:mb-3 lg:p-0 [&>div]:mb-0 [&>div]:shadow-[var(--elev-3)] lg:[&>div]:shadow-none">
+        <div className="above-nav fixed inset-x-0 bottom-[calc(4.25rem+env(safe-area-inset-bottom))] z-30 px-3 pb-2 lg:static lg:mb-3 lg:p-0 [&>div]:mb-0 [&>div]:shadow-[var(--elev-3)] lg:[&>div]:shadow-none">
           {progress ? (
             <div className="rounded-xl border border-primary/30 bg-primary-softer px-4 py-3" role="status">
               <p className="tabular text-sm font-semibold text-primary-ink">
@@ -598,7 +619,7 @@ export default function OwnerOrdersPage() {
                 <Button
                   size="sm"
                   onClick={() =>
-                    void runBulk(t('order.pack'), selectedOrders, (order) => packOne({ id: order.id }).unwrap())
+                    void runBulk(t('order.pack'), 'packed', selectedOrders, (order) => packOne({ id: order.id }).unwrap())
                   }
                 >
                   {t('order.pack')}
@@ -625,7 +646,7 @@ export default function OwnerOrdersPage() {
 
       {orders.isLoading && <ListSkeleton />}
 
-      {orders.isError && !orders.data && (
+      {stale && (
         <ErrorState onRetry={() => orders.refetch()} isRetrying={orders.isFetching} error={orders.error} />
       )}
 
@@ -667,14 +688,18 @@ export default function OwnerOrdersPage() {
         <button
           type="button"
           onClick={showHeld}
-          className="tap sticky top-32 z-10 mx-auto mb-3 flex items-center gap-2 rounded-full bg-primary px-4 text-sm font-semibold text-primary-foreground elev-2 sm:top-20"
+          className="tap sticky top-[11.5rem] z-10 mx-auto mb-3 flex items-center gap-2 rounded-full bg-primary px-4 text-sm font-semibold text-primary-foreground elev-2 sm:top-20"
         >
           {tf('orders.newArrived', { count: formatNumber(held.length) })}
         </button>
       )}
 
       {rows.length > 0 && (
-        <div className={cn('transition-opacity', dimmed && 'opacity-60')} aria-busy={dimmed || undefined}>
+        <div
+          className={cn('transition-opacity', (dimmed || stale) && 'opacity-60')}
+          aria-busy={dimmed || undefined}
+          inert={stale || undefined}
+        >
           {/* Select-all for the cards, which have no header row to put it in. */}
           <div className="mb-2 flex items-center justify-between gap-3 xl:hidden">
             <Checkbox
@@ -694,7 +719,7 @@ export default function OwnerOrdersPage() {
             </span>
             {status === 'packed' && (
               <ButtonLink
-                href={`/owner/reports/print/labels?status=packed${range ? `&from=${range.from}&to=${range.to}` : ''}` as Route}
+                href={`/owner/reports/print/labels${qs({ status: 'packed', from: range?.from, to: range?.to, q: args.q, source: args.source, reseller: args.reseller })}` as Route}
                 size="sm"
                 variant="outline"
               >
@@ -900,7 +925,7 @@ export default function OwnerOrdersPage() {
           onConfirm={(sourceId) => {
             const targets = selectedOrders;
             setBulkSheet(null);
-            void runBulk(t('order.accept'), targets, async (order) => {
+            void runBulk(t('order.accept'), 'accepted', targets, async (order) => {
               await acceptOne({
                 id: order.id,
                 sources: order.items.map((item) => ({ itemId: item.id, sourceId })),
@@ -917,7 +942,7 @@ export default function OwnerOrdersPage() {
           onConfirm={(courierName) => {
             const targets = selectedOrders;
             setBulkSheet(null);
-            void runBulk(t('order.ship'), targets, (order) =>
+            void runBulk(t('order.ship'), 'shipped', targets, (order) =>
               shipOne({ id: order.id, courierName }).unwrap()
             );
           }}
@@ -929,7 +954,7 @@ export default function OwnerOrdersPage() {
           onClose={() => setBulkSheet(null)}
           onConfirm={async () => {
             // The sheet closes at once; the run shows its own progress.
-            void runBulk(t('orders.deliverShort'), selectedOrders, (order) =>
+            void runBulk(t('orders.deliverShort'), 'delivered', selectedOrders, (order) =>
               deliverOne({ id: order.id }).unwrap()
             );
           }}
@@ -1037,7 +1062,7 @@ function OrderCard({
           )}
           {canReturn && (
             <Button variant="outline" onClick={onReturn}>
-              {t('order.return')}
+              {t('orders.markReturnedShort')}
             </Button>
           )}
           {canCancel && (

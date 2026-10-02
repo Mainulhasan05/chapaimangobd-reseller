@@ -7,6 +7,9 @@ import { ArrowLeft } from 'lucide-react';
 import { t } from '@/lib/i18n/bn';
 import { cn } from '@/lib/utils';
 
+/** Set to '1' by the shell after the first in-app navigation of this tab. */
+export const IN_APP_KEY = 'cm.inAppNav';
+
 /**
  * The arrow at the top of a detail page.
  *
@@ -33,10 +36,14 @@ export function BackLink({
       href={fallback}
       onClick={(event) => {
         if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
-        const cameFromApp =
-          typeof document !== 'undefined' &&
-          document.referrer.startsWith(window.location.origin) &&
-          window.history.length > 1;
+        // Set by the app shell once this tab has moved between pages. The
+        // referrer is fixed at the first load, so it cannot say this.
+        let cameFromApp = false;
+        try {
+          cameFromApp = window.sessionStorage.getItem(IN_APP_KEY) === '1';
+        } catch {
+          cameFromApp = false;
+        }
         if (cameFromApp) {
           event.preventDefault();
           router.back();

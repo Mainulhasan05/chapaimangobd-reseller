@@ -58,7 +58,8 @@ export function ActionCard({
       </span>
 
       <span className="min-w-0">
-        <span className="block truncate text-sm font-semibold">{label}</span>
+        {/* Two lines rather than an ellipsis: "জমা ও উত্তোলন" does not fit half a 360px screen. */}
+        <span className="line-clamp-2 block text-sm font-semibold leading-snug">{label}</span>
         {hint && (
           <span className="mt-0.5 hidden truncate text-xs text-muted-foreground sm:block">
             {hint}

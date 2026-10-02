@@ -168,7 +168,7 @@ export default function OwnerReportsPage() {
             className="col-span-2 sm:col-span-1"
             label={isLoss ? t('profit.netLoss') : t('profit.net')}
             value={figure(profit.isSuccess, profit.isError, () => formatMoney(Math.abs(netProfit)))}
-            hint={t('profit.periodHint')}
+            hint={t('profit.netHint')}
             tone={profit.isSuccess ? (isLoss ? 'danger' : 'success') : 'neutral'}
             href={preview('profit')}
           />

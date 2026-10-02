@@ -268,6 +268,8 @@ test('customer sms: the queued text is exactly the preview, and is not gated by 
     .query({ action: 'accept' });
   assert.equal(acceptPreview.status, 200);
   assert.equal(acceptPreview.body.data.available, true);
+  assert.equal(acceptPreview.body.data.unavailableReason, null);
+  assert.ok('cost' in acceptPreview.body.data);
   assert.equal(acceptPreview.body.data.encoding, 'GSM-7');
   assert.equal(acceptPreview.body.data.phone, '+8801912345678');
   assert.equal(
@@ -393,6 +395,7 @@ test('customer sms: SMS_UNAVAILABLE without a gateway, before the order moves', 
     .query({ action: 'accept' });
   assert.equal(preview.status, 200);
   assert.equal(preview.body.data.available, false);
+  assert.equal(preview.body.data.unavailableReason, 'not_configured');
 
   const res = await agent
     .post(`/api/owner/orders/${order._id}/accept`)

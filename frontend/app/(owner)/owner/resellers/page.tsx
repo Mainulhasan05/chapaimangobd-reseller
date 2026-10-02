@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import type { Route } from 'next';
 import { ChevronRight, Store, TrendingDown, Users } from 'lucide-react';
 import { t, type DictKey } from '@/lib/i18n/bn';
-import { formatMoney, formatSignedMoney } from '@/lib/format';
+import { formatMoney, formatNumber, formatSignedMoney } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useUrlSearch, useUrlState } from '@/lib/use-url-state';
 import type { KycStatus, ResellerSummary } from '@/lib/types';
@@ -19,6 +19,7 @@ import {
   FilteredEmpty,
   PageHeader,
   Person,
+  PhoneLink,
   SortTh,
   Stat,
   statusTone,
@@ -127,13 +128,21 @@ export default function OwnerResellersPage() {
         <Stat
           icon={Users}
           tone="primary"
-          label={t('nav.resellers')}
-          value={resellers.isLoading ? '—' : resellers.hasNextPage ? `${rows.length}+` : rows.length}
+          /*
+           * The API pages by cursor and sends no total, so this is what is
+           * loaded, and says so when a filter or a search narrowed it.
+           */
+          label={filtered ? t('resellers.countFiltered') : t('nav.resellers')}
+          value={
+            resellers.isLoading
+              ? '—'
+              : `${formatNumber(rows.length)}${resellers.hasNextPage ? '+' : ''}`
+          }
         />
         <Stat
           icon={TrendingDown}
           label={t('resellers.debtorCount')}
-          value={debtorCount ?? '—'}
+          value={debtorCount == null ? '—' : formatNumber(debtorCount)}
           tone={(debtorCount ?? 0) > 0 ? 'warning' : 'neutral'}
           href={'/owner/resellers?sort=balance_asc' as Route}
         />
@@ -145,6 +154,21 @@ export default function OwnerResellersPage() {
           tone={(owed ?? 0) > 0 ? 'danger' : 'neutral'}
         />
       </div>
+
+      {/* The two money figures failed, not zero: say so and offer the retry. */}
+      {receivables.isError && (
+        <p className="-mt-3 mb-4 flex flex-wrap items-center gap-x-2 text-sm text-danger">
+          {t('resellers.figuresFailed')}
+          <button
+            type="button"
+            onClick={() => receivables.refetch()}
+            disabled={receivables.isFetching}
+            className="tap rounded-lg px-2 font-semibold underline underline-offset-2 disabled:opacity-50"
+          >
+            {t('app.retry')}
+          </button>
+        </p>
+      )}
 
       <Toolbar>
         <Segmented
@@ -276,7 +300,7 @@ export default function OwnerResellersPage() {
                   </Td>
                   <Td>
                     <div className="text-sm font-medium">{reseller.user?.name}</div>
-                    <div className="tabular text-xs text-muted-foreground">{reseller.user?.phoneE164}</div>
+                    <PhoneLink phone={reseller.user?.phoneE164} className="text-xs text-muted-foreground" />
                   </Td>
                   <Td>
                     <div className="flex flex-wrap gap-1">

@@ -196,7 +196,9 @@ export function ImagesField({
          * the order the server keeps them in.
          */}
         {total > 0 && (
-          <div className="mb-3 grid grid-cols-3 gap-2 sm:grid-cols-4">
+          // Two across on a phone, so a tile is big enough for its ✕ and ★ corners
+          // and the remove confirmation without them overlapping.
+          <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
             {existing.map((image, index) => (
               <Tile
                 key={image.id}
@@ -407,9 +409,10 @@ function Tile({
       )}
 
       {asking && onRemove && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-foreground/80 p-1 text-background">
-          <span className="text-xs font-semibold">{t('photos.removeAsk')}</span>
-          <div className="flex gap-1">
+        // Stacked, full width: two 44px buttons side by side do not fit a tile on a 360px phone.
+        <div className="absolute inset-0 flex flex-col items-stretch justify-center gap-1 bg-foreground/80 p-1.5 text-background">
+          <span className="text-center text-xs font-semibold">{t('photos.removeAsk')}</span>
+          <div className="flex flex-col gap-1">
             <button
               type="button"
               onClick={() => {

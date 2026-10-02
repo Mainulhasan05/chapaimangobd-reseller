@@ -7,6 +7,7 @@ import { ApiError, errorMessage, fieldErrors } from '@/lib/api';
 import { homeFor, useSession } from '@/lib/session';
 import { safeNext } from '@/lib/safe-next';
 import { useAppDispatch } from '@/lib/store/hooks';
+import { api } from '@/lib/store/api';
 import { sessionApi } from '@/lib/store/endpoints/session';
 import { useLoginMutation, useVerifyLoginMutation } from '@/lib/store/endpoints/public';
 import type { LoginChallenge } from '@/lib/types';
@@ -61,6 +62,9 @@ export default function LoginPage() {
    * session is refetched rather than seeded with half of itself.
    */
   const enter = async () => {
+    // Nothing a previous visitor on this phone left in the cache may survive
+    // into this session (a session that ended on a public page was never reset).
+    dispatch(api.util.resetApiState());
     // Forced: the cache still holds the signed-out answer from a moment ago.
     const request = dispatch(
       sessionApi.endpoints.getSession.initiate(undefined, { forceRefetch: true })

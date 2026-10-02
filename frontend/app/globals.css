@@ -362,6 +362,19 @@
    * by `useScrollFade`, so a strip that fits is not faded at all. A mask, not an
    * overlay gradient, so it needs no colour and works on any background.
    */
+  /*
+   * Marks a bar pinned just above the phone's bottom navigation (a bulk-action
+   * bar, a page's unsaved-changes bar, the toasts). The bar keeps its own
+   * offset; while a field has the keyboard open the nav is hidden (see
+   * AppShell) and every marked bar drops to the bottom edge with it.
+   */
+  html[data-keyboard] .bottom-nav {
+    display: none;
+  }
+  html[data-keyboard] .above-nav {
+    bottom: 0;
+  }
+
   .scroll-fade[data-fade-end] {
     mask-image: linear-gradient(to right, #000 calc(100% - 2.5rem), transparent);
   }

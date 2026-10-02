@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 import { t, tStatus } from '@/lib/i18n/bn';
-import { formatMoney } from '@/lib/format';
+import { formatMoney, formatNumber } from '@/lib/format';
 import {
   AUTH_DIR,
   OWNER_STATE,
@@ -199,14 +199,19 @@ test('2. the reseller submits KYC and the owner approves it', async () => {
   const ownerPage = await owner.newPage();
   await ownerPage.goto('/owner/kyc');
   const submission = cardWith(ownerPage, RESELLER.shopName);
-  await submission.getByRole('button', { name: t('kyc.viewDocuments') }).click();
+  await submission.getByRole('button', { name: t('kycReview.review') }).click();
 
   const review = ownerPage.getByRole('dialog', { name: RESELLER.shopName });
-  // The scans come back through the (in-memory) signed URL path.
-  await expect(review.getByRole('img', { name: 'nid_front' })).toBeVisible();
+  // The scans come back through the (in-memory) signed URL path, named in Bengali.
+  await expect(review.getByRole('img', { name: t('kyc.nidFront') })).toBeVisible();
   await expectNoHorizontalScroll(ownerPage);
-  await button(review, 'kyc.approve').click();
-  await expect(review).toBeHidden();
+  await button(review, 'owner.approve').click();
+
+  // Approval is confirmed on its own sheet, which names the shop.
+  const confirm = ownerPage.getByRole('dialog', { name: t('kycReview.approveTitle') });
+  await expect(confirm.getByText(RESELLER.shopName)).toBeVisible();
+  await button(confirm, 'owner.approve').click();
+  await expect(confirm).toBeHidden();
   await expect(submission).toHaveCount(0);
   await ownerPage.close();
 
@@ -269,7 +274,8 @@ test('3. the owner stocks the catalog and the reseller prices and lists a produc
    * The box first: a reseller says which sizes they carry, and only a carried
    * box has a price to fill in. See docs/adr/0021.
    */
-  const box = row.getByRole('switch', { name: `${PRODUCT.boxContent} kg` });
+  // The derived box name is Bengali: "৫ কেজি".
+  const box = row.getByRole('switch', { name: `${formatNumber(PRODUCT.boxContent)} ${t('unit.kg')}` });
   await expect(box).toHaveAttribute('aria-checked', 'false');
   await box.click();
 
@@ -372,7 +378,8 @@ test('6. the owner accepts, packs, ships and delivers, and the margin lands', as
   await expectNoHorizontalScroll(page);
 
   await button(accept, 'order.accept').click();
-  await expect(page.getByText(t('order.acceptedToast'))).toBeVisible();
+  // The toast names the order and where it went.
+  await expect(page.getByText(`${shared.firstOrderCode} → ${t('orders.status.accepted')}`)).toBeVisible();
   await expect(accept).toBeHidden();
 
   // Pack.
@@ -389,11 +396,16 @@ test('6. the owner accepts, packs, ships and delivers, and the margin lands', as
   );
   await expectNoHorizontalScroll(page);
   await button(ship, 'order.ship').click();
-  await expect(page.getByText(t('order.shippedToast'))).toBeVisible();
+  await expect(page.getByText(`${shared.firstOrderCode} → ${t('orders.status.shipped')}`)).toBeVisible();
   await expect(ship).toBeHidden();
 
   // Deliver.
   await button(page, 'order.deliver').click();
+  // Delivery is final and credits the COD money, so it is confirmed on its own sheet.
+  const deliver = page.getByRole('dialog');
+  await expect(deliver.getByText(t('orders.courierCollects'))).toBeVisible();
+  await button(deliver, 'orders.markDelivered').click();
+  await expect(deliver).toBeHidden();
   await expect(button(page, 'order.deliver')).toBeHidden();
   await expect(page.getByText(tStatus('delivered'), { exact: true }).first()).toBeVisible();
   await expect(page.getByText(`SC-${RUN}`).first()).toBeVisible();
@@ -452,11 +464,11 @@ test('7. a shipped COD order comes back and the owner puts it back in stock', as
   await expect(restock).toHaveAttribute('aria-checked', 'false');
   await restock.click();
   await expect(restock).toHaveAttribute('aria-checked', 'true');
-  await field(dialog, 'order.returnReason').fill('ক্রেতা বাড়িতে ছিলেন না');
+  await dialog.getByRole('textbox', { name: new RegExp(t('order.returnReason')) }).fill('ক্রেতা বাড়িতে ছিলেন না');
   await expectNoHorizontalScroll(page);
   await button(dialog, 'order.return').click();
 
-  await expect(page.getByText(t('order.returnedToast'))).toBeVisible();
+  await expect(page.getByText(`${orderCode} → ${t('order.returned')}`)).toBeVisible();
   await expect(dialog).toBeHidden();
   await expect(page.getByText(tStatus('returned'), { exact: true }).first()).toBeVisible();
   await page.close();

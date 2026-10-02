@@ -125,7 +125,7 @@ export function ShipModal({
 
   const submit = async () => {
     setTried(true);
-    if (courierName.trim().length < MIN_COURIER || !charge.check.ok || !sms.ready) return;
+    if (courierName.trim().length < MIN_COURIER || !charge.check.ok || sms.preparing) return;
     setBusy(true);
     setError(null);
     try {
@@ -155,14 +155,14 @@ export function ShipModal({
       footerLead={
         error ? (
           <FormErrorSummary message={error} />
-        ) : !sms.ready ? (
+        ) : sms.preparing ? (
           <p className="text-xs text-muted-foreground">{t('orders.smsPreparing')}</p>
         ) : undefined
       }
       footer={
         <>
-          <ModalCancel disabled={busy} />
-          <Button loading={busy || !sms.ready} onClick={submit}>
+          <ModalCancel label={t('app.dismiss')} disabled={busy} />
+          <Button loading={busy} disabled={sms.preparing} onClick={submit}>
             {t('order.ship')}
           </Button>
         </>
@@ -294,7 +294,7 @@ export function BulkShipModal({
       dirty={typed !== null}
       footer={
         <>
-          <ModalCancel />
+          <ModalCancel label={t('app.dismiss')} />
           <Button
             onClick={() => {
               setTried(true);

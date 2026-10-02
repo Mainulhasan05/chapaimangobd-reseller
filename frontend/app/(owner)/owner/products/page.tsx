@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Archive, ArchiveRestore, Boxes, Package, PackageOpen, Pencil, Plus } from 'lucide-react';
 import { errorMessage, fieldErrors, ApiError } from '@/lib/api';
 import { t, tf, tUnit } from '@/lib/i18n/bn';
@@ -157,7 +157,13 @@ export default function OwnerProductsPage() {
   const [stockFor, setStockFor] = useState<StockTarget | null>(null);
   const [archiving, setArchiving] = useState<OwnerProduct | null>(null);
 
-  const all = useMemo(() => products.data?.products ?? [], [products.data]);
+  /*
+   * `currentData`, not `data`: switching between the live and archived lists
+   * must not show the previous list's rows under the new list's buttons (a live
+   * product offering "আবার চালু করুন"). A refetch of the same list keeps its rows.
+   */
+  const view = products.currentData;
+  const all = useMemo(() => view?.products ?? [], [view]);
 
   // The whole catalog arrives in one response, so the search is a local scan
   // over the product's name and its boxes' names.
@@ -208,6 +214,14 @@ export default function OwnerProductsPage() {
   const columns = useColumns(COLUMNS, 'owner-products');
   const recipeProduct = filters.recipe ? all.find((p) => p.id === filters.recipe) : undefined;
 
+  // A link to the recipe of a product that is archived or gone used to do
+  // nothing at all and leave the parameter behind: say so, and drop it.
+  useEffect(() => {
+    if (!filters.recipe || !view || recipeProduct) return;
+    toast(t('products.recipeMissing'), 'danger');
+    setFilters({ recipe: '' });
+  }, [filters.recipe, view, recipeProduct, toast, setFilters]);
+
   const restore = async (product: OwnerProduct) => {
     try {
       await restoreProduct({ id: product.id }).unwrap();
@@ -231,7 +245,7 @@ export default function OwnerProductsPage() {
     <>
       <PageHeader
         title={t('nav.products')}
-        subtitle={products.data ? tf('products.count', { count: formatNumber(all.length) }) : undefined}
+        subtitle={view ? tf('products.count', { count: formatNumber(all.length) }) : undefined}
         action={
           <div className="flex flex-wrap items-center gap-2">
             {/* Stock against what has been leaving it, over the last thirty days. */}
@@ -248,7 +262,7 @@ export default function OwnerProductsPage() {
         <Segmented
           label={t('products.filterLabel')}
           value={archivedView ? 'archived' : 'live'}
-          onChange={(view) => setFilters({ view })}
+          onChange={(next) => setFilters({ view: next })}
           options={[
             { value: 'live', label: t('products.viewLive') },
             { value: 'archived', label: t('products.viewArchived') },
@@ -275,9 +289,9 @@ export default function OwnerProductsPage() {
         </div>
       </Toolbar>
 
-      {products.isLoading && <ListSkeleton rows={4} />}
+      {!view && !products.isError && <ListSkeleton rows={4} />}
 
-      {products.isError && !products.data && (
+      {products.isError && !view && (
         <ErrorState
           onRetry={() => products.refetch()}
           isRetrying={products.isFetching}
@@ -286,7 +300,7 @@ export default function OwnerProductsPage() {
       )}
 
       {/* An empty catalog teaches; an empty search says the search is why. */}
-      {products.data && all.length === 0 && !archivedView && (
+      {view && all.length === 0 && !archivedView && (
         <EmptyState
           icon={Package}
           title={t('products.emptyTitle')}
@@ -300,7 +314,7 @@ export default function OwnerProductsPage() {
         />
       )}
 
-      {products.data && all.length === 0 && archivedView && (
+      {view && all.length === 0 && archivedView && (
         <EmptyState
           icon={Archive}
           title={t('products.archivedEmpty')}
@@ -313,9 +327,12 @@ export default function OwnerProductsPage() {
       )}
 
       {rows.length > 0 && (
-        // Kept on screen and dimmed while a new filter loads, rather than
-        // blanking to a spinner every time a chip is tapped.
-        <div className={cn('transition-opacity', products.isFetching && 'opacity-60')}>
+        // Kept on screen and dimmed while it refreshes, and not tappable then,
+        // so a tap cannot land on a row the answer is about to move or remove.
+        <div
+          aria-busy={products.isFetching}
+          className={cn('transition-opacity', products.isFetching && 'pointer-events-none opacity-60')}
+        >
           <ul className="space-y-3 sm:hidden">
             {rows.map((product) => (
               <li key={product.id}>

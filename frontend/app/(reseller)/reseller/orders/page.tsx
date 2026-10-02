@@ -7,7 +7,6 @@ import type { Route } from 'next';
 import { Ban, ClipboardList, Eye, Plus } from 'lucide-react';
 import { useReadOnlyAccount } from '@/lib/session';
 import { useUrlSearch, useUrlState } from '@/lib/use-url-state';
-import { LIVE } from '@/lib/store/api';
 import { useGetResellerOrdersInfiniteQuery } from '@/lib/store/endpoints/reseller';
 import { cn } from '@/lib/utils';
 import { t, tStatus } from '@/lib/i18n/bn';
@@ -86,7 +85,8 @@ function OrdersView() {
    * orders than that, and the fifty-first was previously unreachable by any
    * means the interface offered.
    */
-  const orders = useGetResellerOrdersInfiniteQuery({ status, q: search }, LIVE);
+  // Not polled: the shell polls the pending count and refreshes this when it rises.
+  const orders = useGetResellerOrdersInfiniteQuery({ status, q: search });
   // The previous list stays on screen, dimmed, while a new tab or search loads.
   const switching = orders.isFetching && !orders.currentData;
 

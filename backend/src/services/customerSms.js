@@ -17,6 +17,17 @@ const { badRequest } = require('../utils/errors');
 /** Customer SMS needs only a configured gateway: it is owner-paid. */
 const isAvailable = () => gateway.isConfigured();
 
+/**
+ * Why a customer SMS cannot go to this order, or null when it can. The owner's
+ * sheet names the reason rather than a bare "unavailable": a gateway nobody set
+ * up and an order with no phone are fixed in different places.
+ */
+function unavailableReason(order) {
+  if (!isAvailable()) return 'not_configured';
+  if (!order.customer || !order.customer.phoneE164) return 'no_phone';
+  return null;
+}
+
 function assertAvailable() {
   if (!isAvailable()) {
     throw badRequest('SMS_UNAVAILABLE', 'The SMS gateway is not configured, so no SMS can be sent');
@@ -52,4 +63,4 @@ async function buildCustomerSms({ order, action, courierName, trackingNumber, re
   });
 }
 
-module.exports = { isAvailable, assertAvailable, buildCustomerSms };
+module.exports = { isAvailable, unavailableReason, assertAvailable, buildCustomerSms };

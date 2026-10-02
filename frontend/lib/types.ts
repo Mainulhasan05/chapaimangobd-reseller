@@ -901,6 +901,11 @@ export type CustomerSmsPreview = {
   phone: string | null;
   /** False when no SMS gateway is configured, so nothing could be sent. */
   available: boolean;
+  /** Why not, when not available. */
+  unavailableReason?: 'not_configured' | 'no_phone' | null;
+  /** Taka at the gateway's rate, or null when that rate is not configured. */
+  costPerSegment?: number | null;
+  cost?: number | null;
 };
 
 export type CustomerSmsAction = 'accept' | 'ship' | 'cancel';

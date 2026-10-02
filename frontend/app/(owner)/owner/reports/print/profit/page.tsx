@@ -127,7 +127,7 @@ function ProfitReportView() {
             <Figure
               label={isLoss ? t('profit.netLoss') : t('profit.net')}
               value={formatMoney(Math.abs(totals.netProfit))}
-              hint={t('profit.periodHint')}
+              hint={t('profit.netHint')}
               tone={isLoss ? 'danger' : 'success'}
             />
           </KeyFigures>

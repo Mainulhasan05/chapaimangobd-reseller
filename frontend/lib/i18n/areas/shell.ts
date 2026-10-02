@@ -2,6 +2,7 @@
 export const shell = {
   /* navigation */
   'nav.finance': 'জমা ও উত্তোলন',
+  'nav.financeShort': 'টাকা',
   'nav.notificationsCount': '{count}টি নতুন বিজ্ঞপ্তি',
 
   /* dashboard */
@@ -9,7 +10,8 @@ export const shell = {
   'dash.refresh': 'এখনই আপডেট করুন',
   'dash.vsYesterday': 'গতকাল এই সময়ে {count}টি',
   'dash.inFlight': 'চলমান অর্ডার',
-  'dash.inFlightHint': 'গ্রহণ থেকে পাঠানো পর্যন্ত, ধাপে ধাপে',
+  'dash.inFlightHint': 'নিশ্চিত হওয়া থেকে কুরিয়ারে পাঠানো পর্যন্ত, ধাপে ধাপে',
+  'dash.pendingKyc': 'কেওয়াইসি অপেক্ষায়',
   'dash.inFlightLabel': 'চলমান অর্ডার: {summary}',
   'dash.deliveredToday': 'আজ ডেলিভারি হয়েছে',
   'dash.deliveredTodayHint': 'যখনই অর্ডার হোক',
@@ -85,6 +87,9 @@ export const shell = {
   'failed.technical': 'কারিগরি কারণ',
   'failed.openRecord': 'যা নিয়ে বার্তা',
   'failed.failedAt': 'ব্যর্থ হয়েছে',
+  'failed.dismissTitle': 'এই বিজ্ঞপ্তি তালিকা থেকে বাদ দেবেন?',
+  'failed.dismissConsequence': 'আর পাঠানোর চেষ্টা হবে না। রেকর্ডে থেকে যাবে, তবে আর সমস্যা হিসেবে গোনা হবে না।',
+  'prefs.channel.in_app': 'অ্যাপে',
 
   /* account */
   'account.phoneSubmitNote': 'বদলালে এই ফোনসহ সব জায়গা থেকে লগআউট হবে',
@@ -124,6 +129,7 @@ export const shell = {
   'settings.smsBalanceCount': 'গেটওয়েতে {count}টি SMS বাকি',
   'settings.smsOffTitle': 'রিসেলারদের SMS বন্ধ করবেন?',
   'settings.smsOffCredits': 'রিসেলারদের হাতে এখন {count}টি ক্রেডিট আছে।',
+  'settings.smsOffCreditsUnknown': 'রিসেলারদের হাতে কেনা ক্রেডিট থাকতে পারে।',
   'settings.smsOffConsequence': 'বন্ধ থাকলে এগুলো খরচ হবে না, আবার চালু করলে আগের মতো কাজ করবে।',
   'settings.smsOffConfirm': 'SMS বন্ধ করুন',
   'settings.saveAll': 'সেটিংস সংরক্ষণ করুন',
@@ -142,6 +148,8 @@ export const shell = {
   'audit.actorNone': 'এই নামে কাউকে পাওয়া যায়নি',
   'audit.targetFilter': 'একটি নির্দিষ্ট রেকর্ডের ইতিহাস',
   'audit.targetFilterClear': 'সব রেকর্ড দেখুন',
+  'audit.record': 'রেকর্ড',
+  'audit.imageSet': 'একটি ছবি',
   'audit.group.supply': 'মালামাল',
   'audit.group.purchase': 'মাল কেনা',
   'audit.group.payee': 'পার্টি',
@@ -287,4 +295,7 @@ export const shell = {
   'audit.field.payeeTotalPoisha': 'পার্টির বিল',
   'audit.field.entryId': 'হিসাবের লাইন',
   'audit.field.reversalId': 'ফেরতের লাইন',
+  'audit.field.contentMilli': 'বাক্সে পরিমাণ',
+  'audit.field.cover': 'কভার ছবি',
+  'audit.field.type': 'ধরন',
 } as const;

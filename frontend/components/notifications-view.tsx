@@ -214,6 +214,19 @@ export function NotificationsView({
   const unread = inbox.data?.pages[0]?.unread ?? 0;
   const shown = filters.unread ? rows.filter((row) => !row.readAt) : rows;
 
+  /*
+   * The API has no unread filter, so "শুধু নতুন" filters what is loaded. While
+   * the count says unread rows exist beyond the loaded pages, keep loading, so
+   * the filter never claims "nothing new" with new rows still on the server.
+   */
+  const missingUnread = filters.unread && shown.length < unread;
+  const { hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage } = inbox;
+  useEffect(() => {
+    if (missingUnread && hasNextPage && !isFetchingNextPage && !isFetchNextPageError) {
+      void fetchNextPage();
+    }
+  }, [missingUnread, hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage]);
+
   const readAll = async () => {
     try {
       await markAll({ role }).unwrap();
@@ -287,7 +300,7 @@ export function NotificationsView({
         <EmptyState icon={BellOff} title={t('notif.empty')} description={t('notif.emptyHelp')} />
       )}
 
-      {rows.length > 0 && shown.length === 0 && (
+      {rows.length > 0 && shown.length === 0 && !(missingUnread && hasNextPage) && (
         <FilteredEmpty
           title={t('notif.noneUnread')}
           description=""

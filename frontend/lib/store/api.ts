@@ -78,10 +78,13 @@ export function listTags<T extends { id?: string; _id?: string }>(
  * else.
  */
 export const EFFECTS = {
-  /** An order changed state: lists, counts, the dashboard and the reports. */
+  /**
+   * An order changed state: lists, counts, the dashboard and the reports. With
+   * no id (a deactivation cancelling several) every cached order is refreshed,
+   * detail pages included, because which ones moved is not known here.
+   */
   order: (id?: string): Tag[] => [
-    { type: 'Order', id: LIST },
-    ...(id ? [{ type: 'Order' as const, id }] : []),
+    ...(id ? [{ type: 'Order' as const, id: LIST }, { type: 'Order' as const, id }] : ['Order' as const]),
     'OrderSummary',
     'Dashboard',
     'Report',
@@ -98,10 +101,13 @@ export const EFFECTS = {
   ],
   /** Stock of a product's boxes moved. */
   stock: (): Tag[] => [{ type: 'Product', id: LIST }, 'Catalog', 'Dashboard'],
-  /** Packaging or other supply stock moved. */
+  /**
+   * Packaging or other supply stock moved. A delivery or a purchase moves
+   * supplies without naming them here, so with no id every cached supply,
+   * detail pages included, is refreshed.
+   */
   supplies: (id?: string): Tag[] => [
-    { type: 'Supply', id: LIST },
-    ...(id ? [{ type: 'Supply' as const, id }] : []),
+    ...(id ? [{ type: 'Supply' as const, id: LIST }, { type: 'Supply' as const, id }] : ['Supply' as const]),
     'Dashboard',
     'Report',
   ],
@@ -135,5 +141,9 @@ export const api = createApi({
   endpoints: () => ({}),
 });
 
-/** Polling for the queues the owner watches. Paused while the tab is hidden. */
+/**
+ * Polling, for small requests only: the dashboard counts and the bell. Paged
+ * lists are never polled (every loaded page would refetch); they refresh when a
+ * polled count rises, through `useRefreshOnRise` in lib/store/live.ts.
+ */
 export const LIVE = { pollingInterval: 60_000, skipPollingIfUnfocused: true } as const;

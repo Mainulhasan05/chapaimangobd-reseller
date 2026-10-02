@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import type { Route } from 'next';
 import { ChevronRight, MailCheck, RotateCcw, X } from 'lucide-react';
@@ -10,7 +11,7 @@ import {
   useRetryFailedDeliveryMutation,
   type FailedDelivery,
 } from '@/lib/store/endpoints/notifications';
-import { t, tf, type DictKey } from '@/lib/i18n/bn';
+import { t, tf, tMaybe, type DictKey } from '@/lib/i18n/bn';
 import { formatDateTime, formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import {
@@ -22,6 +23,7 @@ import {
   PhoneLink,
 } from '@/components/ui/layout';
 import { Button } from '@/components/ui/button';
+import { ConfirmSheet } from '@/components/ui/confirm-sheet';
 import { BackLink } from '@/components/ui/back-link';
 import { ListSkeleton } from '@/components/ui/skeleton';
 import { LoadMore } from '@/components/ui/load-more';
@@ -33,23 +35,24 @@ import { useToast } from '@/components/ui/toast';
  * The dashboard counted these for a long time ("notification failed: 3") with
  * nowhere to see which three, so the count was a worry with no action attached.
  * This is the action: who it was for, what it said, which channel failed, and a
- * retry or a dismiss. Both take the row off the list at once; the request runs
- * behind it and puts the row back if it is refused.
+ * retry or a dismiss. Both take the row off the list at once and then refetch
+ * the pages, so page-number paging never skips the rows that moved up. A
+ * dismiss cannot be undone, so it asks first.
  */
 export default function FailedDeliveriesPage() {
   const toast = useToast();
   const list = useGetFailedDeliveriesInfiniteQuery({});
   const [retry, retryState] = useRetryFailedDeliveryMutation();
   const [dismiss, dismissState] = useDismissFailedDeliveryMutation();
+  const [dismissing, setDismissing] = useState<FailedDelivery | null>(null);
 
   const rows = list.data?.pages.flatMap((page) => page.messages) ?? [];
   const total = list.data?.pages[list.data.pages.length - 1]?.total ?? 0;
 
-  const act = async (kind: 'retry' | 'dismiss', row: FailedDelivery) => {
+  const resend = async (row: FailedDelivery) => {
     try {
-      if (kind === 'retry') await retry({ id: row.id }).unwrap();
-      else await dismiss({ id: row.id }).unwrap();
-      toast(kind === 'retry' ? t('failed.retried') : t('failed.dismissed'));
+      await retry({ id: row.id }).unwrap();
+      toast(t('failed.retried'));
     } catch (error) {
       toast(errorMessage(error), 'danger');
     }
@@ -71,7 +74,8 @@ export default function FailedDeliveriesPage() {
         <ErrorState onRetry={() => list.refetch()} isRetrying={list.isFetching} error={list.error} />
       )}
 
-      {list.isSuccess && rows.length === 0 && (
+      {/* "All delivered" only when the server says so, not when the loaded rows ran out. */}
+      {list.isSuccess && rows.length === 0 && total === 0 && (
         <EmptyState icon={MailCheck} title={t('failed.empty')} description={t('failed.emptyHelp')} />
       )}
 
@@ -82,15 +86,15 @@ export default function FailedDeliveriesPage() {
               <FailedCard
                 row={row}
                 busy={pendingId === row.id}
-                onRetry={() => act('retry', row)}
-                onDismiss={() => act('dismiss', row)}
+                onRetry={() => resend(row)}
+                onDismiss={() => setDismissing(row)}
               />
             </li>
           ))}
         </ul>
       )}
 
-      {rows.length > 0 && (
+      {(rows.length > 0 || total > 0) && (
         <LoadMore
           hasMore={Boolean(list.hasNextPage)}
           loading={list.isFetchingNextPage}
@@ -98,6 +102,21 @@ export default function FailedDeliveriesPage() {
           error={list.isFetchNextPageError ? list.error : null}
           shown={rows.length}
           total={total}
+        />
+      )}
+
+      {dismissing && (
+        <ConfirmSheet
+          title={t('failed.dismissTitle')}
+          tone="danger"
+          confirmLabel={t('failed.dismiss')}
+          summary={<p className="font-semibold">{recipientName(dismissing)}</p>}
+          consequences={[t('failed.dismissConsequence')]}
+          onClose={() => setDismissing(null)}
+          onConfirm={async () => {
+            await dismiss({ id: dismissing.id }).unwrap();
+            toast(t('failed.dismissed'));
+          }}
         />
       )}
     </>
@@ -109,6 +128,11 @@ const CHANNEL_STATUS: Record<string, { key: DictKey; tone: 'danger' | 'success' 
   sent: { key: 'failed.channelSent', tone: 'success' },
   pending: { key: 'failed.channelPending', tone: 'neutral' },
 };
+
+/** The outbox names channels `in_app`, `web_push`, `telegram`, `sms`; the screens say ফোনে for push. */
+function channelLabel(name: string): string {
+  return tMaybe(`prefs.channel.${name === 'web_push' ? 'push' : name}`, name);
+}
 
 function recipientName(row: FailedDelivery): string {
   if (row.kind === 'customer_sms') return t('failed.customer');
@@ -179,7 +203,7 @@ function FailedCard({
           return (
             <li key={channel.name}>
               <Badge tone={status.tone}>
-                {t(`prefs.channel.${channel.name}` as DictKey) ?? channel.name}: {t(status.key)}
+                {channelLabel(channel.name)}: {t(status.key)}
                 {channel.attempts > 0 && (
                   <span className="opacity-75">
                     {' · '}

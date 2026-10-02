@@ -4,8 +4,8 @@ import { useState } from 'react';
 import { skipToken } from '@reduxjs/toolkit/query/react';
 import { MessageSquareText } from 'lucide-react';
 import { errorMessage } from '@/lib/api';
-import { t } from '@/lib/i18n/bn';
-import { formatNumber } from '@/lib/format';
+import { t, tf } from '@/lib/i18n/bn';
+import { formatMoney, formatNumber } from '@/lib/format';
 import { useDebounced } from '@/lib/use-debounced';
 import {
   useGetCustomerSmsPreviewQuery,
@@ -64,42 +64,69 @@ export function useCustomerSms(
   const preview = useGetCustomerSmsPreviewQuery(arg);
 
   const available = preview.data?.available === true;
-  const sending = enabled && available;
+  /*
+   * A preview that failed to load means the text is unknown, and an unknown text
+   * is never sent. Treated as "no SMS" rather than as a wait: the old sheet held
+   * its button spinning for ever when the preview errored. The field says so and
+   * offers a retry; the order action itself goes ahead.
+   */
+  const failed = enabled && preview.isError;
+  const sending = enabled && available && !failed;
   const ready = !sending || (settled === current && !preview.isFetching && preview.isSuccess);
 
   return {
     enabled: sending,
     setEnabled,
     available,
+    failed,
     preview,
     ready,
+    /** The text on screen is catching up with what was typed; the sheet says so. */
+    preparing: !ready,
     reset: () => setEnabled(false),
   };
 }
 
 export type CustomerSmsState = ReturnType<typeof useCustomerSms>;
 
+/** Why the box is off, in words the owner can act on. */
+function unavailableText(state: CustomerSmsState): string {
+  const { preview } = state;
+  if (preview.isLoading) return t('customerSms.loading');
+  if (preview.isError) return `${errorMessage(preview.error)} ${t('orders.smsWillNotSend')}`;
+  switch (preview.data?.unavailableReason) {
+    case 'not_configured':
+      return t('orders.smsNotConfigured');
+    case 'no_phone':
+      return t('orders.smsNoPhone');
+    default:
+      return t('customerSms.unavailable');
+  }
+}
+
 export function CustomerSmsField({ state }: { state: CustomerSmsState }) {
-  const { preview, available } = state;
-  const loadingAvailability = preview.isLoading;
+  const { preview, available, failed } = state;
+  const data = preview.data;
 
   return (
     <div className="mt-5 border-t border-border pt-4">
       <Switch
         checked={state.enabled}
-        disabled={!available}
+        disabled={!available && !failed}
         onChange={state.setEnabled}
         label={t('customerSms.send')}
-        hint={
-          loadingAvailability
-            ? t('customerSms.loading')
-            : available
-              ? t('customerSms.sendHint')
-              : preview.isError
-                ? errorMessage(preview.error)
-                : t('customerSms.unavailable')
-        }
+        hint={available && !preview.isError ? t('customerSms.sendHint') : unavailableText(state)}
       />
+
+      {preview.isError && (
+        <button
+          type="button"
+          onClick={() => preview.refetch()}
+          className="tap -mt-1 rounded-lg px-2 text-sm font-semibold text-primary-ink hover:bg-primary-softer"
+        >
+          {t('app.retry')}
+        </button>
+      )}
 
       {state.enabled && (
         <div className="mt-3 rounded-xl bg-muted/60 p-3.5" aria-live="polite">
@@ -109,19 +136,25 @@ export function CustomerSmsField({ state }: { state: CustomerSmsState }) {
             {preview.isFetching && <Spinner className="h-3 w-3" />}
           </p>
 
-          {preview.data && (
+          {data && (
             <>
               {/* Latin text, shown exactly as it will arrive, line breaks and all. */}
               <p lang="en" className="whitespace-pre-wrap break-words text-sm leading-relaxed">
-                {preview.data.text}
+                {data.text}
               </p>
               <p className="tabular mt-2 text-xs text-muted-foreground">
-                {formatNumber(preview.data.chars)} {t('customerSms.chars')} ·{' '}
-                {formatNumber(preview.data.segments)} {t('customerSms.segments')}
-                {preview.data.phone && (
+                {formatNumber(data.chars)} {t('customerSms.chars')} ·{' '}
+                {formatNumber(data.segments)} {t('customerSms.segments')}
+                {data.cost != null && (
                   <>
                     {' · '}
-                    {t('customerSms.to')} <span lang="en">{preview.data.phone}</span>
+                    {tf('orders.smsCost', { amount: formatMoney(data.cost) })}
+                  </>
+                )}
+                {data.phone && (
+                  <>
+                    {' · '}
+                    {t('customerSms.to')} <span lang="en">{data.phone}</span>
                   </>
                 )}
               </p>

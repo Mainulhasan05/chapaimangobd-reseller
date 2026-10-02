@@ -241,7 +241,8 @@ export default function OwnerExpensesPage() {
                 },
               ]}
             />
-            <Button size="sm" variant="outline" onClick={() => setManaging(true)}>
+            {/* On a phone this sits beside the filter button, keeping the header to one row. */}
+            <Button size="sm" variant="outline" className="hidden sm:inline-flex" onClick={() => setManaging(true)}>
               {t('expense.categories')}
             </Button>
             <Button onClick={startNew}>
@@ -280,11 +281,9 @@ export default function OwnerExpensesPage() {
           {t('app.filters')}
           {filterCount > 0 && ` (${formatNumber(filterCount)})`}
         </Button>
-        {filterCount > 0 && (
-          <Button variant="ghost" onClick={reset}>
-            {t('app.clearFilters')}
-          </Button>
-        )}
+        <Button variant="outline" onClick={() => setManaging(true)} className="flex-1">
+          {t('expense.categories')}
+        </Button>
       </Toolbar>
 
       <div className="mb-4 hidden gap-3 sm:grid sm:grid-cols-2 lg:grid-cols-4">{filterControls('inline')}</div>

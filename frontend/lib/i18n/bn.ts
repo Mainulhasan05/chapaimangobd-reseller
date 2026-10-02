@@ -1465,7 +1465,7 @@ const core = {
   'expense.date': 'তারিখ',
   'expense.scope': 'কার খরচ',
   'expense.scopeOrder': 'একটা অর্ডারের',
-  'expense.scopePeriod': 'সারা দিনের',
+  'expense.scopePeriod': 'সাধারণ খরচ',
   'expense.scopeOrderHint': 'কোন অর্ডারের পিছনে গেছে সেটা জানা আছে — কুরিয়ার বিল, হোম ডেলিভারি।',
   'expense.scopePeriodHint': 'কোন অর্ডারের পিছনে গেছে বলা যায় না — লেবারের মজুরি, ভ্যান ভাড়া। এটা কোনো এক অর্ডারে ভাগ করা হবে না।',
   'expense.order': 'অর্ডার',
@@ -1483,7 +1483,7 @@ const core = {
   'expense.includeVoided': 'বাতিলগুলোও দেখান',
   'expense.note': 'বিস্তারিত',
   'expense.totalOrder': 'অর্ডারের পিছনে',
-  'expense.totalPeriod': 'সারা দিনের',
+  'expense.totalPeriod': 'সাধারণ খরচ',
   'expense.totalAll': 'সব মিলিয়ে',
   'expense.totalUnpaid': 'এখনো দেওয়া হয়নি',
   'expense.categories': 'খরচের ধরন',
@@ -1530,7 +1530,7 @@ const core = {
   'profit.orderCost': 'অর্ডারের পিছনে খরচ',
   'profit.grossMargin': 'খরচ বাদের আগে',
   'profit.grossMarginHint': 'এটাকে এখনো লাভ বলা যায় না — নিচের খরচগুলো এখনো বাদ যায়নি',
-  'profit.periodExpenses': 'সারা দিনের খরচ',
+  'profit.periodExpenses': 'সাধারণ খরচ',
   'profit.periodHint': 'কোন অর্ডারের পিছনে গেছে বলা যায় না, তাই ভাগ করা হয়নি',
   'profit.net': 'শেষ পর্যন্ত লাভ',
   'profit.netLoss': 'শেষ পর্যন্ত ক্ষতি',
@@ -1733,4 +1733,13 @@ export function tf(key: DictKey, values: Record<string, string | number>): strin
     (text, [name, value]) => text.replaceAll(`{${name}}`, String(value)),
     t(key)
   );
+}
+
+/**
+ * A key built at run time (`prefs.channel.${name}`), with a fallback when the
+ * dictionary has no such entry. `t()` is typed for known keys only, and a cast
+ * key it does not know rendered as nothing, or as "undefined" in a label.
+ */
+export function tMaybe(key: string, fallback = key): string {
+  return key in bn ? bn[key as DictKey] : fallback;
 }

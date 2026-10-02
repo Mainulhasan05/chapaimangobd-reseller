@@ -29,14 +29,22 @@ export function useLogout() {
       void logout()
         .unwrap()
         .catch(() => undefined)
-        .finally(() => {
-          // Clear every cached response, not just the session: the next user on
-          // this device must not see the previous one's orders.
-          dispatch(api.util.resetApiState());
-          router.replace('/login');
-        });
+        .finally(() => leaveToLogin());
     },
   };
+}
+
+/**
+ * Leaves for the login form with nothing of this session left in memory.
+ *
+ * A full page load rather than a reset-and-navigate. Resetting the cache while
+ * the protected page was still mounted made every query on it refetch at once,
+ * collect a 401 each, and race the redirect, sometimes landing on
+ * `/login?next=<the previous user's page>`. A new document has no cache, no
+ * mounted screens and no queued requests.
+ */
+export function leaveToLogin(path = '/login'): void {
+  window.location.replace(path);
 }
 
 /** Re-reads the session, for the screens that just changed it (login, password). */

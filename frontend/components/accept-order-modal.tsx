@@ -115,7 +115,7 @@ export function AcceptOrderModal({
 
   const submit = async () => {
     setTried(true);
-    if (missing.length > 0 || !charge.check.ok || !sms.ready) return;
+    if (missing.length > 0 || !charge.check.ok || sms.preparing) return;
     setBusy(true);
     setError(null);
     try {
@@ -157,7 +157,7 @@ export function AcceptOrderModal({
           <FormErrorSummary message={error} />
         ) : tried && missing.length > 0 ? (
           <FormErrorSummary message={tf('orders.sourcesMissing', { count: formatNumber(missing.length) })} />
-        ) : !sms.ready ? (
+        ) : sms.preparing ? (
           <p className="text-xs text-muted-foreground">{t('orders.smsPreparing')}</p>
         ) : undefined
       }
@@ -166,8 +166,8 @@ export function AcceptOrderModal({
           <ModalCancel label={t('app.close')} />
         ) : (
           <>
-            <ModalCancel disabled={busy} />
-            <Button loading={busy || !sms.ready} disabled={sources.isLoading} onClick={submit}>
+            <ModalCancel label={t('app.dismiss')} disabled={busy} />
+            <Button loading={busy} disabled={sources.isLoading || sms.preparing} onClick={submit}>
               {t('order.accept')}
             </Button>
           </>
@@ -310,7 +310,7 @@ export function BulkAcceptModal({
       dirty={picked !== null}
       footer={
         <>
-          <ModalCancel />
+          <ModalCancel label={t('app.dismiss')} />
           <Button
             disabled={sources.isLoading}
             onClick={() => {

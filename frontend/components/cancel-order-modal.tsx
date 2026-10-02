@@ -104,7 +104,7 @@ export function CancelOrderModal({
 
   const submit = async () => {
     setTried(true);
-    if (reasonMissing || !sms.ready) return;
+    if (reasonMissing || sms.preparing) return;
     setBusy(true);
     setError(null);
     try {
@@ -129,11 +129,17 @@ export function CancelOrderModal({
       onClose={busy ? () => {} : onClose}
       title={`${t('order.cancelOrder')} · ${order.orderCode}`}
       dirty={reason.length > 0}
-      footerLead={error ? <FormErrorSummary message={error} /> : undefined}
+      footerLead={
+        error ? (
+          <FormErrorSummary message={error} />
+        ) : sms.preparing ? (
+          <p className="text-xs text-muted-foreground">{t('orders.smsPreparing')}</p>
+        ) : undefined
+      }
       footer={
         <>
           <ModalCancel label={t('app.dismiss')} disabled={busy} />
-          <Button variant="danger" loading={busy || !sms.ready} onClick={submit}>
+          <Button variant="danger" loading={busy} disabled={sms.preparing} onClick={submit}>
             {t('order.cancelOrder')}
           </Button>
         </>

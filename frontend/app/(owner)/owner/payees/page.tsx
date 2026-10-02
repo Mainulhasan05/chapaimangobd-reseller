@@ -28,7 +28,7 @@
 import Link from 'next/link';
 import type { Route } from 'next';
 import { useState } from 'react';
-import { HandCoins, Plus, Receipt, ShoppingCart, Wallet } from 'lucide-react';
+import { HandCoins, Plus, Receipt, ShoppingCart } from 'lucide-react';
 import { t, tf, tPayeeKind } from '@/lib/i18n/bn';
 import { formatMoney, formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -48,7 +48,6 @@ import {
   FilteredEmpty,
   PageHeader,
   PhoneLink,
-  Stat,
   TableWrap,
   Td,
   Th,
@@ -59,7 +58,7 @@ import { Segmented, SearchInput, Toolbar, ToolbarSpacer, type SegmentOption } fr
 import { Switch } from '@/components/ui/switch';
 import { Button, ButtonLink } from '@/components/ui/button';
 import { ConfirmSheet } from '@/components/ui/confirm-sheet';
-import { ListSkeleton, StatSkeleton } from '@/components/ui/skeleton';
+import { ListSkeleton, Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
 import { PAYEE_KINDS, PayeeModal, type PayeeKind } from './payee-form';
 import { PaySheet } from './pay-sheet';
@@ -271,36 +270,50 @@ export default function OwnerPayeesPage() {
        */}
       {payees.isLoading && (
         <>
-          <StatSkeleton count={3} />
+          <Skeleton className="mb-4 h-16 w-full rounded-xl" />
           <ListSkeleton rows={4} />
         </>
       )}
 
       {totals && (
-        <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4">
-          <Stat
-            className="col-span-2 sm:col-span-1"
-            icon={HandCoins}
-            label={t('payee.totalDue')}
-            value={formatMoney(totals.due)}
-            hint={
-              totals.archivedDue
-                ? tf('payee.archivedDueNote', { amount: formatMoney(totals.archivedDue) })
-                : t('payee.dueHint')
-            }
-            tone={totals.due > 0 ? 'warning' : 'neutral'}
-          />
-          <Stat
-            icon={Wallet}
-            label={t('payee.totalAdvance')}
-            value={formatMoney(totals.advance)}
-            tone={totals.advance > 0 ? 'primary' : 'neutral'}
-          />
-          <Stat
-            label={t('payee.title')}
-            value={formatNumber(totals.count)}
-            hint={`${formatNumber(totals.owingCount)} · ${t('payee.owingOnly')}`}
-          />
+        <div className="mb-4">
+          {/* Two money cells that can hold a lakh figure on a 360px phone; the count is a line under them. */}
+          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border">
+            <div className="min-w-0 bg-surface px-3 py-2.5">
+              <p className="text-[0.6875rem] font-medium leading-snug text-muted-foreground">{t('payee.totalDue')}</p>
+              <p
+                className={cn(
+                  'tabular mt-0.5 text-base font-bold leading-tight [overflow-wrap:anywhere] sm:text-2xl',
+                  totals.due > 0 && 'text-warning-ink'
+                )}
+              >
+                {formatMoney(totals.due)}
+              </p>
+            </div>
+            <div className="min-w-0 bg-surface px-3 py-2.5">
+              <p className="text-[0.6875rem] font-medium leading-snug text-muted-foreground">{t('payee.totalAdvance')}</p>
+              <p
+                className={cn(
+                  'tabular mt-0.5 text-base font-bold leading-tight [overflow-wrap:anywhere] sm:text-2xl',
+                  totals.advance > 0 && 'text-primary-ink'
+                )}
+              >
+                {formatMoney(totals.advance)}
+              </p>
+            </div>
+          </div>
+          <p className="tabular mt-1.5 text-xs text-muted-foreground">
+            {tf('payee.owingCountLine', {
+              owing: formatNumber(totals.owingCount),
+              count: formatNumber(totals.count),
+            })}
+          </p>
+          {/* Said wherever it applies, so a name taken off the list never makes its debt look paid. */}
+          {Boolean(totals.archivedDue) && (
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              {tf('payee.archivedDueNote', { amount: formatMoney(totals.archivedDue ?? 0) })}
+            </p>
+          )}
         </div>
       )}
 
@@ -351,7 +364,7 @@ export default function OwnerPayeesPage() {
                     <div className="min-w-0">
                       <Link
                         href={`/owner/payees/${payee.id}` as Route}
-                        className="block truncate py-1 font-semibold text-primary-ink hover:underline"
+                        className="block truncate py-3 font-semibold leading-5 text-primary-ink hover:underline sm:py-1"
                       >
                         {payee.nameBn}
                       </Link>

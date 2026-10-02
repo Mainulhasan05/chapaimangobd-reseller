@@ -54,12 +54,21 @@ export function PayeeModal({ payee, onClose }: { payee: Payee | null; onClose: (
       requestAnimationFrame(() => focusFirstInvalid(root.current));
       return;
     }
+    /*
+     * An edit always sends the optional fields, empty ones as '' (stored as
+     * none), so clearing a phone number actually clears it. A new payee leaves
+     * them out.
+     */
+    const optional = (value: string) => (payee || value ? { value } : null);
+    const phone = optional(draft.phone);
+    const address = optional(draft.address.trim());
+    const note = optional(draft.note.trim());
     const body = {
       nameBn: draft.nameBn.trim(),
       kind: draft.kind,
-      ...(draft.phone ? { phone: draft.phone } : {}),
-      ...(draft.address.trim() ? { address: draft.address.trim() } : {}),
-      ...(draft.note.trim() ? { note: draft.note.trim() } : {}),
+      ...(phone ? { phone: phone.value } : {}),
+      ...(address ? { address: address.value } : {}),
+      ...(note ? { note: note.value } : {}),
     };
     try {
       if (payee) await update({ id: payee.id, ...body }).unwrap();

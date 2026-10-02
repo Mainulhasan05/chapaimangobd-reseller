@@ -32,7 +32,7 @@
 import { use, useState } from 'react';
 import Link from 'next/link';
 import type { Route } from 'next';
-import { HandCoins, Phone, Receipt, ShoppingBasket, TriangleAlert, Undo2, Wallet } from 'lucide-react';
+import { HandCoins, Receipt, ShoppingBasket, TriangleAlert, Undo2, Wallet } from 'lucide-react';
 import { errorMessage, fieldErrors } from '@/lib/api';
 import { t, tf, tPayeeKind, tPayeeLedgerKind } from '@/lib/i18n/bn';
 import { formatDate, formatMoney, formatNumber, formatSignedMoney } from '@/lib/format';
@@ -54,6 +54,7 @@ import {
   CardHeader,
   ErrorState,
   PageHeader,
+  PhoneLink,
   Stat,
 } from '@/components/ui/layout';
 import { BackLink } from '@/components/ui/back-link';
@@ -185,13 +186,11 @@ export default function PayeeDetailPage({ params }: { params: Promise<{ id: stri
                 </Button>
               </>
             )}
-            {/* On a phone a number is for calling, not for reading. */}
-            {payee.phone && (
-              <a href={`tel:${payee.phone}`} className={buttonVariants({ variant: 'outline' })}>
-                <Phone className="h-4 w-4" />
-                <span className="tabular">{payee.phone}</span>
-              </a>
-            )}
+            {/* On a phone a number is for calling, in the local 01… form, not +880. */}
+            <PhoneLink
+              phone={payee.phone}
+              className={buttonVariants({ variant: 'outline', className: 'hover:no-underline' })}
+            />
           </div>
         }
       />
@@ -368,8 +367,9 @@ export default function PayeeDetailPage({ params }: { params: Promise<{ id: stri
                 <ul className="-my-1 divide-y divide-border">
                   {purchases.map((purchase) => (
                     <li key={purchase.id}>
+                      {/* The purchase itself, opened over the list whatever its range. */}
                       <Link
-                        href={purchasesHref}
+                        href={`/owner/purchases?purchase=${purchase.id}` as Route}
                         className="flex items-start justify-between gap-3 py-2.5 hover:bg-muted/40"
                       >
                         <span className="min-w-0">
@@ -431,7 +431,7 @@ export default function PayeeDetailPage({ params }: { params: Promise<{ id: stri
                       <div className="min-w-0">
                         <Link
                           href={expensesHref}
-                          className="block truncate font-semibold text-primary-ink hover:underline"
+                          className="block truncate py-2.5 font-semibold leading-6 text-primary-ink hover:underline sm:py-0"
                         >
                           {expense.categoryNameBn}
                         </Link>
@@ -548,14 +548,14 @@ function LedgerRow({
   onReverse?: () => void;
 }) {
   const reference = entry.reference;
-  const href = reference
-    ? reference.type === 'purchase'
-      ? purchasesHref
-      : expensesHref
-    : entry.refType === 'purchase'
-      ? purchasesHref
-      : entry.refType === 'expense'
-        ? expensesHref
+  // A purchase opens by itself; an expense has no page of its own, so its payee's list.
+  const purchaseId = reference?.type === 'purchase' ? reference.id : entry.refType === 'purchase' ? entry.refId : null;
+  const href: Route | null = purchaseId
+    ? (`/owner/purchases?purchase=${purchaseId}` as Route)
+    : reference?.type === 'expense' || entry.refType === 'expense'
+      ? expensesHref
+      : entry.refType === 'purchase'
+        ? purchasesHref
         : null;
   // Both halves of a reversal stay in the book; neither should shout.
   const quiet = Boolean(entry.reversalOf || entry.reversedBy);
@@ -576,7 +576,7 @@ function LedgerRow({
                 <Link
                   href={href}
                   className={cn(
-                    'font-semibold text-primary-ink underline',
+                    'tap inline-flex items-center font-semibold text-primary-ink underline',
                     reference.cancelled && 'line-through'
                   )}
                 >
@@ -591,7 +591,7 @@ function LedgerRow({
           {!reference && href && (
             <>
               {' · '}
-              <Link href={href} className="font-semibold text-primary-ink underline">
+              <Link href={href} className="tap inline-flex items-center font-semibold text-primary-ink underline">
                 {t('app.details')}
               </Link>
             </>

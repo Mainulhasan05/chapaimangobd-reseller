@@ -49,12 +49,23 @@ const sameRows = (a: Row[], b: Row[]) => JSON.stringify(a) === JSON.stringify(b)
  */
 const QTY = new Intl.NumberFormat('bn-BD', { maximumFractionDigits: 3 });
 
-/** What is wrong with each row, by index. A row needs a supply and a positive amount. */
-function rowProblems(rows: Row[]): Record<number, { supply?: string; qty?: string }> {
+/** A row naming a supply that is archived, or no longer in the list at all. */
+const isStale = (row: Row, byId: Map<string, Supply>) =>
+  Boolean(row.supplyId) && byId.size > 0 && (!byId.has(row.supplyId) || Boolean(byId.get(row.supplyId)?.isArchived));
+
+/**
+ * What is wrong with each row, by index. A row needs a live supply and a
+ * positive amount: the API refuses a recipe naming an archived one.
+ */
+function rowProblems(
+  rows: Row[],
+  byId: Map<string, Supply>
+): Record<number, { supply?: string; qty?: string }> {
   const out: Record<number, { supply?: string; qty?: string }> = {};
   rows.forEach((row, index) => {
     const problem: { supply?: string; qty?: string } = {};
     if (!row.supplyId) problem.supply = t('recipes.supplyMissing');
+    else if (isStale(row, byId)) problem.supply = t('recipes.archivedHint');
     if (!(Number(row.quantity) > 0)) problem.qty = t('recipes.qtyMissing');
     if (problem.supply || problem.qty) out[index] = problem;
   });
@@ -70,9 +81,12 @@ export function PackagingRecipeModal({
 }) {
   const toast = useToast();
 
-  // Every live supply, to choose from. Archived ones are excluded by default,
-  // which is right: a recipe naming an archived item would consume nothing.
-  const supplies = useGetSuppliesQuery();
+  /*
+   * Archived supplies too, but only so a recipe that still names one can say
+   * which ("সরিয়ে রাখা: ক্যারেট") instead of showing an empty choice. Only live
+   * ones are offered: a recipe naming an archived item would consume nothing.
+   */
+  const supplies = useGetSuppliesQuery({ includeArchived: true });
   const [save] = useSaveVariantPackagingMutation();
 
   const [baseline, setBaseline] = useState<Record<string, Row[]>>(() =>
@@ -85,8 +99,9 @@ export function PackagingRecipeModal({
   const [tried, setTried] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  const list = useMemo(() => supplies.data?.supplies ?? [], [supplies.data]);
-  const byId = useMemo(() => new Map(list.map((s) => [s.id, s])), [list]);
+  const everything = useMemo(() => supplies.data?.supplies ?? [], [supplies.data]);
+  const list = useMemo(() => everything.filter((s) => !s.isArchived), [everything]);
+  const byId = useMemo(() => new Map(everything.map((s) => [s.id, s])), [everything]);
 
   const dirtyIds = product.variants
     .filter((v) => !sameRows(drafts[v.id] ?? [], baseline[v.id] ?? []))
@@ -104,7 +119,7 @@ export function PackagingRecipeModal({
       onClose();
       return;
     }
-    const invalid = dirtyIds.find((id) => Object.keys(rowProblems(drafts[id] ?? [])).length > 0);
+    const invalid = dirtyIds.find((id) => Object.keys(rowProblems(drafts[id] ?? [], byId)).length > 0);
     if (invalid) {
       setOpen(invalid);
       return;
@@ -238,7 +253,14 @@ function VariantRecipe({
   showProblems: boolean;
 }) {
   const panelId = `recipe-${variant.id}`;
-  const problems = showProblems ? rowProblems(rows) : {};
+  // An archived supply is flagged straight away, not only after a Save attempt.
+  const problems = showProblems
+    ? rowProblems(rows, byId)
+    : Object.fromEntries(
+        Object.entries(rowProblems(rows, byId))
+          .filter(([index]) => isStale(rows[Number(index)], byId))
+          .map(([index, problem]) => [index, { supply: problem.supply }])
+      );
   const errors = fieldErrors(failure);
 
   const setRow = (index: number, patch: Partial<Row>) =>
@@ -263,9 +285,11 @@ function VariantRecipe({
           .map((row) => {
             const supply = byId.get(row.supplyId);
             const qty = Number(row.quantity) > 0 ? QTY.format(Number(row.quantity)) : '—';
-            return supply
-              ? `${supply.nameBn} ${qty} ${tUnit(supply.unit)}`
-              : `${t('recipes.unknownSupply')} ${qty}`;
+            if (!supply) return `${t('recipes.unknownSupply')} ${qty}`;
+            const name = supply.isArchived
+              ? tf('recipes.archivedSupply', { name: supply.nameBn })
+              : supply.nameBn;
+            return `${name} ${qty} ${tUnit(supply.unit)}`;
           })
           .join(' · ');
 
@@ -332,6 +356,15 @@ function VariantRecipe({
                     onChange={(e) => setRow(index, { supplyId: e.target.value })}
                   >
                     <option value="">{t('recipes.chooseSupply')}</option>
+                    {/* The archived (or vanished) supply this row still names, so
+                      * the select shows what is there rather than "বেছে নিন". */}
+                    {row.supplyId && (!supply || supply.isArchived) && (
+                      <option value={row.supplyId} disabled>
+                        {supply
+                          ? tf('recipes.archivedSupply', { name: supply.nameBn })
+                          : t('recipes.unknownSupply')}
+                      </option>
+                    )}
                     {available(index).map((option) => (
                       <option key={option.id} value={option.id}>
                         {option.nameBn} ({tUnit(option.unit)})

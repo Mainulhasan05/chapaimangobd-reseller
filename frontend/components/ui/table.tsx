@@ -4,6 +4,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExtern
 import { createPortal } from 'react-dom';
 import { ArrowDownUp, ArrowDown, ArrowUp, Check, Ellipsis, SlidersHorizontal } from 'lucide-react';
 import { t } from '@/lib/i18n/bn';
+import { formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
 /**
@@ -718,16 +719,16 @@ export function SelectionBar({
   return (
     <div className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-primary/30 bg-primary-softer px-4 py-2.5">
       <span className="tabular text-sm font-semibold text-primary-ink">
-        {count} {t('app.selected')}
+        {formatNumber(count)} {t('app.selected')}
       </span>
       <div className="flex flex-1 flex-wrap items-center justify-end gap-2">
         {children}
         <button
           type="button"
           onClick={onClear}
-          className="rounded-lg px-2.5 py-1.5 text-sm font-medium text-muted-foreground hover:bg-surface hover:text-foreground"
+          className="tap rounded-lg px-2.5 text-sm font-medium text-muted-foreground hover:bg-surface hover:text-foreground sm:min-h-0 sm:py-1.5"
         >
-          {t('app.clear')}
+          {t('app.clearSelection')}
         </button>
       </div>
     </div>

@@ -5,7 +5,7 @@ import type { Route } from 'next';
 import { UserX, Warehouse } from 'lucide-react';
 import { ApiError } from '@/lib/api';
 import { t, tStatus } from '@/lib/i18n/bn';
-import { formatMoney, formatDateTime } from '@/lib/format';
+import { formatMoney, formatDateTime, formatNumber } from '@/lib/format';
 import { useGetCustomerQuery } from '@/lib/store/endpoints/people';
 import { resellerIdOf } from '@/lib/store/endpoints/shared';
 import {
@@ -118,7 +118,7 @@ export function CustomerDetail({
                    * talks about this, and it is not something a date conveys.
                    */}
                   <span className="tabular mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-subtle text-xs font-bold text-muted-foreground">
-                    {orders.length - index}
+                    {formatNumber(orders.length - index)}
                   </span>
 
                   <span className="min-w-0 flex-1">

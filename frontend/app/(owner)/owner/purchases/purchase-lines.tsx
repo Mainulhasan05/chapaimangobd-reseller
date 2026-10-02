@@ -68,6 +68,20 @@ export function LandedCostWhyModal({
   line: PurchaseLine;
   onClose: () => void;
 }) {
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={t('why.avgCost')}
+      footer={<Button onClick={onClose}>{t('why.close')}</Button>}
+    >
+      <LandedCostWorking purchase={purchase} line={line} />
+    </Modal>
+  );
+}
+
+/** The working itself, for the modal above or inline in the purchase sheet. */
+export function LandedCostWorking({ purchase, line }: { purchase: Purchase; line: PurchaseLine }) {
   const allocatable = purchase.charges
     .filter((charge) => charge.allocate)
     .reduce((sum, charge) => sum + charge.amount, 0);
@@ -83,12 +97,7 @@ export function LandedCostWhyModal({
   const split = purchase.lines.length > 1;
 
   return (
-    <Modal
-      open
-      onClose={onClose}
-      title={t('why.avgCost')}
-      footer={<Button onClick={onClose}>{t('why.close')}</Button>}
-    >
+    <>
       <p className="mb-3 text-sm text-muted-foreground">{t('why.avgCostNote')}</p>
 
       <p className="mb-2 text-xs text-muted-foreground">
@@ -144,7 +153,7 @@ export function LandedCostWhyModal({
             : t('purchase.basisQuantity')}
         </p>
       )}
-    </Modal>
+    </>
   );
 }
 

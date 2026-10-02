@@ -271,7 +271,9 @@ export function Stat({
       <div className="text-xs font-semibold text-muted-foreground">{label}</div>
       <div
         className={cn(
-          'tabular mt-1 text-[2rem] font-bold leading-none tracking-tight',
+          // Smaller on a phone, and allowed to break: a seven-digit taka figure in a
+          // half-width tile used to push the page sideways at 360px.
+          'tabular mt-1 min-w-0 text-[1.625rem] font-bold leading-none tracking-tight [overflow-wrap:anywhere] sm:text-[2rem]',
           accent
         )}
       >
@@ -711,7 +713,9 @@ export function StickyBar({
       className={cn(
         'elev-2 fixed inset-x-0 z-40 border-t border-border bg-surface/95 px-4 pt-3 backdrop-blur sm:static sm:border-0 sm:bg-transparent sm:px-0 sm:shadow-none sm:backdrop-blur-none',
         // Above the nav, the nav already clears the home indicator.
-        aboveNav ? 'bottom-[calc(4rem+env(safe-area-inset-bottom))] pb-3' : 'bottom-0 pb-safe-3'
+        aboveNav
+          ? 'above-nav bottom-[calc(4.25rem+env(safe-area-inset-bottom))] pb-3'
+          : 'bottom-0 pb-safe-3'
       )}
     >
       <div className="mx-auto max-w-2xl">{children}</div>

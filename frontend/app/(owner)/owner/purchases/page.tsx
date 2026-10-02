@@ -68,11 +68,22 @@ import { ListSkeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
 import { PurchaseModal } from './purchase-form';
 import { LandedCostWhyModal, PurchaseLines } from './purchase-lines';
+import { PurchaseSheet } from './purchase-sheet';
 
 /** One figure in the totals strip. Two lines on a phone, never a card each. */
-function TotalCell({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+function TotalCell({
+  label,
+  value,
+  strong,
+  className,
+}: {
+  label: string;
+  value: string;
+  strong?: boolean;
+  className?: string;
+}) {
   return (
-    <div className="min-w-0 bg-surface px-3 py-2">
+    <div className={cn('min-w-0 bg-surface px-3 py-2', className)}>
       <p className="text-[0.6875rem] font-medium leading-snug text-muted-foreground">{label}</p>
       <p className={cn('tabular mt-0.5 leading-tight', strong ? 'text-lg font-bold' : 'text-sm font-semibold')}>
         {value}
@@ -102,6 +113,8 @@ export default function OwnerPurchasesPage() {
   // This month, the same default as every cost screen.
   const { preset, range, setRange } = useUrlRange('thisMonth');
   const [filters, setFilters, { reset, activeCount }] = useUrlState({ payeeId: '', status: '' });
+  // One purchase opened by link, kept apart from the filters so it never counts as one.
+  const [linked, setLinked] = useUrlState({ purchase: '' });
 
   const purchases = useGetPurchasesInfiniteQuery({
     payeeId: filters.payeeId,
@@ -240,10 +253,26 @@ export default function OwnerPurchasesPage() {
           <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border lg:grid-cols-4">
             <TotalCell label={t('purchase.spent')} value={formatMoney(totals.spent)} strong />
             <TotalCell label={t('purchase.payeeTotal')} value={formatMoney(totals.billedByPayees)} strong />
-            <TotalCell label={t('purchase.goodsCost')} value={formatMoney(totals.goodsCost)} />
-            <TotalCell label={t('purchase.chargeTotal')} value={formatMoney(totals.chargeTotal)} />
+            {/* The breakdown of the first figure: one row on a phone, the rest from `lg` and on the sheet. */}
+            <TotalCell
+              className="hidden lg:block"
+              label={t('purchase.goodsCost')}
+              value={formatMoney(totals.goodsCost)}
+            />
+            <TotalCell
+              className="hidden lg:block"
+              label={t('purchase.chargeTotal')}
+              value={formatMoney(totals.chargeTotal)}
+            />
           </div>
-          <p className="mb-4 mt-1.5 text-xs text-muted-foreground">{t('purchase.totalsHint')}</p>
+          {/* What the first figure is made of, on a phone where its two cells are hidden. */}
+          <p className="tabular mt-1.5 text-xs text-muted-foreground lg:hidden">
+            {tf('purchase.breakdownLine', {
+              goods: formatMoney(totals.goodsCost),
+              charges: formatMoney(totals.chargeTotal),
+            })}
+          </p>
+          <p className="mb-4 mt-1 text-xs text-muted-foreground">{t('purchase.totalsHint')}</p>
         </>
       )}
 
@@ -310,7 +339,7 @@ export default function OwnerPurchasesPage() {
                         {/* The seller's own page, where this purchase's share of their due waits. */}
                         <Link
                           href={`/owner/payees/${purchase.payee}`}
-                          className="block truncate py-0.5 text-sm font-semibold text-primary-ink hover:underline"
+                          className="block truncate py-3 text-sm font-semibold leading-5 text-primary-ink hover:underline sm:py-0.5"
                         >
                           {purchase.payeeNameBn}
                         </Link>
@@ -515,6 +544,23 @@ export default function OwnerPurchasesPage() {
             hint={t('purchase.reenterHint')}
           />
         </ConfirmSheet>
+      )}
+
+      {linked.purchase && (
+        <PurchaseSheet
+          key={linked.purchase}
+          id={linked.purchase}
+          onClose={() => setLinked({ purchase: '' })}
+          // Closed in the same render the next sheet opens in, never stacked under it.
+          onCancel={(purchase) => {
+            setLinked({ purchase: '' });
+            openCancel(purchase);
+          }}
+          onReenter={(purchase) => {
+            setLinked({ purchase: '' });
+            setReentering(purchase);
+          }}
+        />
       )}
 
       {why && <LandedCostWhyModal purchase={why.purchase} line={why.line} onClose={() => setWhy(null)} />}

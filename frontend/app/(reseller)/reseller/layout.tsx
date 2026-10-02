@@ -13,7 +13,8 @@ import {
 } from 'lucide-react';
 import { useSession } from '@/lib/session';
 import { kycVisible } from '@/lib/kyc';
-import { LIVE } from '@/lib/store/api';
+import { LIST, LIVE } from '@/lib/store/api';
+import { useRefreshOnRise } from '@/lib/store/live';
 import { useGetResellerOrdersInfiniteQuery } from '@/lib/store/endpoints/reseller';
 import { useGetNotificationsInfiniteQuery } from '@/lib/store/endpoints/notifications';
 import { AppShell, type NavItem } from '@/components/app-shell';
@@ -79,6 +80,17 @@ export default function ResellerLayout({ children }: { children: React.ReactNode
     ready ? { role: 'reseller', limit: 1 } : skipToken,
     LIVE
   );
+
+  /*
+   * The orders list and the inbox are not polled: these two small requests are,
+   * and a rise refreshes the list behind them. See lib/store/live.ts.
+   */
+  const pendingTotal = pending.data?.pages[0]?.total;
+  useRefreshOnRise(pendingTotal === undefined ? undefined : [pendingTotal], [
+    { type: 'Order', id: LIST },
+  ]);
+  const unread = notifications.data?.pages[0]?.unread;
+  useRefreshOnRise(unread === undefined ? undefined : [unread], [{ type: 'Notification', id: LIST }]);
 
   /*
    * KYC is not on the tab list unless it is this reseller's business: the owner

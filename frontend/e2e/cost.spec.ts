@@ -54,7 +54,8 @@ test('1. the owner adds the things a parcel is packed with', async () => {
   await expect(page.getByRole('heading', { name: t('supply.title') })).toBeVisible();
   await expectNoHorizontalScroll(page);
 
-  await button(page, 'supply.new').click();
+  // The header's button; an empty shelf offers the same action in its guidance.
+  await button(page, 'supply.new').first().click();
   const dialog = page.getByRole('dialog');
   await field(dialog, 'supply.name').fill(CRATE.name);
   await dialog.getByLabel(new RegExp(t('supply.unit'))).selectOption(CRATE.unit);
@@ -165,7 +166,7 @@ test('4. a box gets a recipe, fractions and all', async () => {
   // And it is readable on the product screen.
   const page = await owner.newPage();
   await page.goto('/owner/products');
-  await expect(button(page, 'recipe.title').first()).toBeVisible();
+  await expect(button(page, 'products.recipe').first()).toBeVisible();
   await expectNoHorizontalScroll(page);
   await page.close();
 });
@@ -260,7 +261,8 @@ test('7. paying the seller clears the due, and an overpayment is an advance', as
   const dialog = page.getByRole('dialog');
   await field(dialog, 'payee.payAmount').fill(String(CRATE_RATE * CRATES + LOADING));
   await expectNoHorizontalScroll(page);
-  await button(dialog, 'app.save').click();
+  // Under the large-payment line and not more than the due, so no second look is asked for.
+  await button(dialog, 'payee.pay').click();
   await expect(dialog).toBeHidden();
 
   await expect(page.getByText(formatMoney(0)).first()).toBeVisible();
@@ -296,7 +298,7 @@ test('8. a period expense never lands on one parcel', async () => {
   await page.goto('/owner/expenses');
   await expect(page.getByText(labour.nameBn).first()).toBeVisible();
   // Shown as a day's cost, kept apart from the per-order figure.
-  await expect(page.getByText(t('expense.totalPeriod'))).toBeVisible();
+  await expect(page.getByText(t('expense.scopeGeneral'))).toBeVisible();
   await expectNoHorizontalScroll(page);
   await page.close();
 });
@@ -324,7 +326,7 @@ test('9. the profit report adds up, and prints', async () => {
   await expect(page.getByText(t('report.profit')).first()).toBeVisible();
   await expect(page.getByText(formatMoney(totals.revenue)).first()).toBeVisible();
   // Gross margin is never called profit; the net figure is the only one that is.
-  await expect(page.getByText(t('profit.grossMargin'))).toBeVisible();
+  await expect(page.getByText(t('profit.grossMarginGeneral'))).toBeVisible();
   await page.close();
 });
 

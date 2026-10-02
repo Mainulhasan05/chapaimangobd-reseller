@@ -33,7 +33,7 @@ export const common = {
   'app.next': 'পরের',
   'app.previous': 'আগের',
   'app.selectedCount': '{count}টি বাছাই করা',
-  'app.clearSelection': 'বাছাই মুছুন',
+  'app.clearSelection': 'বাছাই বাদ দিন',
   'app.progress': '{done}/{total}',
   'app.before': 'আগে',
   'app.after': 'পরে',

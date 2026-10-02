@@ -314,7 +314,10 @@ async function listKyc(req, res) {
     {
       direction: 1,
       paging: readPaging(req.query),
-      populate: { path: 'reseller', populate: { path: 'user', select: 'name phoneE164' } },
+      populate: [
+        { path: 'reseller', populate: { path: 'user', select: 'name phoneE164' } },
+        { path: 'reviewedBy', select: 'name' },
+      ],
     }
   );
 
@@ -325,6 +328,10 @@ async function listKyc(req, res) {
       reseller: s.reseller,
       status: s.status,
       documentTypes: s.documents.map((d) => d.type),
+      // The decision, for the history tabs: what was said, by whom, and when.
+      note: s.note || null,
+      reviewedAt: s.reviewedAt || null,
+      reviewedBy: s.reviewedBy ? { id: s.reviewedBy._id, name: s.reviewedBy.name } : null,
       createdAt: s.createdAt,
     })),
   });
