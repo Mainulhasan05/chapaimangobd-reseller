@@ -17,7 +17,8 @@
  *     resellers' own margin and is somebody else's money.
  *   - `grossMargin` is struck BEFORE period costs and is therefore never called
  *     profit. A sheet that called it profit would read as a good month in a
- *     month that lost money on labour.
+ *     month that lost money on labour, so it says "সাধারণ খরচ বাদের আগে" —
+ *     before the general costs — in so many words.
  *   - `netProfit` is the only figure allowed the word, and when it is negative
  *     the sheet says loss instead of printing profit with a minus in front of
  *     it, because a minus sign is the easiest thing on a page to miss.
@@ -28,13 +29,10 @@
  */
 
 import { Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { useGetProfitReportQuery } from '@/lib/store/endpoints/reports';
 import { t, tStatus } from '@/lib/i18n/bn';
 import { formatDate, formatMoney, formatNumber, formatSignedMoney } from '@/lib/format';
-import type { ProfitReport } from '@/lib/types';
-import { formatRange, rangeParams, type DateRange } from '@/components/ui/date-range';
+import { formatRange, type DateRange } from '@/components/ui/date-range';
 import {
   Figure,
   KeyFigures,
@@ -47,7 +45,9 @@ import {
   RTd,
   RTh,
   RTotalRow,
+  SheetBody,
   useAutoPrint,
+  useSheetRange,
 } from '@/components/report/sheet';
 import { ErrorState } from '@/components/ui/layout';
 import { ListSkeleton } from '@/components/ui/skeleton';
@@ -61,23 +61,16 @@ export default function ProfitReportPage() {
 }
 
 function ProfitReportView() {
-  const params = useSearchParams();
-  const from = params.get('from');
-  const to = params.get('to');
-  const range: DateRange = from && to ? { from, to } : null;
+  const sheet = useSheetRange('all');
+  const range = sheet.range;
+  const report = useGetProfitReportQuery(range ?? {});
 
-  const report = useQuery({
-    queryKey: ['owner', 'profit-report', from, to],
-    queryFn: () =>
-      api.get<ProfitReport>(`/owner/reports/profit${range ? `?${rangeParams(range)}` : ''}`),
-  });
+  useAutoPrint(report.isSuccess && !report.isFetching, sheet.auto);
 
-  useAutoPrint(report.isSuccess, params.get('auto') === '1');
-
-  if (report.isError) {
+  if (report.isError && !report.data) {
     return (
       <>
-        <PrintBar back="/owner/reports" />
+        <PrintBar back="/owner/reports" range={sheet} />
         <ErrorState
           onRetry={() => report.refetch()}
           isRetrying={report.isFetching}
@@ -91,7 +84,7 @@ function ProfitReportView() {
   if (!data) {
     return (
       <>
-        <PrintBar back="/owner/reports" />
+        <PrintBar back="/owner/reports" range={sheet} />
         <ListSkeleton />
       </>
     );
@@ -109,258 +102,261 @@ function ProfitReportView() {
 
   return (
     <>
-      <PrintBar back="/owner/reports" />
+      <PrintBar back="/owner/reports" range={sheet} />
 
-      <ReportSheet
-        title={t('report.profit')}
-        subtitle={t('report.profitHint')}
-        range={covered ? formatRange(covered) : t('range.all')}
-        meta={t('report.orderCount').replace('{n}', formatNumber(totals.orders))}
-      >
-        <KeyFigures>
-          <Figure
-            label={t('profit.revenue')}
-            value={formatMoney(totals.revenue)}
-            hint={t('profit.revenueHint')}
-          />
-          <Figure label={t('profit.orderCost')} value={formatMoney(totals.orderCost)} />
-          <Figure
-            label={t('profit.grossMargin')}
-            value={formatMoney(totals.grossMargin)}
-            hint={t('profit.grossMarginHint')}
-            tone={totals.grossMargin < 0 ? 'danger' : undefined}
-          />
-          <Figure
-            label={isLoss ? t('profit.netLoss') : t('profit.net')}
-            value={formatMoney(Math.abs(totals.netProfit))}
-            hint={t('profit.periodHint')}
-            tone={isLoss ? 'danger' : 'success'}
-          />
-        </KeyFigures>
+      <SheetBody busy={report.isFetching}>
+        <ReportSheet
+          title={t('report.profit')}
+          subtitle={t('report.profitHint')}
+          range={covered ? formatRange(covered) : t('range.all')}
+          meta={t('report.orderCount').replace('{n}', formatNumber(totals.orders))}
+        >
+          <KeyFigures>
+            <Figure
+              label={t('profit.revenue')}
+              value={formatMoney(totals.revenue)}
+              hint={t('profit.revenueHint')}
+            />
+            <Figure label={t('profit.orderCost')} value={formatMoney(totals.orderCost)} />
+            <Figure
+              label={t('profit.grossMarginGeneral')}
+              value={formatMoney(totals.grossMargin)}
+              hint={t('profit.grossMarginHint')}
+              tone={totals.grossMargin < 0 ? 'danger' : undefined}
+            />
+            <Figure
+              label={isLoss ? t('profit.netLoss') : t('profit.net')}
+              value={formatMoney(Math.abs(totals.netProfit))}
+              hint={t('profit.periodHint')}
+              tone={isLoss ? 'danger' : 'success'}
+            />
+          </KeyFigures>
 
-        {/*
-         * The working, as one column of signed figures. The three components of
-         * order cost are indented under their subtotal rather than listed as
-         * peers of it, so nothing on the page looks subtracted twice.
-         */}
-        <ReportSection title={t('report.summary')}>
-          <ReportTable
-            head={
-              <>
-                <RTh>{t('report.summary')}</RTh>
-                <RTh align="right">{t('expense.amount')}</RTh>
-              </>
-            }
-          >
-            <tr>
-              <RTd className="font-semibold">
-                {t('profit.revenue')}
-                <span className="block text-xs font-normal text-muted-foreground">
-                  {t('profit.revenueHint')}
-                </span>
-              </RTd>
-              <RTd align="right" className="tabular font-semibold">
-                {formatSignedMoney(totals.revenue)}
-              </RTd>
-            </tr>
-
-            <tr>
-              <RTd className="pl-6 text-muted-foreground">{t('cost.goods')}</RTd>
-              <RTd align="right" className="tabular text-muted-foreground">
-                {formatSignedMoney(-totals.goods)}
-              </RTd>
-            </tr>
-            <tr>
-              <RTd className="pl-6 text-muted-foreground">{t('cost.packaging')}</RTd>
-              <RTd align="right" className="tabular text-muted-foreground">
-                {formatSignedMoney(-totals.packaging)}
-              </RTd>
-            </tr>
-            <tr>
-              <RTd className="pl-6 text-muted-foreground">{t('cost.expenses')}</RTd>
-              <RTd align="right" className="tabular text-muted-foreground">
-                {formatSignedMoney(-totals.orderExpenses)}
-              </RTd>
-            </tr>
-            <tr>
-              <RTd className="font-semibold">{t('profit.orderCost')}</RTd>
-              <RTd align="right" className="tabular font-semibold">
-                {formatSignedMoney(-totals.orderCost)}
-              </RTd>
-            </tr>
-
-            <RTotalRow>
-              <RTd>
-                {t('profit.grossMargin')}
-                <span className="block text-xs font-normal text-muted-foreground">
-                  {t('profit.grossMarginHint')}
-                </span>
-              </RTd>
-              <RTd
-                align="right"
-                className={`tabular ${totals.grossMargin < 0 ? 'text-danger' : ''}`}
-              >
-                {formatMoney(totals.grossMargin)}
-              </RTd>
-            </RTotalRow>
-
-            <tr>
-              <RTd className="font-semibold">
-                {t('profit.periodExpenses')}
-                <span className="block text-xs font-normal text-muted-foreground">
-                  {t('profit.periodHint')}
-                </span>
-              </RTd>
-              <RTd align="right" className="tabular font-semibold">
-                {formatSignedMoney(-totals.periodExpenses)}
-              </RTd>
-            </tr>
-
-            <RTotalRow>
-              <RTd>{isLoss ? t('profit.netLoss') : t('profit.net')}</RTd>
-              <RTd
-                align="right"
-                className={`tabular text-base ${isLoss ? 'text-danger' : 'text-success'}`}
-              >
-                {formatMoney(Math.abs(totals.netProfit))}
-              </RTd>
-            </RTotalRow>
-          </ReportTable>
-        </ReportSection>
-
-        {/*
-         * What was billed for delivery, on its own. Presented, not compared: what
-         * the courier was paid is an order-scope expense already inside order
-         * cost above, and a "delivery margin" invented here would be a second,
-         * differently derived figure for the same thing.
-         */}
-        <ReportSection title={t('profit.deliveryGap')} hint={t('profit.deliveryGapHint')}>
-          <p className="print-block tabular text-lg font-bold">
-            {formatMoney(totals.deliveryCharged)}
-          </p>
-        </ReportSection>
-
-        <ReportSection title={t('profit.periodExpenses')} hint={t('profit.periodHint')}>
-          {data.periodExpenses.length === 0 ? (
-            <ReportEmpty />
-          ) : (
+          {/*
+           * The working, as one column of signed figures. The three components of
+           * order cost are indented under their subtotal rather than listed as
+           * peers of it, so nothing on the page looks subtracted twice.
+           */}
+          <ReportSection title={t('report.summary')}>
             <ReportTable
               head={
                 <>
-                  <RTh>{t('expense.category')}</RTh>
+                  <RTh>{t('report.summary')}</RTh>
                   <RTh align="right">{t('expense.amount')}</RTh>
                 </>
               }
             >
-              {data.periodExpenses.map((row) => (
-                <tr key={row.categoryId}>
-                  <RTd className="font-medium">
-                    {row.nameBn}
-                    <span className="block text-xs font-normal text-muted-foreground">
-                      {t('report.rowCount').replace('{n}', formatNumber(row.count))}
-                    </span>
-                  </RTd>
-                  <RTd align="right" className="tabular">
-                    {formatMoney(row.amount)}
-                  </RTd>
-                </tr>
-              ))}
-              <RTotalRow>
-                <RTd>{t('report.total')}</RTd>
-                <RTd align="right" className="tabular">
-                  {formatMoney(totals.periodExpenses)}
+              <tr>
+                <RTd className="font-semibold">
+                  {t('profit.revenue')}
+                  <span className="block text-xs font-normal text-muted-foreground">
+                    {t('profit.revenueHint')}
+                  </span>
                 </RTd>
-              </RTotalRow>
-            </ReportTable>
-          )}
-        </ReportSection>
+                <RTd align="right" className="tabular font-semibold">
+                  {formatSignedMoney(totals.revenue)}
+                </RTd>
+              </tr>
 
-        {/*
-         * Worst margin first, as the API sorted it. Not re-sorted here: the
-         * order is the point of the section, and its total column stops at gross
-         * margin because the day's labour belongs to the period, not to a row.
-         */}
-        <ReportSection title={t('profit.perOrder')} hint={t('profit.worstFirst')} breakBefore>
-          {data.orders.length === 0 ? (
-            <ReportEmpty />
-          ) : (
-            <ReportTable
-              head={
-                <>
-                  <RTh>{t('order.code')}</RTh>
-                  <RTh>{t('app.date')}</RTh>
-                  <RTh>{t('app.status')}</RTh>
-                  <RTh align="right">{t('profit.revenue')}</RTh>
-                  <RTh align="right">{t('cost.goods')}</RTh>
-                  <RTh align="right">{t('cost.packaging')}</RTh>
-                  <RTh align="right">{t('cost.expenses')}</RTh>
-                  <RTh align="right">{t('cost.total')}</RTh>
-                  <RTh align="right">{t('cost.margin')}</RTh>
-                </>
-              }
-            >
-              {data.orders.map((row) => (
-                <tr key={row.orderId}>
-                  <RTd className="tabular whitespace-nowrap font-medium">{row.orderCode}</RTd>
-                  <RTd className="whitespace-nowrap">{formatDate(row.businessDate)}</RTd>
-                  <RTd className="text-xs">{tStatus(row.status)}</RTd>
-                  <RTd align="right" className="tabular">
-                    {formatMoney(row.revenue)}
-                  </RTd>
-                  <RTd align="right" className="tabular">
-                    {formatMoney(row.goods)}
-                  </RTd>
-                  <RTd align="right" className="tabular">
-                    {formatMoney(row.packaging)}
-                  </RTd>
-                  <RTd align="right" className="tabular">
-                    {formatMoney(row.expenses)}
-                  </RTd>
-                  <RTd align="right" className="tabular">
-                    {formatMoney(row.cost)}
-                  </RTd>
-                  <RTd
-                    align="right"
-                    className={`tabular font-semibold ${row.margin < 0 ? 'text-danger' : ''}`}
-                  >
-                    {formatSignedMoney(row.margin)}
-                    {row.margin < 0 && (
-                      <span className="block text-xs font-normal text-danger">
-                        {t('cost.loss')}
-                      </span>
-                    )}
-                  </RTd>
-                </tr>
-              ))}
+              <tr>
+                <RTd className="pl-6 text-muted-foreground">{t('cost.goods')}</RTd>
+                <RTd align="right" className="tabular text-muted-foreground">
+                  {formatSignedMoney(-totals.goods)}
+                </RTd>
+              </tr>
+              <tr>
+                <RTd className="pl-6 text-muted-foreground">{t('cost.packaging')}</RTd>
+                <RTd align="right" className="tabular text-muted-foreground">
+                  {formatSignedMoney(-totals.packaging)}
+                </RTd>
+              </tr>
+              <tr>
+                <RTd className="pl-6 text-muted-foreground">{t('cost.expenses')}</RTd>
+                <RTd align="right" className="tabular text-muted-foreground">
+                  {formatSignedMoney(-totals.orderExpenses)}
+                </RTd>
+              </tr>
+              <tr>
+                <RTd className="font-semibold">{t('profit.orderCost')}</RTd>
+                <RTd align="right" className="tabular font-semibold">
+                  {formatSignedMoney(-totals.orderCost)}
+                </RTd>
+              </tr>
+
               <RTotalRow>
-                <RTd>{t('profit.grossMargin')}</RTd>
-                <RTd />
-                <RTd />
-                <RTd align="right" className="tabular">
-                  {formatMoney(totals.revenue)}
+                <RTd>
+                  {t('profit.grossMarginGeneral')}
+                  <span className="block text-xs font-normal text-muted-foreground">
+                    {t('profit.grossMarginHint')}
+                  </span>
                 </RTd>
-                <RTd align="right" className="tabular">
-                  {formatMoney(totals.goods)}
-                </RTd>
-                <RTd align="right" className="tabular">
-                  {formatMoney(totals.packaging)}
-                </RTd>
-                <RTd align="right" className="tabular">
-                  {formatMoney(totals.orderExpenses)}
-                </RTd>
-                <RTd align="right" className="tabular">
-                  {formatMoney(totals.orderCost)}
-                </RTd>
-                <RTd align="right" className="tabular">
+                <RTd
+                  align="right"
+                  className={`tabular ${totals.grossMargin < 0 ? 'text-danger' : ''}`}
+                >
                   {formatMoney(totals.grossMargin)}
                 </RTd>
               </RTotalRow>
-            </ReportTable>
-          )}
-        </ReportSection>
 
-        <ReportFooter note={t('profit.periodHint')} />
-      </ReportSheet>
+              <tr>
+                <RTd className="font-semibold">
+                  {t('profit.generalExpenses')}
+                  <span className="block text-xs font-normal text-muted-foreground">
+                    {t('profit.periodHint')}
+                  </span>
+                </RTd>
+                <RTd align="right" className="tabular font-semibold">
+                  {formatSignedMoney(-totals.periodExpenses)}
+                </RTd>
+              </tr>
+
+              <RTotalRow>
+                <RTd>{isLoss ? t('profit.netLoss') : t('profit.net')}</RTd>
+                <RTd
+                  align="right"
+                  className={`tabular text-base ${isLoss ? 'text-danger' : 'text-success'}`}
+                >
+                  {formatMoney(Math.abs(totals.netProfit))}
+                </RTd>
+              </RTotalRow>
+            </ReportTable>
+          </ReportSection>
+
+          {/*
+           * What was billed for delivery, on its own. Presented, not compared: what
+           * the courier was paid is an order-scope expense already inside order
+           * cost above, and a "delivery margin" invented here would be a second,
+           * differently derived figure for the same thing.
+           */}
+          <ReportSection title={t('profit.deliveryGap')} hint={t('profit.deliveryGapHint')}>
+            <p className="print-block tabular text-lg font-bold">
+              {formatMoney(totals.deliveryCharged)}
+            </p>
+          </ReportSection>
+
+          <ReportSection title={t('profit.generalExpenses')} hint={t('profit.periodHint')}>
+            {data.periodExpenses.length === 0 ? (
+              <ReportEmpty />
+            ) : (
+              <ReportTable
+                head={
+                  <>
+                    <RTh>{t('expense.category')}</RTh>
+                    <RTh align="right">{t('expense.amount')}</RTh>
+                  </>
+                }
+              >
+                {data.periodExpenses.map((row) => (
+                  <tr key={row.categoryId}>
+                    <RTd className="font-medium">
+                      {row.nameBn}
+                      <span className="block text-xs font-normal text-muted-foreground">
+                        {t('report.rowCount').replace('{n}', formatNumber(row.count))}
+                      </span>
+                    </RTd>
+                    <RTd align="right" className="tabular">
+                      {formatMoney(row.amount)}
+                    </RTd>
+                  </tr>
+                ))}
+                <RTotalRow>
+                  <RTd>{t('report.total')}</RTd>
+                  <RTd align="right" className="tabular">
+                    {formatMoney(totals.periodExpenses)}
+                  </RTd>
+                </RTotalRow>
+              </ReportTable>
+            )}
+          </ReportSection>
+
+          {/*
+           * Worst margin first, as the API sorted it. Not re-sorted here: the
+           * order is the point of the section, and its total column stops at gross
+           * margin because the day's labour belongs to the period, not to a row.
+           */}
+          {/* Nine columns do not fit a portrait sheet; this section alone prints sideways. */}
+          <ReportSection title={t('profit.perOrder')} hint={t('profit.worstFirst')} breakBefore landscape>
+            {data.orders.length === 0 ? (
+              <ReportEmpty />
+            ) : (
+              <ReportTable
+                head={
+                  <>
+                    <RTh>{t('order.code')}</RTh>
+                    <RTh>{t('app.date')}</RTh>
+                    <RTh>{t('app.status')}</RTh>
+                    <RTh align="right">{t('profit.revenue')}</RTh>
+                    <RTh align="right">{t('cost.goods')}</RTh>
+                    <RTh align="right">{t('cost.packaging')}</RTh>
+                    <RTh align="right">{t('cost.expenses')}</RTh>
+                    <RTh align="right">{t('cost.total')}</RTh>
+                    <RTh align="right">{t('cost.margin')}</RTh>
+                  </>
+                }
+              >
+                {data.orders.map((row) => (
+                  <tr key={row.orderId}>
+                    <RTd className="tabular whitespace-nowrap font-medium">{row.orderCode}</RTd>
+                    <RTd className="whitespace-nowrap">{formatDate(row.businessDate)}</RTd>
+                    <RTd className="text-xs">{tStatus(row.status)}</RTd>
+                    <RTd align="right" className="tabular">
+                      {formatMoney(row.revenue)}
+                    </RTd>
+                    <RTd align="right" className="tabular">
+                      {formatMoney(row.goods)}
+                    </RTd>
+                    <RTd align="right" className="tabular">
+                      {formatMoney(row.packaging)}
+                    </RTd>
+                    <RTd align="right" className="tabular">
+                      {formatMoney(row.expenses)}
+                    </RTd>
+                    <RTd align="right" className="tabular">
+                      {formatMoney(row.cost)}
+                    </RTd>
+                    <RTd
+                      align="right"
+                      className={`tabular font-semibold ${row.margin < 0 ? 'text-danger' : ''}`}
+                    >
+                      {formatSignedMoney(row.margin)}
+                      {row.margin < 0 && (
+                        <span className="block text-xs font-normal text-danger">
+                          {t('cost.loss')}
+                        </span>
+                      )}
+                    </RTd>
+                  </tr>
+                ))}
+                <RTotalRow>
+                  <RTd>{t('profit.grossMarginGeneral')}</RTd>
+                  <RTd />
+                  <RTd />
+                  <RTd align="right" className="tabular">
+                    {formatMoney(totals.revenue)}
+                  </RTd>
+                  <RTd align="right" className="tabular">
+                    {formatMoney(totals.goods)}
+                  </RTd>
+                  <RTd align="right" className="tabular">
+                    {formatMoney(totals.packaging)}
+                  </RTd>
+                  <RTd align="right" className="tabular">
+                    {formatMoney(totals.orderExpenses)}
+                  </RTd>
+                  <RTd align="right" className="tabular">
+                    {formatMoney(totals.orderCost)}
+                  </RTd>
+                  <RTd align="right" className="tabular">
+                    {formatMoney(totals.grossMargin)}
+                  </RTd>
+                </RTotalRow>
+              </ReportTable>
+            )}
+          </ReportSection>
+
+          <ReportFooter note={t('profit.periodHint')} />
+        </ReportSheet>
+      </SheetBody>
     </>
   );
 }

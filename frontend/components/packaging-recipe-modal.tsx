@@ -1,17 +1,19 @@
 'use client';
 
-import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2 } from 'lucide-react';
-import { api, errorMessage, fieldErrors } from '@/lib/api';
-import { t, tUnit } from '@/lib/i18n/bn';
+import { useMemo, useState } from 'react';
+import { ChevronDown, Plus, Trash2 } from 'lucide-react';
+import { errorMessage, fieldErrors } from '@/lib/api';
+import { t, tf, tUnit } from '@/lib/i18n/bn';
 import { formatNumber } from '@/lib/format';
+import { cn } from '@/lib/utils';
 import type { OwnerProduct, ProductVariant, Supply } from '@/lib/types';
-import { Modal } from '@/components/ui/modal';
-import { Button } from '@/components/ui/button';
-import { Alert, Badge, Card } from '@/components/ui/layout';
+import { useGetSuppliesQuery, useSaveVariantPackagingMutation } from '@/lib/store/endpoints/catalog';
+import { Modal, ModalCancel } from '@/components/ui/modal';
+import { Button, ButtonLink } from '@/components/ui/button';
+import { Alert, Badge } from '@/components/ui/layout';
 import { Field, Input, Select, InlineIconButton } from '@/components/ui/form';
-import { Spinner } from '@/components/ui/button';
+import { ListSkeleton } from '@/components/ui/skeleton';
+import { useToast } from '@/components/ui/toast';
 
 /**
  * Setting a box's **packaging recipe**: what sending one of these takes.
@@ -21,8 +23,14 @@ import { Spinner } from '@/components/ui/button';
  * has no honest way to encode a nested array of objects — the same reason the
  * boxes themselves travel as a JSON string. See docs/adr/0026.
  *
- * Saved one box at a time, because that is what the endpoint takes and because a
- * recipe is a per-box decision the owner makes while looking at that box.
+ * The endpoint takes one box at a time, but the sheet has one Save for all of
+ * them: a Save inside each box meant editing two boxes and closing the sheet
+ * threw away whichever one was not saved, with nothing to say so. Each box that
+ * changed is sent in turn; one that fails stays open with its error, and the
+ * ones that went through are marked.
+ *
+ * Mount it only while open (or key it by product), so one product's typing never
+ * carries into the next.
  */
 
 type Row = { supplyId: string; quantity: string };
@@ -33,95 +41,210 @@ const toRows = (variant: ProductVariant): Row[] =>
     quantity: String(row.quantity),
   }));
 
+const sameRows = (a: Row[], b: Row[]) => JSON.stringify(a) === JSON.stringify(b);
+
+/**
+ * Three decimals, because an eleven-kilo box takes about 1.375 sheets of কাগজ and
+ * the app-wide formatter would show that as 1.38.
+ */
+const QTY = new Intl.NumberFormat('bn-BD', { maximumFractionDigits: 3 });
+
+/** What is wrong with each row, by index. A row needs a supply and a positive amount. */
+function rowProblems(rows: Row[]): Record<number, { supply?: string; qty?: string }> {
+  const out: Record<number, { supply?: string; qty?: string }> = {};
+  rows.forEach((row, index) => {
+    const problem: { supply?: string; qty?: string } = {};
+    if (!row.supplyId) problem.supply = t('recipes.supplyMissing');
+    if (!(Number(row.quantity) > 0)) problem.qty = t('recipes.qtyMissing');
+    if (problem.supply || problem.qty) out[index] = problem;
+  });
+  return out;
+}
+
 export function PackagingRecipeModal({
   product,
   onClose,
 }: {
-  product: OwnerProduct | null;
+  product: OwnerProduct;
   onClose: () => void;
 }) {
-  const queryClient = useQueryClient();
-  const [openVariant, setOpenVariant] = useState<string | null>(
-    product?.variants[0]?.id ?? null
-  );
+  const toast = useToast();
 
   // Every live supply, to choose from. Archived ones are excluded by default,
   // which is right: a recipe naming an archived item would consume nothing.
-  const supplies = useQuery({
-    queryKey: ['owner', 'supplies'],
-    queryFn: () => api.get<{ supplies: Supply[] }>('/owner/supplies'),
-    enabled: Boolean(product),
-  });
+  const supplies = useGetSuppliesQuery();
+  const [save] = useSaveVariantPackagingMutation();
 
-  if (!product) return null;
+  const [baseline, setBaseline] = useState<Record<string, Row[]>>(() =>
+    Object.fromEntries(product.variants.map((v) => [v.id, toRows(v)]))
+  );
+  const [drafts, setDrafts] = useState<Record<string, Row[]>>(baseline);
+  const [open, setOpen] = useState<string | null>(product.variants[0]?.id ?? null);
+  const [savedNow, setSavedNow] = useState<string[]>([]);
+  const [failures, setFailures] = useState<Record<string, unknown>>({});
+  const [tried, setTried] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const list = useMemo(() => supplies.data?.supplies ?? [], [supplies.data]);
+  const byId = useMemo(() => new Map(list.map((s) => [s.id, s])), [list]);
+
+  const dirtyIds = product.variants
+    .filter((v) => !sameRows(drafts[v.id] ?? [], baseline[v.id] ?? []))
+    .map((v) => v.id);
+
+  const setRows = (variantId: string, rows: Row[]) => {
+    setDrafts((prev) => ({ ...prev, [variantId]: rows }));
+    // An edit after a save makes the "saved" mark a lie, so it goes.
+    setSavedNow((prev) => prev.filter((id) => id !== variantId));
+  };
+
+  const saveAll = async () => {
+    setTried(true);
+    if (dirtyIds.length === 0) {
+      onClose();
+      return;
+    }
+    const invalid = dirtyIds.find((id) => Object.keys(rowProblems(drafts[id] ?? [])).length > 0);
+    if (invalid) {
+      setOpen(invalid);
+      return;
+    }
+
+    setBusy(true);
+    const failed: Record<string, unknown> = {};
+    const done: string[] = [];
+    // One at a time, as the endpoint takes them, so a failure is pinned to its box.
+    for (const variantId of dirtyIds) {
+      const rows = drafts[variantId] ?? [];
+      try {
+        await save({
+          productId: product.id,
+          variantId,
+          packaging: rows.map((row) => ({ supplyId: row.supplyId, quantity: Number(row.quantity) })),
+        }).unwrap();
+        done.push(variantId);
+      } catch (error) {
+        failed[variantId] = error;
+      }
+    }
+    setBusy(false);
+    setBaseline((prev) => ({
+      ...prev,
+      ...Object.fromEntries(done.map((id) => [id, drafts[id] ?? []])),
+    }));
+    setFailures(failed);
+    setSavedNow((prev) => [...prev, ...done]);
+
+    const failedIds = Object.keys(failed);
+    if (failedIds.length === 0) {
+      toast(tf('recipes.saved', { name: product.name }));
+      onClose();
+    } else {
+      setOpen(failedIds[0]);
+      toast(tf('recipes.partFailed', { count: formatNumber(failedIds.length) }), 'danger');
+    }
+  };
 
   return (
-    <Modal open onClose={onClose} title={t('recipe.title')} wide>
-      <p className="mb-4 text-sm text-[var(--muted-fg)]">{t('recipe.help')}</p>
+    <Modal
+      open
+      wide
+      onClose={onClose}
+      dirty={dirtyIds.length > 0}
+      title={`${t('recipe.title')} · ${product.name}`}
+      footer={
+        list.length > 0 ? (
+          <>
+            <ModalCancel disabled={busy} />
+            <Button loading={busy} onClick={saveAll}>
+              {t('recipes.saveAll')}
+            </Button>
+          </>
+        ) : undefined
+      }
+    >
+      <p className="mb-4 text-sm text-muted-foreground">{t('recipe.help')}</p>
 
-      {supplies.isLoading && (
-        <div className="flex justify-center py-8">
-          <Spinner />
-        </div>
+      {supplies.isLoading && <ListSkeleton rows={2} />}
+
+      {supplies.isError && !supplies.data && (
+        <Alert tone="danger">
+          {errorMessage(supplies.error)}{' '}
+          <button type="button" className="tap font-semibold underline" onClick={() => supplies.refetch()}>
+            {t('app.retry')}
+          </button>
+        </Alert>
       )}
 
-      {supplies.isSuccess && supplies.data.supplies.length === 0 && (
-        <Alert tone="warning">{t('supply.help')}</Alert>
+      {/* Nothing to choose from yet: say where the supplies are made. */}
+      {supplies.data && list.length === 0 && (
+        <Alert tone="warning">
+          <p>{t('recipes.noSupplies')}</p>
+          <ButtonLink href="/owner/supplies" variant="outline" size="sm" className="mt-3">
+            {t('recipes.goToSupplies')}
+          </ButtonLink>
+        </Alert>
       )}
 
-      {supplies.isSuccess && supplies.data.supplies.length > 0 && (
+      {list.length > 0 && (
         <div className="space-y-3">
           {product.variants.map((variant) => (
             <VariantRecipe
               key={variant.id}
-              productId={product.id}
               variant={variant}
-              supplies={supplies.data.supplies}
-              open={openVariant === variant.id}
-              onToggle={() => setOpenVariant(openVariant === variant.id ? null : variant.id)}
-              onSaved={() => queryClient.invalidateQueries({ queryKey: ['owner', 'products'] })}
+              rows={drafts[variant.id] ?? []}
+              onRows={(rows) => setRows(variant.id, rows)}
+              supplies={list}
+              byId={byId}
+              open={open === variant.id}
+              onToggle={() => setOpen(open === variant.id ? null : variant.id)}
+              dirty={dirtyIds.includes(variant.id)}
+              saved={savedNow.includes(variant.id)}
+              failure={failures[variant.id]}
+              showProblems={tried}
             />
           ))}
         </div>
       )}
+
+      {list.length > 0 && <p className="mt-4 text-xs text-muted-foreground">{t('recipe.estimateNote')}</p>}
     </Modal>
   );
 }
 
 function VariantRecipe({
-  productId,
   variant,
+  rows,
+  onRows,
   supplies,
+  byId,
   open,
   onToggle,
-  onSaved,
+  dirty,
+  saved,
+  failure,
+  showProblems,
 }: {
-  productId: string;
   variant: ProductVariant;
+  rows: Row[];
+  onRows: (rows: Row[]) => void;
   supplies: Supply[];
+  byId: Map<string, Supply>;
   open: boolean;
   onToggle: () => void;
-  onSaved: () => void;
+  dirty: boolean;
+  saved: boolean;
+  failure: unknown;
+  showProblems: boolean;
 }) {
-  const [rows, setRows] = useState<Row[]>(() => toRows(variant));
-  const byId = new Map(supplies.map((s) => [s.id, s]));
-
-  const save = useMutation({
-    mutationFn: () =>
-      api.put(`/owner/products/${productId}/variants/${variant.id}/packaging`, {
-        packaging: rows
-          .filter((row) => row.supplyId && Number(row.quantity) > 0)
-          .map((row) => ({ supplyId: row.supplyId, quantity: Number(row.quantity) })),
-      }),
-    onSuccess: onSaved,
-  });
-
-  const errors = fieldErrors(save.error);
+  const panelId = `recipe-${variant.id}`;
+  const problems = showProblems ? rowProblems(rows) : {};
+  const errors = fieldErrors(failure);
 
   const setRow = (index: number, patch: Partial<Row>) =>
-    setRows((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)));
-  const addRow = () => setRows((prev) => [...prev, { supplyId: '', quantity: '1' }]);
-  const removeRow = (index: number) => setRows((prev) => prev.filter((_, i) => i !== index));
+    onRows(rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+  const addRow = () => onRows([...rows, { supplyId: '', quantity: '1' }]);
+  const removeRow = (index: number) => onRows(rows.filter((_, i) => i !== index));
 
   /*
    * A supply already on the list is not offered again. The API refuses a
@@ -129,99 +252,142 @@ function VariantRecipe({
    * same thing twice, and summing would lose whichever quantity was typed second.
    */
   const available = (index: number) =>
-    supplies.filter(
-      (supply) => !rows.some((row, i) => i !== index && row.supplyId === supply.id)
-    );
+    supplies.filter((supply) => !rows.some((row, i) => i !== index && row.supplyId === supply.id));
+
+  // The header is read from what is typed now, not from what was loaded.
+  const summary =
+    rows.filter((row) => row.supplyId).length === 0
+      ? t('recipes.emptyShort')
+      : rows
+          .filter((row) => row.supplyId)
+          .map((row) => {
+            const supply = byId.get(row.supplyId);
+            const qty = Number(row.quantity) > 0 ? QTY.format(Number(row.quantity)) : '—';
+            return supply
+              ? `${supply.nameBn} ${qty} ${tUnit(supply.unit)}`
+              : `${t('recipes.unknownSupply')} ${qty}`;
+          })
+          .join(' · ');
 
   return (
-    <Card className="p-3">
+    <div
+      className={cn(
+        'rounded-xl border',
+        failure ? 'border-danger' : 'border-border'
+      )}
+    >
       <button
         type="button"
         onClick={onToggle}
-        className="flex w-full items-center justify-between gap-3 text-left"
+        aria-expanded={open}
+        aria-controls={panelId}
+        className="flex min-h-11 w-full items-center gap-3 px-3 py-2.5 text-left"
       >
-        <span className="text-sm font-medium">{variant.label}</span>
-        <span className="text-xs text-[var(--muted-fg)]">
-          {variant.packaging.length === 0
-            ? t('recipe.empty')
-            : variant.packaging
-                .map((row) => {
-                  const supply = byId.get(row.supplyId);
-                  return supply
-                    ? `${supply.nameBn} ${formatNumber(row.quantity)} ${tUnit(supply.unit)}`
-                    : '—';
-                })
-                .join(' · ')}
+        <span className="min-w-0 flex-1">
+          <span className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-semibold">{variant.label}</span>
+            {failure ? (
+              <Badge tone="danger">{t('recipes.failed')}</Badge>
+            ) : dirty ? (
+              <Badge tone="warning">{t('recipes.unsaved')}</Badge>
+            ) : saved ? (
+              <Badge tone="success">{t('app.saved')}</Badge>
+            ) : null}
+          </span>
+          <span className="tabular mt-0.5 block text-xs text-muted-foreground">{summary}</span>
         </span>
+        <ChevronDown
+          aria-hidden
+          className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')}
+        />
       </button>
 
       {open && (
-        <div className="mt-3 space-y-2 border-t border-[var(--border)] pt-3">
-          {rows.length === 0 && (
-            <p className="text-xs text-[var(--muted-fg)]">{t('recipe.empty')}</p>
-          )}
+        <div id={panelId} className="space-y-3 border-t border-border px-3 pb-3 pt-3">
+          {rows.length === 0 && <p className="text-xs text-muted-foreground">{t('recipe.empty')}</p>}
 
-          {rows.map((row, index) => (
-            <div key={index} className="flex items-end gap-2">
-              <Field label={t('recipe.perBox')} className="flex-1" error={errors[`packaging.${index}.supplyId`]}>
-                <Select
-                  value={row.supplyId}
-                  onChange={(e) => setRow(index, { supplyId: e.target.value })}
-                >
-                  <option value="">—</option>
-                  {available(index).map((supply) => (
-                    <option key={supply.id} value={supply.id}>
-                      {supply.nameBn} ({tUnit(supply.unit)})
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              <Field label={t('supply.quantity')} className="w-24" error={errors[`packaging.${index}.qty`]}>
-                {/*
-                  * Fractional on purpose: an eleven-kilo box takes about one and a
-                  * half sheets of কাগজ, and rounding that to one or two is a real
-                  * error over four hundred parcels.
-                  */}
-                <Input
-                  type="number"
-                  inputMode="decimal"
-                  step="0.001"
-                  min="0"
-                  value={row.quantity}
-                  onChange={(e) => setRow(index, { quantity: e.target.value })}
-                  className="tabular"
-                />
-              </Field>
-              <InlineIconButton
-                aria-label={t('app.remove')}
-                onClick={() => removeRow(index)}
-                className="mb-1"
+          {rows.map((row, index) => {
+            const supply = byId.get(row.supplyId);
+            const supplyError = errors[`packaging.${index}.supplyId`] ?? problems[index]?.supply;
+            const qtyError =
+              errors[`packaging.${index}.qty`] ??
+              errors[`packaging.${index}.quantity`] ??
+              problems[index]?.qty;
+            return (
+              // Rows have no identity until saved; the index is the identity here.
+              <div
+                key={index}
+                className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 sm:grid-cols-[minmax(0,1fr)_10rem_auto]"
               >
-                <Trash2 className="h-4 w-4" />
-              </InlineIconButton>
-            </div>
-          ))}
+                <Field
+                  label={t('recipe.perBox')}
+                  htmlFor={`${panelId}-supply-${index}`}
+                  className="col-span-2 mb-2 sm:col-span-1 sm:mb-0"
+                  error={supplyError}
+                >
+                  <Select
+                    id={`${panelId}-supply-${index}`}
+                    value={row.supplyId}
+                    aria-invalid={supplyError ? true : undefined}
+                    onChange={(e) => setRow(index, { supplyId: e.target.value })}
+                  >
+                    <option value="">{t('recipes.chooseSupply')}</option>
+                    {available(index).map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.nameBn} ({tUnit(option.unit)})
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                <Field
+                  label={t('supply.quantity')}
+                  htmlFor={`${panelId}-qty-${index}`}
+                  className="mb-0"
+                  error={qtyError}
+                >
+                  {/*
+                   * Fractional on purpose: an eleven-kilo box takes about one and a
+                   * half sheets of কাগজ, and rounding that to one or two is a real
+                   * error over four hundred parcels.
+                   */}
+                  <Input
+                    id={`${panelId}-qty-${index}`}
+                    type="number"
+                    inputMode="decimal"
+                    step="0.001"
+                    min="0"
+                    value={row.quantity}
+                    invalid={Boolean(qtyError)}
+                    onChange={(e) => setRow(index, { quantity: e.target.value })}
+                    className="tabular"
+                    trailing={
+                      supply ? (
+                        <span className="text-sm text-muted-foreground">{tUnit(supply.unit)}</span>
+                      ) : undefined
+                    }
+                  />
+                </Field>
+                <div className="pt-[1.625rem]">
+                  <InlineIconButton aria-label={t('app.remove')} onClick={() => removeRow(index)}>
+                    <Trash2 className="h-4 w-4" />
+                  </InlineIconButton>
+                </div>
+              </div>
+            );
+          })}
 
-          {save.error && !Object.keys(errors).length && (
-            <Alert tone="danger">{errorMessage(save.error)}</Alert>
+          {Boolean(failure) && Object.keys(errors).length === 0 && (
+            <Alert tone="danger">{errorMessage(failure)}</Alert>
           )}
 
-          <p className="text-xs text-[var(--muted-fg)]">{t('recipe.estimateNote')}</p>
-
-          <div className="flex items-center justify-between gap-2 pt-1">
-            <Button size="sm" variant="outline" onClick={addRow} disabled={rows.length >= 6}>
+          {rows.length < 6 && (
+            <Button size="sm" variant="outline" onClick={addRow}>
               <Plus className="h-4 w-4" />
               {t('recipe.add')}
             </Button>
-            <Button size="sm" loading={save.isPending} onClick={() => save.mutate()}>
-              {t('app.save')}
-            </Button>
-          </div>
-          {save.isSuccess && !save.isPending && (
-            <Badge tone="success">{t('app.saved')}</Badge>
           )}
         </div>
       )}
-    </Card>
+    </div>
   );
 }

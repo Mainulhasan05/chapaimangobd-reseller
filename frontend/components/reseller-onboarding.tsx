@@ -2,16 +2,16 @@
 
 import Link from 'next/link';
 import type { Route } from 'next';
-import { useQuery } from '@tanstack/react-query';
+import { skipToken } from '@reduxjs/toolkit/query/react';
 import { BadgeCheck, Check, ChevronRight, Store, Tag, TriangleAlert } from 'lucide-react';
-import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
+import { useGetCatalogQuery } from '@/lib/store/endpoints/reseller';
 import { kycRequired } from '@/lib/kyc';
 import { t } from '@/lib/i18n/bn';
 import { formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { Alert, Card, CardHeader } from '@/components/ui/layout';
-import type { CatalogItem, ResellerProfile } from '@/lib/types';
+import type { ResellerProfile } from '@/lib/types';
 
 /**
  * Getting a new reseller to their first order.
@@ -50,13 +50,10 @@ type Step = {
 export function useUnpricedCount() {
   const { data: session } = useSession();
 
-  const catalog = useQuery({
-    // The same key the catalog page uses, so pricing something there updates
-    // this without a second request.
-    queryKey: ['catalog'],
-    queryFn: () => api.get<{ products: CatalogItem[] }>('/reseller/catalog'),
-    enabled: Boolean(session),
-    staleTime: 5 * 60_000,
+  // The same entry the catalog page uses, so pricing something there updates
+  // this without a second request.
+  const catalog = useGetCatalogQuery(session ? undefined : skipToken, {
+    refetchOnMountOrArgChange: 300,
   });
 
   const products = catalog.data?.products ?? [];
@@ -87,7 +84,7 @@ export function UnpricedAlert() {
       </p>
       <Link
         href="/reseller/catalog"
-        className="mt-2 inline-block font-semibold underline underline-offset-2"
+        className="tap mt-1 inline-flex items-center font-semibold underline underline-offset-2"
       >
         {t('catalog.setPriceNow')}
       </Link>

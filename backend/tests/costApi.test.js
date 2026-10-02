@@ -27,8 +27,11 @@ const Order = require('../src/models/Order');
 const Expense = require('../src/models/Expense');
 const ExpenseCategory = require('../src/models/ExpenseCategory');
 const AuditLog = require('../src/models/AuditLog');
+const PayeeLedgerEntry = require('../src/models/PayeeLedgerEntry');
+const Purchase = require('../src/models/Purchase');
 
 const { toMilli } = require('../src/utils/quantity');
+const { businessDate } = require('../src/utils/dhakaTime');
 const {
   ROLES,
   PAYMENT_MODE,
@@ -651,4 +654,476 @@ test('a reseller cannot reach any of the cost side', async () => {
     .post(`/api/owner/supplies/${crateId}/adjust`)
     .send({ kind: MOVEMENT_KIND.DAMAGED, quantity: 1, nonce: nonce() });
   assert.equal(write.status, 403);
+});
+
+/* ------------------------------------------------------------ PLAN-4 §4.2 */
+
+const dayOffset = (days) => businessDate(new Date(Date.now() + days * 24 * 60 * 60 * 1000));
+
+/** A purchase of `quantity` crates at `unitCost` from `payeeId`. */
+const buy = (api, { payeeId, crateId, quantity = 10, unitCost = 80, date }) =>
+  api
+    .post('/api/owner/purchases')
+    .send({
+      payeeId,
+      lines: [{ supplyId: crateId, quantity, unitCost }],
+      ...(date ? { date } : {}),
+    })
+    .expect(201)
+    .then((res) => res.body.data.purchase);
+
+const newPayee = (api, nameBn) =>
+  api
+    .post('/api/owner/payees')
+    .send({ nameBn })
+    .then((res) => res.body.data.payee.id);
+
+test('the purchase totals are over the whole filter, not the page on screen', async () => {
+  const { api, crateId, payeeId } = await setup();
+  const other = await newPayee(api, 'অন্য দোকান');
+
+  await buy(api, { payeeId, crateId, quantity: 10, unitCost: 80 });
+  await buy(api, { payeeId, crateId, quantity: 10, unitCost: 90 });
+  const undone = await buy(api, { payeeId, crateId, quantity: 10, unitCost: 100 });
+  await buy(api, { payeeId: other, crateId, quantity: 1, unitCost: 50 });
+  await api.post(`/api/owner/purchases/${undone.id}/cancel`).send({ reason: 'undone' });
+
+  const page = (await api.get('/api/owner/purchases?limit=1&page=2').expect(200)).body.data;
+  assert.equal(page.purchases.length, 1);
+  assert.equal(page.total, 4);
+  // 800 + 900 + 50: every received purchase, not the one row on this page.
+  assert.equal(page.totals.spent, 1750);
+  assert.equal(page.totals.goodsCost, 1750);
+  assert.equal(page.totals.billedByPayees, 1750);
+
+  const seller = (await api.get(`/api/owner/purchases?limit=1&payeeId=${payeeId}`)).body.data;
+  assert.equal(seller.total, 3);
+  assert.equal(seller.totals.spent, 1700);
+
+  const cancelled = (await api.get('/api/owner/purchases?status=cancelled')).body.data;
+  assert.equal(cancelled.total, 1);
+  assert.equal(cancelled.totals.spent, 0, 'listed, never counted');
+});
+
+test('the expense totals are over the whole filter, and never count a voided one', async () => {
+  const { api, payeeId } = await setup();
+  await api.post('/api/owner/expense-categories/seed');
+  const labour = await ExpenseCategory.findOne({ nameBn: 'লেবার খরচ' });
+  const transport = await ExpenseCategory.findOne({ nameBn: 'পরিবহন খরচ' });
+
+  await api.post('/api/owner/expenses').send({ categoryId: labour._id, amount: 500 });
+  await api.post('/api/owner/expenses').send({ categoryId: labour._id, amount: 300 });
+  await api
+    .post('/api/owner/expenses')
+    .send({ categoryId: transport._id, amount: 200, payeeId, paymentStatus: 'unpaid' });
+  const wrong = await api
+    .post('/api/owner/expenses')
+    .send({ categoryId: transport._id, amount: 999 });
+  await api
+    .post(`/api/owner/expenses/${wrong.body.data.expense.id}/void`)
+    .send({ reason: 'typed twice' });
+
+  const page = (await api.get('/api/owner/expenses?limit=1').expect(200)).body.data;
+  assert.equal(page.expenses.length, 1);
+  assert.equal(page.total, 3);
+  assert.equal(page.totals.all, 1000);
+  assert.equal(page.totals.period, 1000);
+  assert.equal(page.totals.order, 0);
+  assert.equal(page.totals.unpaid, 200);
+
+  const withVoided = (await api.get('/api/owner/expenses?limit=1&includeVoided=true')).body.data;
+  assert.equal(withVoided.total, 4, 'the voided one is listed when asked for');
+  assert.equal(withVoided.totals.all, 1000, 'and still never counted');
+
+  const one = (await api.get(`/api/owner/expenses?categoryId=${labour._id}&limit=1`)).body.data;
+  assert.equal(one.totals.all, 800);
+});
+
+test('a wrong payment is reversed once, with its reason, and the due goes back', async () => {
+  const { api, crateId, payeeId } = await setup();
+  await buy(api, { payeeId, crateId, quantity: 10, unitCost: 80 });
+
+  const paid = await api
+    .post(`/api/owner/payees/${payeeId}/payments`)
+    .send({ amount: 500, nonce: nonce(), paidFrom: 'cash' })
+    .expect(201);
+  const paymentId = paid.body.data.entry.id;
+  assert.equal(paid.body.data.payee.due, 300);
+
+  const noReason = await api
+    .post(`/api/owner/payees/${payeeId}/ledger/${paymentId}/reverse`)
+    .send({});
+  assert.equal(noReason.status, 400);
+
+  const reversed = await api
+    .post(`/api/owner/payees/${payeeId}/ledger/${paymentId}/reverse`)
+    .send({ reason: 'paid the wrong seller' })
+    .expect(201);
+  const body = reversed.body.data;
+  assert.equal(body.payee.due, 800, 'the due is back where it was before the payment');
+  assert.equal(body.entry.kind, PAYEE_LEDGER_KIND.REVERSAL);
+  assert.equal(body.entry.amount, 500);
+  assert.equal(body.entry.reversalOf, paymentId);
+  assert.equal(body.entry.note, 'paid the wrong seller');
+  assert.equal(body.entry.reversible, false, 'a reversal is never itself reversed');
+  assert.equal(body.reversed.id, paymentId);
+  assert.equal(body.reversed.reversedBy, body.entry.id);
+  assert.equal(body.reversed.reversible, false);
+  assert.equal(body.reopenedExpenseId, null);
+
+  // The original is untouched: append-only.
+  const original = await PayeeLedgerEntry.findById(paymentId);
+  assert.equal(original.amountPoisha, -50000);
+
+  const twice = await api
+    .post(`/api/owner/payees/${payeeId}/ledger/${paymentId}/reverse`)
+    .send({ reason: 'again' });
+  assert.equal(twice.status, 409);
+  assert.equal(twice.body.error.code, 'ALREADY_REVERSED');
+  assert.equal((await Payee.findById(payeeId)).duePoisha, 80000);
+
+  const health = (await api.get(`/api/owner/payees/${payeeId}`)).body.data.health;
+  assert.equal(health.ok, true, 'the ledger still reconciles');
+  assert.ok(await AuditLog.findOne({ action: 'payee.reverse' }));
+});
+
+test('only a payment or a hand-typed entry can be reversed from the ledger', async () => {
+  const { api, crateId, payeeId } = await setup();
+  await buy(api, { payeeId, crateId });
+  await api
+    .post(`/api/owner/payees/${payeeId}/ledger`)
+    .send({ kind: PAYEE_LEDGER_KIND.OPENING, amount: 1200, nonce: nonce() });
+
+  const ledger = (await api.get(`/api/owner/payees/${payeeId}/ledger`)).body.data.ledger;
+  const purchaseRow = ledger.find((e) => e.kind === PAYEE_LEDGER_KIND.PURCHASE);
+  const openingRow = ledger.find((e) => e.kind === PAYEE_LEDGER_KIND.OPENING);
+  assert.equal(purchaseRow.reversible, false);
+  assert.equal(openingRow.reversible, true);
+
+  // A purchase is cancelled, never reversed out from under itself. docs/adr/0024.
+  const purchase = await api
+    .post(`/api/owner/payees/${payeeId}/ledger/${purchaseRow.id}/reverse`)
+    .send({ reason: 'not this way' });
+  assert.equal(purchase.status, 400);
+  assert.equal(purchase.body.error.code, 'ENTRY_NOT_REVERSIBLE');
+
+  await api
+    .post(`/api/owner/payees/${payeeId}/ledger/${openingRow.id}/reverse`)
+    .send({ reason: 'opening was wrong' })
+    .expect(201);
+  assert.equal((await Payee.findById(payeeId)).duePoisha, 80000);
+
+  // The reversal row it produced cannot be reversed either.
+  const reversal = await PayeeLedgerEntry.findOne({ reversalOf: openingRow.id });
+  const ofReversal = await api
+    .post(`/api/owner/payees/${payeeId}/ledger/${reversal._id}/reverse`)
+    .send({ reason: 'undo the undo' });
+  assert.equal(ofReversal.status, 400);
+  assert.equal(ofReversal.body.error.code, 'ENTRY_NOT_REVERSIBLE');
+
+  // Another payee's entry is not found under this one.
+  const other = await newPayee(api, 'অন্য');
+  const foreign = await api
+    .post(`/api/owner/payees/${other}/ledger/${openingRow.id}/reverse`)
+    .send({ reason: 'wrong payee' });
+  assert.equal(foreign.status, 404);
+});
+
+test('a payment carries the day it was made, never a day still to come', async () => {
+  const { api, crateId, payeeId } = await setup();
+  const purchase = await buy(api, { payeeId, crateId, date: dayOffset(-5) });
+
+  const yesterday = dayOffset(-1);
+  const paid = await api
+    .post(`/api/owner/payees/${payeeId}/payments`)
+    .send({ amount: 100, nonce: nonce(), date: yesterday })
+    .expect(201);
+  assert.equal(paid.body.data.entry.businessDate, yesterday);
+
+  const future = await api
+    .post(`/api/owner/payees/${payeeId}/payments`)
+    .send({ amount: 100, nonce: nonce(), date: dayOffset(1) });
+  assert.equal(future.status, 400);
+  assert.equal(future.body.error.code, 'VALIDATION_FAILED');
+  assert.ok(future.body.error.fields.date);
+
+  const notADay = await api
+    .post(`/api/owner/payees/${payeeId}/payments`)
+    .send({ amount: 100, nonce: nonce(), date: '2026-02-31' });
+  assert.equal(notADay.status, 400);
+
+  // Without a date it is today's. Ledger rows say which day each belongs to and
+  // what it points at, in words the seller recognises.
+  await api.post(`/api/owner/payees/${payeeId}/payments`).send({ amount: 50, nonce: nonce() });
+  const rows = (await api.get(`/api/owner/payees/${payeeId}/ledger`)).body.data.ledger;
+  const [today, back, bought] = rows;
+  assert.equal(today.businessDate, businessDate());
+  assert.equal(back.businessDate, yesterday);
+  assert.equal(bought.businessDate, dayOffset(-5), 'the day the goods came in');
+  assert.deepEqual(bought.reference, {
+    type: 'purchase',
+    id: purchase.id,
+    label: purchase.purchaseCode,
+    cancelled: false,
+  });
+  assert.equal(today.reference, null);
+});
+
+test('a payee detail counts every purchase, not only the ten it shows', async () => {
+  const { api, crateId, payeeId } = await setup();
+  for (let i = 0; i < 12; i += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    await buy(api, { payeeId, crateId, quantity: 1, unitCost: 10 });
+  }
+  const first = await Purchase.findOne({ payee: payeeId });
+  await api.post(`/api/owner/purchases/${first._id}/cancel`).send({ reason: 'undone' });
+
+  const detail = (await api.get(`/api/owner/payees/${payeeId}`).expect(200)).body.data;
+  assert.equal(detail.purchases.length, 10);
+  assert.equal(detail.purchaseCount, 12);
+  assert.equal(detail.expenseCount, 0);
+  // The "see all" link lands on exactly that many.
+  const list = (await api.get(`/api/owner/purchases?payeeId=${payeeId}`)).body.data;
+  assert.equal(list.total, detail.purchaseCount);
+});
+
+test("an archived payee's due stays in the totals and is broken out", async () => {
+  const { api, crateId, payeeId } = await setup();
+  const gone = await newPayee(api, 'পুরনো ভ্যান');
+  const ahead = await newPayee(api, 'বায়না');
+
+  await buy(api, { payeeId, crateId, quantity: 10, unitCost: 80 });
+  await api
+    .post(`/api/owner/payees/${gone}/ledger`)
+    .send({ kind: PAYEE_LEDGER_KIND.OPENING, amount: 300, nonce: nonce() });
+  await api.post(`/api/owner/payees/${ahead}/payments`).send({ amount: 200, nonce: nonce() });
+  await api.delete(`/api/owner/payees/${gone}`).expect(200);
+  await api.delete(`/api/owner/payees/${ahead}`).expect(200);
+
+  const list = (await api.get('/api/owner/payees').expect(200)).body.data;
+  assert.deepEqual(
+    list.payees.map((p) => p.id),
+    [payeeId],
+    'archived ones are not listed'
+  );
+  assert.equal(list.totals.count, 1);
+  // Still owed, so still in the total: archiving is not settling.
+  assert.equal(list.totals.due, 1100);
+  assert.equal(list.totals.owingCount, 2);
+  assert.equal(list.totals.advance, 200);
+  assert.equal(list.totals.archivedDue, 300);
+  assert.equal(list.totals.archivedAdvance, 200);
+  assert.equal(list.totals.archivedOwingCount, 1);
+  assert.equal(list.totals.archivedCount, 2);
+
+  // The same figure the payables report has always given.
+  const payables = (await api.get('/api/owner/reports/payables')).body.data;
+  assert.equal(payables.totals.due, list.totals.due);
+
+  const all = (await api.get('/api/owner/payees?includeArchived=true').expect(200)).body.data;
+  assert.equal(all.payees.length, 3);
+  assert.equal(all.totals.due, 1100);
+});
+
+test('marking an unpaid expense paid posts the payment and flips it, once', async () => {
+  const { api, payeeId } = await setup();
+  await api.post('/api/owner/expense-categories/seed');
+  const transport = await ExpenseCategory.findOne({ nameBn: 'পরিবহন খরচ' });
+
+  const created = await api
+    .post('/api/owner/expenses')
+    .send({ categoryId: transport._id, amount: 900, payeeId, paymentStatus: 'unpaid' })
+    .expect(201);
+  const id = created.body.data.expense.id;
+  assert.equal((await Payee.findById(payeeId)).duePoisha, 90000);
+
+  const noMethod = await api.post(`/api/owner/expenses/${id}/mark-paid`).send({});
+  assert.equal(noMethod.status, 400);
+
+  const marked = await api
+    .post(`/api/owner/expenses/${id}/mark-paid`)
+    .send({ paidFrom: 'bkash' })
+    .expect(200);
+  const expense = marked.body.data.expense;
+  assert.equal(expense.paymentStatus, 'paid');
+  assert.equal(expense.paidFrom, 'bkash');
+  assert.ok(expense.paidAt);
+  assert.ok(expense.paymentEntry);
+  assert.equal((await Payee.findById(payeeId)).duePoisha, 0, 'the payment is on the ledger');
+
+  // Two facts, two entries: the bill, and then its payment.
+  const payment = await PayeeLedgerEntry.findById(expense.paymentEntry);
+  assert.equal(payment.kind, PAYEE_LEDGER_KIND.PAYMENT);
+  assert.equal(payment.amountPoisha, -90000);
+  assert.equal(String(payment.refId), id);
+  const row = (await api.get(`/api/owner/payees/${payeeId}/ledger`)).body.data.ledger[0];
+  assert.equal(row.reference.type, 'expense');
+  assert.equal(row.reference.label, 'পরিবহন খরচ');
+
+  const twice = await api.post(`/api/owner/expenses/${id}/mark-paid`).send({ paidFrom: 'cash' });
+  assert.equal(twice.status, 409);
+  assert.equal(twice.body.error.code, 'ALREADY_PAID');
+  assert.equal((await Payee.findById(payeeId)).duePoisha, 0);
+  assert.ok(await AuditLog.findOne({ action: 'expense.markPaid' }));
+
+  // Reversing the payment puts the bill back to unpaid, and it can be settled again.
+  const reversed = await api
+    .post(`/api/owner/payees/${payeeId}/ledger/${expense.paymentEntry}/reverse`)
+    .send({ reason: 'marked paid by mistake' })
+    .expect(201);
+  assert.equal(reversed.body.data.reopenedExpenseId, id);
+  const reopened = await Expense.findById(id);
+  assert.equal(reopened.paymentStatus, 'unpaid');
+  assert.equal(reopened.paymentEntry, null);
+  assert.equal((await Payee.findById(payeeId)).duePoisha, 90000);
+
+  await api.post(`/api/owner/expenses/${id}/mark-paid`).send({ paidFrom: 'cash' }).expect(200);
+  assert.equal((await Payee.findById(payeeId)).duePoisha, 0, 'a new payment, not the old one');
+  assert.equal(
+    await PayeeLedgerEntry.countDocuments({ payee: payeeId, kind: PAYEE_LEDGER_KIND.PAYMENT }),
+    2
+  );
+});
+
+test('a paid or voided expense cannot be marked paid', async () => {
+  const { api, payeeId } = await setup();
+  await api.post('/api/owner/expense-categories/seed');
+  const labour = await ExpenseCategory.findOne({ nameBn: 'লেবার খরচ' });
+
+  const paid = await api.post('/api/owner/expenses').send({ categoryId: labour._id, amount: 400 });
+  const already = await api
+    .post(`/api/owner/expenses/${paid.body.data.expense.id}/mark-paid`)
+    .send({ paidFrom: 'cash' });
+  assert.equal(already.status, 409);
+  assert.equal(already.body.error.code, 'ALREADY_PAID');
+
+  const unpaid = await api
+    .post('/api/owner/expenses')
+    .send({ categoryId: labour._id, amount: 400, payeeId, paymentStatus: 'unpaid' });
+  const unpaidId = unpaid.body.data.expense.id;
+  await api.post(`/api/owner/expenses/${unpaidId}/void`).send({ reason: 'never happened' });
+
+  const voided = await api
+    .post(`/api/owner/expenses/${unpaidId}/mark-paid`)
+    .send({ paidFrom: 'cash' });
+  assert.equal(voided.status, 409);
+  assert.equal(voided.body.error.code, 'EXPENSE_VOIDED');
+  assert.equal((await Payee.findById(payeeId)).duePoisha, 0, 'nothing was paid');
+});
+
+test('voiding a settled expense leaves the payment standing as an advance', async () => {
+  const { api, payeeId } = await setup();
+  await api.post('/api/owner/expense-categories/seed');
+  const labour = await ExpenseCategory.findOne({ nameBn: 'লেবার খরচ' });
+
+  const created = await api
+    .post('/api/owner/expenses')
+    .send({ categoryId: labour._id, amount: 600, payeeId, paymentStatus: 'unpaid' });
+  const id = created.body.data.expense.id;
+  await api.post(`/api/owner/expenses/${id}/mark-paid`).send({ paidFrom: 'cash' }).expect(200);
+  await api.post(`/api/owner/expenses/${id}/void`).send({ reason: 'billed to the wrong day' });
+
+  // The bill went away; the cash that left did not. docs/adr/0002.
+  const payee = (await api.get(`/api/owner/payees/${payeeId}`)).body.data.payee;
+  assert.equal(payee.due, -600);
+  assert.equal(payee.isAdvance, true);
+});
+
+test('the purchase sheet takes the list filters and itemises the purchases', async () => {
+  const { api, crateId, payeeId } = await setup();
+  const other = await newPayee(api, 'অন্য দোকান');
+
+  const a = await buy(api, { payeeId, crateId, quantity: 10, unitCost: 80, date: dayOffset(-2) });
+  const undone = await buy(api, { payeeId, crateId, quantity: 5, unitCost: 80 });
+  await buy(api, { payeeId: other, crateId, quantity: 1, unitCost: 50 });
+  await api.post(`/api/owner/purchases/${undone.id}/cancel`).send({ reason: 'undone' });
+
+  const report = (await api.get(`/api/owner/reports/purchases?payeeId=${payeeId}`).expect(200))
+    .body.data;
+  assert.equal(report.totals.purchases, 1, 'cancelled ones are never counted');
+  assert.equal(report.totals.spent, 800);
+  assert.equal(report.byPayee.length, 1);
+  assert.equal(report.rowCount, 2);
+  assert.equal(report.truncated, false);
+  // Oldest first, cancelled listed with its status, as the list shows it.
+  assert.deepEqual(
+    report.rows.map((r) => [r.purchaseCode, r.status]),
+    [
+      [a.purchaseCode, 'received'],
+      [undone.purchaseCode, 'cancelled'],
+    ]
+  );
+  const row = report.rows[0];
+  assert.equal(row.businessDate, dayOffset(-2));
+  assert.equal(row.payeeId, payeeId);
+  assert.equal(row.payeeNameBn, 'করিম ক্যারেট স্টোর');
+  assert.equal(row.spent, 800);
+  assert.equal(row.billed, 800);
+  assert.deepEqual(row.supplies, ['ক্যারেট']);
+
+  const received = (await api.get('/api/owner/reports/purchases?status=received')).body.data;
+  assert.equal(received.rows.length, 2);
+  assert.equal(received.totals.spent, 850);
+
+  const capped = (await api.get('/api/owner/reports/purchases?max=1')).body.data;
+  assert.equal(capped.rows.length, 1);
+  assert.equal(capped.rowCount, 3);
+  assert.equal(capped.truncated, true, 'a short sheet says it is short');
+
+  const bad = await api.get('/api/owner/reports/purchases?status=lost');
+  assert.equal(bad.status, 400);
+
+  // The download takes the same filter.
+  const csv = await api.get(`/api/owner/exports/purchases.csv?payeeId=${other}`).expect(200);
+  assert.match(csv.text, /অন্য দোকান/);
+  assert.doesNotMatch(csv.text, /করিম ক্যারেট স্টোর/);
+});
+
+test('the expense sheet takes the list filters and itemises the expenses', async () => {
+  const { api, payeeId } = await setup();
+  await api.post('/api/owner/expense-categories/seed');
+  const labour = await ExpenseCategory.findOne({ nameBn: 'লেবার খরচ' });
+  const transport = await ExpenseCategory.findOne({ nameBn: 'পরিবহন খরচ' });
+
+  await api
+    .post('/api/owner/expenses')
+    .send({ categoryId: labour._id, amount: 500, date: dayOffset(-1), note: 'two hands' });
+  await api
+    .post('/api/owner/expenses')
+    .send({ categoryId: transport._id, amount: 200, payeeId, paymentStatus: 'unpaid' });
+  const wrong = await api.post('/api/owner/expenses').send({ categoryId: labour._id, amount: 999 });
+  await api
+    .post(`/api/owner/expenses/${wrong.body.data.expense.id}/void`)
+    .send({ reason: 'typed twice' });
+
+  const all = (await api.get('/api/owner/reports/expenses').expect(200)).body.data;
+  assert.equal(all.totals.all, 700);
+  assert.equal(all.rows.length, 2, 'a voided expense is never on the sheet');
+  const [first, second] = all.rows;
+  assert.equal(first.businessDate, dayOffset(-1));
+  assert.equal(first.categoryNameBn, 'লেবার খরচ');
+  assert.equal(first.scope, 'period');
+  assert.equal(first.amount, 500);
+  assert.equal(first.note, 'two hands');
+  assert.equal(first.payeeNameBn, null);
+  assert.equal(second.payeeId, payeeId);
+  assert.equal(second.paymentStatus, 'unpaid');
+
+  const byCategory = (await api.get(`/api/owner/reports/expenses?categoryId=${labour._id}`)).body
+    .data;
+  assert.equal(byCategory.totals.all, 500);
+  assert.equal(byCategory.rows.length, 1);
+  assert.equal(byCategory.byCategory.length, 1);
+
+  const unpaid = (await api.get('/api/owner/reports/expenses?paymentStatus=unpaid')).body.data;
+  assert.equal(unpaid.totals.all, 200);
+  assert.equal(unpaid.totals.unpaid, 200);
+
+  const orderScope = (await api.get('/api/owner/reports/expenses?scope=order')).body.data;
+  assert.equal(orderScope.totals.all, 0);
+  assert.equal(orderScope.rows.length, 0);
+
+  const csv = await api.get('/api/owner/exports/expenses.csv?paymentStatus=unpaid').expect(200);
+  assert.match(csv.text, /পরিবহন খরচ/);
+  assert.doesNotMatch(csv.text, /লেবার খরচ/);
 });

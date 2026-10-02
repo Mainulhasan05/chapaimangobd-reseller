@@ -1,10 +1,10 @@
 'use client';
 
-import { Phone, TriangleAlert } from 'lucide-react';
-import { t } from '@/lib/i18n/bn';
+import { TriangleAlert } from 'lucide-react';
+import { t, tf } from '@/lib/i18n/bn';
 import { formatMoney, formatNumber, formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { Alert, Badge, Card, CardHeader } from '@/components/ui/layout';
+import { Alert, Badge, Card, CardHeader, PhoneLink } from '@/components/ui/layout';
 import type { Customer, CustomerVariant } from '@/lib/types';
 
 /**
@@ -29,8 +29,10 @@ const countOf = (v: Variant) => (typeof v === 'string' ? null : v.count);
  * on delivery that is real money spent on a parcel that came back. Three is the
  * floor because one refusal is life and two is bad luck; a third alongside a
  * rate above a third is a pattern worth seeing before packing the next one.
+ *
+ * Exported for the list, which shows the same verdict as a chip on the card.
  */
-function isRisky(customer: Customer): boolean {
+export function isRisky(customer: Customer): boolean {
   const bad = customer.cancelledCount + customer.returnedCount;
   return bad >= 3 && bad / Math.max(customer.orderCount, 1) > 0.34;
 }
@@ -49,15 +51,7 @@ export function CustomerProfile({ customer }: { customer: Customer }) {
       <Card className="mb-4">
         <CardHeader
           title={customer.name ?? customer.phone}
-          subtitle={
-            <a
-              href={`tel:${customer.phone}`}
-              className="tabular inline-flex items-center gap-1.5 font-medium hover:underline"
-            >
-              <Phone aria-hidden className="h-3.5 w-3.5" />
-              {customer.phone}
-            </a>
-          }
+          subtitle={<PhoneLink phone={customer.phone} />}
           action={
             <Badge tone={customer.orderCount > 1 ? 'success' : 'neutral'} dot>
               {customer.orderCount > 1 ? t('cust.repeat') : t('cust.firstTime')}
@@ -72,9 +66,14 @@ export function CustomerProfile({ customer }: { customer: Customer }) {
             value={formatNumber(customer.deliveredCount)}
             tone="success"
           />
+          {/*
+           * Cancelled and returned side by side, each counted, because both cost
+           * a courier run. The label says both, where it used to say only
+           * "cancelled" while its colour counted the returns too.
+           */}
           <Figure
-            label={t('cust.cancelled')}
-            value={formatNumber(customer.cancelledCount)}
+            label={t('customers.badFigure')}
+            value={`${formatNumber(customer.cancelledCount)} / ${formatNumber(customer.returnedCount)}`}
             tone={bad > 0 ? 'danger' : undefined}
           />
           <Figure label={t('cust.spend')} value={formatMoney(customer.totalSpend)} />
@@ -83,7 +82,6 @@ export function CustomerProfile({ customer }: { customer: Customer }) {
         <dl className="mt-4 grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">
           <Detail label={t('cust.firstOrder')} value={formatDate(customer.firstOrderAt)} />
           <Detail label={t('cust.lastOrder')} value={formatDate(customer.lastOrderAt)} />
-          <Detail label={t('cust.returned')} value={formatNumber(customer.returnedCount)} />
           {customer.shopCount !== undefined && (
             <Detail label={t('cust.shops')} value={formatNumber(customer.shopCount)} />
           )}
@@ -109,12 +107,7 @@ export function CustomerProfile({ customer }: { customer: Customer }) {
           <ul className="flex flex-wrap gap-2">
             {customer.altPhones.map((phone) => (
               <li key={phone}>
-                <a
-                  href={`tel:${phone}`}
-                  className="tabular inline-block rounded-lg bg-subtle px-2.5 py-1 text-sm hover:underline"
-                >
-                  {phone}
-                </a>
+                <PhoneLink phone={phone} className="rounded-lg bg-subtle px-2.5 text-sm" />
               </li>
             ))}
           </ul>
@@ -135,14 +128,14 @@ function VariantCard({ title, items }: { title: string; items: Variant[] }) {
           const count = countOf(item);
           return (
             <li key={valueOf(item)} className="flex items-start justify-between gap-3 py-2">
-              <span className="min-w-0 flex-1 text-sm">{valueOf(item)}</span>
+              <span className="min-w-0 flex-1 break-words text-sm">{valueOf(item)}</span>
               {/*
                * How often, when the API counted it. The reseller's aggregation
                * returns bare values, so the chip simply does not appear there.
                */}
               {count !== null && count > 1 && (
                 <span className="tabular shrink-0 rounded-full bg-subtle px-2 py-0.5 text-[0.6875rem] font-semibold text-muted-foreground">
-                  {t('cust.timesUsed').replace('{n}', formatNumber(count))}
+                  {tf('cust.timesUsed', { n: formatNumber(count) })}
                 </span>
               )}
             </li>

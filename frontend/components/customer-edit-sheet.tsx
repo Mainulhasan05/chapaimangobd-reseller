@@ -1,18 +1,19 @@
 'use client';
 
 import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { MapPinned } from 'lucide-react';
-import { api, errorMessage, fieldErrors } from '@/lib/api';
-import { t } from '@/lib/i18n/bn';
+import { errorMessage, fieldErrors } from '@/lib/api';
+import { t, tf } from '@/lib/i18n/bn';
 import { formatMoney } from '@/lib/format';
 import { normalizeBdPhoneInput } from '@/lib/phone';
-import type { CustomerEditResult, DeliveryChargeChange, DeliveryZone, Order } from '@/lib/types';
+import type { CustomerEditResult, Order } from '@/lib/types';
+import { useChangeDeliveryChargeMutation, useEditOrderCustomerMutation } from '@/lib/store/endpoints/orders';
+import { useGetDeliveryZonesQuery } from '@/lib/store/endpoints/public';
 import { Alert } from '@/components/ui/layout';
 import { Button } from '@/components/ui/button';
 import { Field, Input, Textarea } from '@/components/ui/form';
 import { DistrictSelect } from '@/components/ui/district-field';
-import { Modal } from '@/components/ui/modal';
+import { Modal, ModalCancel } from '@/components/ui/modal';
 import { PhoneField } from '@/components/ui/phone-field';
 import { useToast } from '@/components/ui/toast';
 
@@ -41,6 +42,9 @@ const draftFrom = (order: Order): Draft => ({
  * one-tap way to apply that zone's charge, through the same endpoint as any
  * other charge change, so the ledger adjustment and the audit entry are the
  * usual ones. A reseller is told the owner may adjust it.
+ *
+ * The saved order is written into the cache by the endpoints themselves, so
+ * the order screen underneath shows it at once without being told.
  */
 export function CustomerEditSheet({
   scope,
@@ -51,8 +55,8 @@ export function CustomerEditSheet({
   scope: Scope;
   order: Order | null;
   onClose: () => void;
-  /** Receives the order as the API returned it, in the GET shape. */
-  onSaved: (order: Order) => void;
+  /** Receives the order as the API returned it. Optional: the cache is already updated. */
+  onSaved?: (order: Order) => void;
 }) {
   if (!order) return null;
   // Keyed so the draft starts from this order's values every time it opens.
@@ -68,19 +72,16 @@ function CustomerEditForm({
   scope: Scope;
   order: Order;
   onClose: () => void;
-  onSaved: (order: Order) => void;
+  onSaved?: (order: Order) => void;
 }) {
-  const queryClient = useQueryClient();
   const toast = useToast();
   const [draft, setDraft] = useState<Draft>(() => draftFrom(order));
   // Set once the save went through and moved the order into another zone.
   const [zoneResult, setZoneResult] = useState<CustomerEditResult | null>(null);
 
-  const zones = useQuery({
-    queryKey: ['zones'],
-    queryFn: () => api.get<{ zones: DeliveryZone[] }>('/public/delivery-zones'),
-    staleTime: 5 * 60_000,
-  });
+  const zones = useGetDeliveryZonesQuery();
+  const [editCustomer, save] = useEditOrderCustomerMutation();
+  const [changeCharge, applyCharge] = useChangeDeliveryChargeMutation();
 
   const districts = (zones.data?.zones ?? []).flatMap((zone) =>
     zone.districts.map((district) => ({ district, charge: zone.charge }))
@@ -89,7 +90,7 @@ function CustomerEditForm({
    * The order's own district stays selected even if its zone has since been
    * switched off: the picker lists all sixty-four and marks the undeliverable
    * ones rather than dropping them, so opening the sheet never silently blanks
-   * the field. It used to need a synthetic <option> for exactly this case.
+   * the field.
    */
 
   const original = draftFrom(order);
@@ -100,35 +101,33 @@ function CustomerEditForm({
   });
   const dirty = Object.keys(changes).length > 0;
 
-  const refresh = async (next: Order) => {
-    onSaved(next);
-    await queryClient.invalidateQueries({ queryKey: scope === 'owner' ? ['owner'] : ['orders'] });
-  };
-
-  const save = useMutation({
-    mutationFn: () => api.patch<CustomerEditResult>(`/${scope}/orders/${order.id}/customer`, changes),
-    onSuccess: async (result) => {
-      await refresh(result.order);
+  const submit = async () => {
+    if (!dirty) return;
+    try {
+      const result = await editCustomer({ role: scope, id: order.id, changes }).unwrap();
+      onSaved?.(result.order);
       if (result.deliveryZoneChanged) {
         setZoneResult(result);
         return;
       }
       toast(t('customerEdit.saved'));
       onClose();
-    },
-  });
+    } catch (error) {
+      // Field errors land under their boxes; anything else is said here too.
+      if (Object.keys(fieldErrors(error)).length === 0) toast(errorMessage(error), 'danger');
+    }
+  };
 
-  const applyCharge = useMutation({
-    mutationFn: (charge: number) =>
-      api.patch<DeliveryChargeChange>(`/owner/orders/${order.id}/delivery-charge`, {
-        deliveryCharge: charge,
-      }),
-    onSuccess: async (result, charge) => {
-      await refresh(result.order);
-      toast(t('customerEdit.chargeApplied').replace('{amount}', formatMoney(charge)));
+  const apply = async (charge: number) => {
+    try {
+      const result = await changeCharge({ id: order.id, deliveryCharge: charge }).unwrap();
+      onSaved?.(result.order);
+      toast(tf('customerEdit.chargeApplied', { amount: formatMoney(charge) }));
       onClose();
-    },
-  });
+    } catch (error) {
+      toast(errorMessage(error), 'danger');
+    }
+  };
 
   const errors = fieldErrors(save.error);
   const set = (key: keyof Draft) => (event: { target: { value: string } }) =>
@@ -153,11 +152,9 @@ function CustomerEditForm({
         footer={
           canApply ? (
             <>
-              <Button variant="outline" onClick={onClose}>
-                {t('customerEdit.keepCharge')}
-              </Button>
-              <Button loading={applyCharge.isPending} onClick={() => applyCharge.mutate(suggested.charge)}>
-                {t('customerEdit.applyCharge').replace('{amount}', formatMoney(suggested.charge))}
+              <ModalCancel label={t('customerEdit.keepCharge')} />
+              <Button loading={applyCharge.isLoading} onClick={() => apply(suggested.charge)}>
+                {tf('customerEdit.applyCharge', { amount: formatMoney(suggested.charge) })}
               </Button>
             </>
           ) : (
@@ -172,10 +169,11 @@ function CustomerEditForm({
 
         <Alert tone="warning" icon={MapPinned} title={t('customerEdit.zoneChangedTitle')} className="mb-0">
           {scope === 'owner' && suggested
-            ? t('customerEdit.zoneChangedOwner')
-                .replace('{zone}', suggested.name)
-                .replace('{amount}', formatMoney(suggested.charge))
-                .replace('{current}', formatMoney(saved.deliveryCharge))
+            ? tf('customerEdit.zoneChangedOwner', {
+                zone: suggested.name,
+                amount: formatMoney(suggested.charge),
+                current: formatMoney(saved.deliveryCharge),
+              })
             : t('customerEdit.zoneChangedReseller')}
         </Alert>
       </Modal>
@@ -190,17 +188,13 @@ function CustomerEditForm({
       onClose={onClose}
       title={`${t('customerEdit.title')} · ${order.orderCode}`}
       dirty={dirty}
+      footerLead={
+        !dirty ? <p className="text-xs text-muted-foreground">{t('customers.editNothingChanged')}</p> : undefined
+      }
       footer={
         <>
-          <Button variant="outline" onClick={onClose}>
-            {t('app.cancel')}
-          </Button>
-          <Button
-            type="submit"
-            form="customer-edit-form"
-            loading={save.isPending}
-            disabled={!dirty}
-          >
+          <ModalCancel />
+          <Button type="submit" form="customer-edit-form" loading={save.isLoading} disabled={!dirty}>
             {t('app.save')}
           </Button>
         </>
@@ -210,7 +204,7 @@ function CustomerEditForm({
         id="customer-edit-form"
         onSubmit={(event) => {
           event.preventDefault();
-          if (dirty) save.mutate();
+          submit();
         }}
       >
         <p className="mb-4 text-sm text-muted-foreground">{t('customerEdit.help')}</p>
@@ -244,19 +238,21 @@ function CustomerEditForm({
         {/*
          * All sixty-four, searchable. The order's own district stays selected
          * and is flagged rather than dropped when its zone has since been
-         * retired, because it is where the parcel is actually going.
+         * retired, because it is where the parcel is actually going. While the
+         * zones load the picker is held, and says so rather than looking broken.
          */}
         <Field
           label={t('order.district')}
           htmlFor="edit-customer-district"
           error={errors.district}
+          hint={zones.isLoading ? t('customers.zonesLoading') : zones.isError ? t('customers.zonesFailed') : undefined}
           required
         >
           <DistrictSelect
             id="edit-customer-district"
             value={draft.district}
             onChange={(district) => setDraft((prev) => ({ ...prev, district }))}
-            deliverable={zones.isLoading ? undefined : districts.map((d) => d.district)}
+            deliverable={zones.data ? districts.map((d) => d.district) : undefined}
             disabled={zones.isLoading}
             invalid={Boolean(errors.district)}
           />

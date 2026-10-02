@@ -310,6 +310,55 @@ async function deadLetterCounts({ since } = {}) {
   return { total, recent };
 }
 
+/**
+ * Puts a dead letter back in the queue, as if it had just been written.
+ *
+ * Every channel that already went out stays sent, so a message whose push
+ * arrived and whose Telegram failed retries only Telegram: the owner pressing
+ * retry must not buzz a reseller's phone a second time. The attempt counts
+ * start again, because the worker gives up on anything at the maximum and a
+ * retry that is dead-lettered without a try is not a retry.
+ *
+ * Returns the message, or null when it was not dead (already retried, sent or
+ * dismissed by someone else).
+ */
+async function retryDead(id) {
+  const message = await OutboxMessage.findOne({ _id: id, status: OUTBOX_STATUS.DEAD });
+  if (!message) return null;
+
+  const channels = (message.channels || []).map((c) => {
+    const state = toChannelState(c.toObject ? c.toObject() : c);
+    return state.status === CHANNEL_STATUS.SENT
+      ? state
+      : { ...state, status: CHANNEL_STATUS.PENDING, attempts: 0, lastError: null };
+  });
+
+  return OutboxMessage.findOneAndUpdate(
+    { _id: id, status: OUTBOX_STATUS.DEAD },
+    {
+      $set: {
+        channels,
+        status: OUTBOX_STATUS.PENDING,
+        attempts: 0,
+        nextAttemptAt: new Date(),
+        deadAt: null,
+        lastError: null,
+      },
+      $unset: { leaseUntil: 1, leaseOwner: 1 },
+    },
+    { new: true }
+  );
+}
+
+/** Lets a dead letter go. Returns the message, or null when it was not dead. */
+function dismissDead(id, { by } = {}) {
+  return OutboxMessage.findOneAndUpdate(
+    { _id: id, status: OUTBOX_STATUS.DEAD },
+    { $set: { status: OUTBOX_STATUS.DISMISSED, dismissedAt: new Date(), dismissedBy: by || null } },
+    { new: true }
+  );
+}
+
 let timer = null;
 let inFlight = null;
 
@@ -349,6 +398,8 @@ module.exports = {
   drainOnce,
   tick,
   deadLetterCounts,
+  retryDead,
+  dismissDead,
   startOutboxWorker,
   stopOutboxWorker,
   backoffMs,

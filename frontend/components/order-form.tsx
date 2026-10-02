@@ -1,15 +1,15 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import Link from 'next/link';
-import { useMutation } from '@tanstack/react-query';
 import { CircleCheck } from 'lucide-react';
-import { api, ApiError, errorMessage, fieldErrors } from '@/lib/api';
+import { ApiError, errorMessage, fieldErrors } from '@/lib/api';
+import { usePlaceShopOrderMutation } from '@/lib/store/endpoints/public';
 import { t } from '@/lib/i18n/bn';
 import { formatMoney, formatNumber } from '@/lib/format';
 import type { DeliveryZone, PaymentMode, PublicShop } from '@/lib/types';
 import { Alert, Badge, Card, StickyBar } from '@/components/ui/layout';
-import { Button } from '@/components/ui/button';
+import { Button, ButtonLink } from '@/components/ui/button';
+import { useToast } from '@/components/ui/toast';
 import { QuantityStepper } from '@/components/ui/stepper';
 import { Field, Input, Select, Textarea } from '@/components/ui/form';
 import { DistrictSelect } from '@/components/ui/district-field';
@@ -99,9 +99,13 @@ export function OrderForm({
     return sum + (box?.variant.price ?? 0) * line.quantity;
   }, 0);
 
-  const submit = useMutation({
-    mutationFn: () =>
-      api.post<{ orderCode: string; duplicate: boolean }>(`/public/shop/${slug}/orders`, {
+  const toast = useToast();
+  const [placeOrder, submit] = usePlaceShopOrderMutation();
+
+  const send = async () => {
+    try {
+      const data = await placeOrder({
+        slug,
         submissionId,
         paymentMode,
         customer: {
@@ -112,9 +116,13 @@ export function OrderForm({
           ...(customer.note ? { note: customer.note } : {}),
         },
         items: selected,
-      }),
-    onSuccess: (data) => setPlaced(data.orderCode),
-  });
+      }).unwrap();
+      setPlaced(data.orderCode);
+    } catch (error) {
+      // The button is pinned to the bottom and the error alert sits above the products.
+      toast(errorMessage(error), 'danger');
+    }
+  };
 
   if (placed) {
     return (
@@ -126,11 +134,9 @@ export function OrderForm({
         <p className="mb-1 text-sm text-muted-foreground">{t('order.code')}</p>
         <p className="tabular mb-6 text-3xl font-semibold">{placed}</p>
 
-        <Link href={`/track?code=${placed}`} className="block">
-          <Button variant="outline" full size="lg">
-            {t('shop.trackOrder')}
-          </Button>
-        </Link>
+        <ButtonLink href={`/track?code=${placed}`} variant="outline" full size="lg">
+          {t('shop.trackOrder')}
+        </ButtonLink>
       </Card>
     );
   }
@@ -153,7 +159,7 @@ export function OrderForm({
         id={FORM_ID}
         onSubmit={(event) => {
           event.preventDefault();
-          submit.mutate();
+          void send();
         }}
       >
         {generalError && <Alert tone="danger">{generalError}</Alert>}
@@ -408,7 +414,7 @@ export function OrderForm({
             {t('landing.orderNow')}
           </a>
         ) : (
-          <Button type="submit" form={FORM_ID} full size="lg" loading={submit.isPending}>
+          <Button type="submit" form={FORM_ID} full size="lg" loading={submit.isLoading}>
             {t('shop.placeOrder')}
           </Button>
         )}

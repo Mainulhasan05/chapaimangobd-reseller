@@ -12,9 +12,11 @@ const {
   CATEGORY_SCOPE,
   EXPENSE_PAYMENT_STATUS,
   PAID_FROM,
+  PURCHASE_STATUS,
   values,
 } = require('../../domain/constants');
 const { MAX_RECIPE_ROWS } = require('../../domain/packaging');
+const { businessDate, startOfBusinessDay } = require('../../utils/dhakaTime');
 
 /**
  * The cost side of the owner API: supplies, payees, purchases and expenses.
@@ -31,13 +33,39 @@ const positiveMoney = z.coerce.number().positive().max(10000000);
 const qty = z.coerce.number().positive().max(1000000);
 // A recount may legitimately be zero: the shelf is empty.
 const countedQty = z.coerce.number().nonnegative().max(1000000);
+/*
+ * Round-tripped rather than merely parsed, as in `schema.js`: the 31st of
+ * February parses, rolls forward to March, and would have filed a purchase on a
+ * day nobody typed.
+ */
 const dateString = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, 'Use a YYYY-MM-DD date')
   .refine((v) => {
-    const d = new Date(`${v}T00:00:00+06:00`);
-    return !Number.isNaN(d.getTime());
+    const d = startOfBusinessDay(v);
+    return !Number.isNaN(d.getTime()) && businessDate(d) === v;
   }, 'That is not a real date');
+
+/**
+ * The day money was handed over. Today or earlier in Dhaka, never later: a
+ * payment dated next week is a typo, and accepting it would put a settled due
+ * on a statement for a day that has not happened.
+ */
+const paidOn = dateString.refine(
+  (v) => v <= businessDate(),
+  'A payment cannot be dated in the future'
+);
+
+/** An empty select sends `status=`; read that as no filter, not as a bad value. */
+const optionalEnum = (list) =>
+  z.preprocess((v) => (v === '' ? undefined : v), z.enum(list).optional());
+
+/**
+ * How many itemised rows a printed sheet carries. Capped so a mistyped range
+ * cannot pull a season into one response, and the handler says when it stopped,
+ * exactly as the order sheet does.
+ */
+const sheetMax = z.coerce.number().int().min(1).max(1000).default(500);
 
 const dateRange = z
   .object({ from: dateString.optional(), to: dateString.optional() })
@@ -114,6 +142,8 @@ const stockTake = z.object({
 
 const listSupplies = z.object({
   includeArchived: z.enum(['true', 'false']).optional(),
+  // The archived ones alone, for the archived filter. Wins over includeArchived.
+  archivedOnly: z.enum(['true', 'false']).optional(),
   lowOnly: z.enum(['true', 'false']).optional(),
   q: z.string().trim().max(120).optional(),
 });
@@ -142,6 +172,17 @@ const payPayee = z.object({
   nonce,
   paidFrom: z.enum(values(PAID_FROM)).optional(),
   note: z.string().trim().max(500).optional(),
+  // The business date of the payment. Today when left out.
+  date: paidOn.optional(),
+});
+
+/**
+ * Taking back a wrong payment or a wrong hand-typed entry. The reason is
+ * required: a reversal with no reason is a number that changed and nobody can
+ * say why, which is the thing an append-only ledger exists to prevent.
+ */
+const reversePayeeEntry = z.object({
+  reason: z.string().trim().min(3, 'Say why this is being reversed').max(500),
 });
 
 /**
@@ -199,14 +240,17 @@ const cancelPurchase = z.object({
   reason: z.string().trim().min(2, 'Say why').max(500),
 });
 
-const listPurchases = z
-  .object({
-    payeeId: objectId.optional(),
-    supplyId: objectId.optional(),
-    status: z.string().optional(),
-    ...paging,
-  })
-  .and(dateRange);
+const purchaseFilters = {
+  payeeId: objectId.optional(),
+  supplyId: objectId.optional(),
+  status: optionalEnum(values(PURCHASE_STATUS)),
+};
+
+const listPurchases = z.object({ ...purchaseFilters, ...paging }).and(dateRange);
+
+// The printed sheet and the CSV take exactly the list's filters, unpaged.
+const purchaseReport = z.object({ ...purchaseFilters, max: sheetMax }).and(dateRange);
+const purchaseExport = z.object(purchaseFilters).and(dateRange);
 
 /* ------------------------------------------------------------------ expenses */
 
@@ -236,17 +280,35 @@ const voidExpense = z.object({
   reason: z.string().trim().min(2, 'Say why').max(500),
 });
 
+/**
+ * "দিয়ে দিয়েছি" on an unpaid expense. `paidFrom` is required because the
+ * expense row shows it, and an unpaid row carries the default that was never
+ * chosen by anyone.
+ */
+const markExpensePaid = z.object({
+  paidFrom: z.enum(values(PAID_FROM)),
+  date: paidOn.optional(),
+});
+
+const expenseFilters = {
+  categoryId: objectId.optional(),
+  payeeId: objectId.optional(),
+  orderId: objectId.optional(),
+  scope: optionalEnum(['order', 'period']),
+  paymentStatus: optionalEnum(values(EXPENSE_PAYMENT_STATUS)),
+};
+
 const listExpenses = z
   .object({
-    categoryId: objectId.optional(),
-    payeeId: objectId.optional(),
-    orderId: objectId.optional(),
-    scope: z.enum(['order', 'period']).optional(),
-    paymentStatus: z.enum(values(EXPENSE_PAYMENT_STATUS)).optional(),
+    ...expenseFilters,
     includeVoided: z.enum(['true', 'false']).optional(),
     ...paging,
   })
   .and(dateRange);
+
+// A report never counts a voided expense, so there is no includeVoided here.
+const expenseReport = z.object({ ...expenseFilters, max: sheetMax }).and(dateRange);
+const expenseExport = z.object(expenseFilters).and(dateRange);
 
 /* ------------------------------------------------------------------ recipes */
 
@@ -282,14 +344,20 @@ module.exports = {
   updatePayee,
   listPayees,
   payPayee,
+  reversePayeeEntry,
   manualPayeeEntry,
   createPurchase,
   cancelPurchase,
   listPurchases,
+  purchaseReport,
+  purchaseExport,
   createCategory,
   updateCategory,
   createExpense,
   voidExpense,
+  markExpensePaid,
   listExpenses,
+  expenseReport,
+  expenseExport,
   setRecipe,
 };

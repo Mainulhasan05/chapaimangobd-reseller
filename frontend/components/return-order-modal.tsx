@@ -1,91 +1,103 @@
 'use client';
 
 import { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { api, errorMessage } from '@/lib/api';
+import { errorMessage } from '@/lib/api';
 import { t } from '@/lib/i18n/bn';
+import { useReturnOrderMutation } from '@/lib/store/endpoints/orders';
 import type { Order } from '@/lib/types';
-import { primeOrder } from '@/components/order-page';
-import { Modal } from '@/components/ui/modal';
-import { useToast } from '@/components/ui/toast';
+import { Modal, ModalCancel } from '@/components/ui/modal';
 import { Button } from '@/components/ui/button';
-import { Field, Textarea } from '@/components/ui/form';
-import { Alert } from '@/components/ui/layout';
+import { Field, FormErrorSummary, Textarea } from '@/components/ui/form';
 import { Switch } from '@/components/ui/switch';
+import { ReasonChips } from '@/components/cancel-order-modal';
+
+const RETURN_PRESETS = [
+  'orders.returnPreset.refused',
+  'orders.returnPreset.unreachable',
+  'orders.returnPreset.damaged',
+  'orders.returnPreset.late',
+] as const;
 
 /**
- * The owner records that a shipped parcel came back.
+ * The owner records that a shipped parcel came back. Mount only while open.
  *
  * A return is whole-order and posts reversals, so it asks before it acts, the
- * same way cancelling does. The one real decision is stock: mangoes that have
- * spent days with a courier are usually not fit to sell again, so "put back in
- * stock" starts off and only the owner, looking at the crate, turns it on. The
- * API records the choice on the order and in the audit log. See docs/adr/0008.
+ * same way cancelling does, and it asks why: "returned" with no reason is the
+ * one record nobody can learn from when the same courier keeps losing parcels.
+ * The other real decision is stock: mangoes that have spent days with a courier
+ * are usually not fit to sell again, so "put back in stock" starts off and only
+ * the owner, looking at the crate, turns it on. See docs/adr/0008.
  */
-export function ReturnOrderModal({ order, onClose }: { order: Order | null; onClose: () => void }) {
-  const queryClient = useQueryClient();
-  const toast = useToast();
-  const [reason, setReason] = useState('');
+export function ReturnOrderModal({
+  order,
+  onClose,
+  onDone,
+}: {
+  order: Order;
+  onClose: () => void;
+  onDone?: (order: Order) => void;
+}) {
+  const [markReturned] = useReturnOrderMutation();
+  const [preset, setPreset] = useState('');
+  const [detail, setDetail] = useState('');
   const [restock, setRestock] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [tried, setTried] = useState(false);
 
-  const reset = () => {
-    setReason('');
-    setRestock(false);
+  const presets = RETURN_PRESETS.map((key) => t(key));
+  const reason = [preset, detail.trim()].filter(Boolean).join(' — ');
+  const reasonMissing = reason.length < 3;
+
+  const submit = async () => {
+    setTried(true);
+    if (reasonMissing) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const { order: returned } = await markReturned({ id: order.id, restock, reason }).unwrap();
+      onClose();
+      onDone?.(returned);
+    } catch (failure) {
+      setError(errorMessage(failure));
+    } finally {
+      setBusy(false);
+    }
   };
-
-  const close = () => {
-    reset();
-    onClose();
-  };
-
-  const markReturned = useMutation({
-    mutationFn: () =>
-      api.post<{ order: Order }>(`/owner/orders/${order!.id}/return`, {
-        restock,
-        ...(reason.trim() ? { reason: reason.trim() } : {}),
-      }),
-    onSuccess: async (data) => {
-      primeOrder(queryClient, 'owner', data.order);
-      await queryClient.invalidateQueries({ queryKey: ['owner'] });
-      close();
-      toast(t('order.returnedToast'));
-    },
-  });
-
-  if (!order) return null;
 
   return (
     <Modal
       open
-      onClose={close}
+      onClose={busy ? () => {} : onClose}
       title={`${t('order.returnTitle')} · ${order.orderCode}`}
-      dirty={reason.trim().length > 0 || restock}
+      dirty={reason.length > 0 || restock}
+      footerLead={error ? <FormErrorSummary message={error} /> : undefined}
       footer={
         <>
-          <Button variant="outline" onClick={close}>
-            {t('app.close')}
-          </Button>
-          <Button
-            variant="danger"
-            loading={markReturned.isPending}
-            onClick={() => markReturned.mutate()}
-          >
-            {t('order.return')}
+          <ModalCancel label={t('app.dismiss')} disabled={busy} />
+          <Button variant="danger" loading={busy} onClick={submit}>
+            {t('orders.markReturned')}
           </Button>
         </>
       }
     >
-      {markReturned.error && <Alert tone="danger">{errorMessage(markReturned.error)}</Alert>}
-
       <p className="mb-4 text-sm text-muted-foreground">{t('order.returnHelp')}</p>
 
-      <Field label={t('order.returnReason')} htmlFor="return-reason" hint={t('app.optional')}>
+      <Field
+        label={t('order.returnReason')}
+        htmlFor="return-detail"
+        required
+        error={tried && reasonMissing ? t('orders.reasonPick') : undefined}
+      >
+        <ReasonChips presets={presets} value={preset} onPick={setPreset} label={t('order.returnReason')} />
         <Textarea
-          id="return-reason"
-          value={reason}
-          maxLength={500}
-          onChange={(e) => setReason(e.target.value)}
+          id="return-detail"
+          value={detail}
+          maxLength={400}
           rows={2}
+          invalid={tried && reasonMissing}
+          placeholder={t('orders.reasonDetail')}
+          onChange={(e) => setDetail(e.target.value)}
         />
       </Field>
 

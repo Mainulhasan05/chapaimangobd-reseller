@@ -2,12 +2,11 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useMutation } from '@tanstack/react-query';
 import { CircleCheck } from 'lucide-react';
-import { api, ApiError, errorMessage, fieldErrors } from '@/lib/api';
-import type { OtpSent } from '@/lib/types';
+import { ApiError, errorMessage, fieldErrors } from '@/lib/api';
+import { useForgotPasswordMutation, useResetPasswordMutation } from '@/lib/store/endpoints/public';
 import { t } from '@/lib/i18n/bn';
-import { Button } from '@/components/ui/button';
+import { Button, ButtonLink } from '@/components/ui/button';
 import { PhoneField } from '@/components/ui/phone-field';
 import { PasswordField } from '@/components/ui/password-field';
 import { OtpField, ResendCode, useResendCountdown } from '@/components/ui/otp-field';
@@ -32,18 +31,21 @@ export default function ForgotPasswordPage() {
   const [sentAt, setSentAt] = useState<number | null>(null);
   const secondsLeft = useResendCountdown(sentAt);
 
-  const sendCode = useMutation({
-    mutationFn: () => api.post<OtpSent>('/auth/password/forgot', { phone }),
-    onSuccess: () => {
-      setSentAt(Date.now());
-      setStep('code');
-    },
-  });
+  // Errors are read from each mutation's state and shown on the form.
+  const [sendCodeTrigger, sendCode] = useForgotPasswordMutation();
+  const [resetTrigger, reset] = useResetPasswordMutation();
 
-  const reset = useMutation({
-    mutationFn: () => api.post('/auth/password/reset', { phone, otp: code, newPassword }),
-    onSuccess: () => setStep('done'),
-  });
+  const requestCode = async () => {
+    const answer = await sendCodeTrigger({ phone });
+    if (!('data' in answer)) return;
+    setSentAt(Date.now());
+    setStep('code');
+  };
+
+  const submitReset = async () => {
+    const answer = await resetTrigger({ phone, otp: code, newPassword });
+    if ('data' in answer) setStep('done');
+  };
 
   if (step === 'done') {
     return (
@@ -51,12 +53,9 @@ export default function ForgotPasswordPage() {
         <CircleCheck aria-hidden className="mx-auto mb-3 h-10 w-10 text-success" />
         <h1 className="mb-2 text-xl font-bold">{t('auth.forgotTitle')}</h1>
         <p className="mb-6 text-sm text-muted-foreground">{t('auth.resetDone')}</p>
-        <Link
-          href="/login"
-          className="inline-flex h-12 w-full items-center justify-center rounded-lg bg-primary px-6 text-base font-semibold text-primary-foreground"
-        >
+        <ButtonLink href="/login" size="lg" full>
           {t('auth.login')}
-        </Link>
+        </ButtonLink>
       </div>
     );
   }
@@ -69,7 +68,7 @@ export default function ForgotPasswordPage() {
       <form
         onSubmit={(event) => {
           event.preventDefault();
-          sendCode.mutate();
+          void requestCode();
         }}
       >
         <h1 className="mb-1 text-xl font-bold">{t('auth.forgotTitle')}</h1>
@@ -86,7 +85,7 @@ export default function ForgotPasswordPage() {
           required
         />
 
-        <Button type="submit" full size="lg" loading={sendCode.isPending}>
+        <Button type="submit" full size="lg" loading={sendCode.isLoading}>
           {t('auth.sendCode')}
         </Button>
 
@@ -106,7 +105,7 @@ export default function ForgotPasswordPage() {
     <form
       onSubmit={(event) => {
         event.preventDefault();
-        reset.mutate();
+        void submitReset();
       }}
     >
       <h1 className="mb-1 text-xl font-bold">{t('auth.forgotTitle')}</h1>
@@ -129,7 +128,11 @@ export default function ForgotPasswordPage() {
       {generalError && <Alert tone="danger">{generalError}</Alert>}
 
       <OtpField id="otp" value={code} onChange={setCode} error={errors.otp} className="mb-2" />
-      <ResendCode secondsLeft={secondsLeft} pending={sendCode.isPending} onResend={() => sendCode.mutate()} />
+      <ResendCode
+        secondsLeft={secondsLeft}
+        pending={sendCode.isLoading}
+        onResend={() => void requestCode()}
+      />
 
       <PasswordField
         id="newPassword"
@@ -143,7 +146,7 @@ export default function ForgotPasswordPage() {
         required
       />
 
-      <Button type="submit" full size="lg" loading={reset.isPending}>
+      <Button type="submit" full size="lg" loading={reset.isLoading}>
         {t('auth.resetSubmit')}
       </Button>
     </form>

@@ -2,16 +2,16 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import Link from 'next/link';
 import { Lock } from 'lucide-react';
-import { api, ApiError, errorMessage, fieldErrors } from '@/lib/api';
+import { ApiError, errorMessage, fieldErrors } from '@/lib/api';
 import { useReadOnlyAccount } from '@/lib/session';
 import { t } from '@/lib/i18n/bn';
 import { formatMoney, formatMoneyPlain } from '@/lib/format';
-import type { CatalogItem, DeliveryZone, PaymentMode } from '@/lib/types';
+import type { PaymentMode } from '@/lib/types';
+import { useCreateResellerOrderMutation, useGetCatalogQuery } from '@/lib/store/endpoints/reseller';
+import { useGetDeliveryZonesQuery } from '@/lib/store/endpoints/public';
 import { Alert, Card, CardHeader, EmptyState, ErrorState, PageHeader, StickyBar } from '@/components/ui/layout';
-import { Button } from '@/components/ui/button';
+import { Button, ButtonLink } from '@/components/ui/button';
 import { CardGridSkeleton } from '@/components/ui/skeleton';
 import { QuantityStepper } from '@/components/ui/stepper';
 import { useToast } from '@/components/ui/toast';
@@ -29,19 +29,11 @@ type Line = { quantity: string; sellPrice: string };
  */
 export default function ManualOrderPage() {
   const router = useRouter();
-  const queryClient = useQueryClient();
   const toast = useToast();
   const readOnly = useReadOnlyAccount();
 
-  const catalog = useQuery({
-    queryKey: ['catalog'],
-    queryFn: () => api.get<{ products: CatalogItem[] }>('/reseller/catalog'),
-  });
-
-  const zones = useQuery({
-    queryKey: ['zones'],
-    queryFn: () => api.get<{ zones: DeliveryZone[] }>('/public/delivery-zones'),
-  });
+  const catalog = useGetCatalogQuery();
+  const zones = useGetDeliveryZonesQuery();
 
   const [lines, setLines] = useState<Record<string, Line>>({});
   const [paymentMode, setPaymentMode] = useState<PaymentMode>('cod');
@@ -83,9 +75,11 @@ export default function ManualOrderPage() {
     0
   );
 
-  const create = useMutation({
-    mutationFn: () =>
-      api.post<{ order: { id: string; orderCode: string } }>('/reseller/orders', {
+  const [createOrder, create] = useCreateResellerOrderMutation();
+
+  const submit = async () => {
+    try {
+      await createOrder({
         paymentMode,
         customer: {
           name: customer.name,
@@ -101,15 +95,16 @@ export default function ManualOrderPage() {
           quantity: Number(line.quantity),
           sellPrice: Number(line.sellPrice),
         })),
-      }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['orders'] });
-      await queryClient.invalidateQueries({ queryKey: ['wallet'] });
+      }).unwrap();
+      // The orders list and the wallet refresh through the endpoint's tags.
       router.push('/reseller/orders');
       // This route skips pending and debits the wallet immediately, so it says so.
       toast(t('order.createdToast'));
-    },
-  });
+    } catch (error) {
+      // The submit button is at the bottom and the error alert at the top, out of sight.
+      toast(errorMessage(error), 'danger');
+    }
+  };
 
   // A deactivated account takes no new orders. See docs/adr/0011.
   if (readOnly) {
@@ -121,9 +116,9 @@ export default function ManualOrderPage() {
           title={t('inactive.bannerTitle')}
           description={t('inactive.noNewOrders')}
           action={
-            <Link href="/reseller/orders">
-              <Button variant="outline">{t('nav.orders')}</Button>
-            </Link>
+            <ButtonLink href="/reseller/orders" variant="outline">
+              {t('nav.orders')}
+            </ButtonLink>
           }
         />
       </>
@@ -171,7 +166,7 @@ export default function ManualOrderPage() {
     <form
       onSubmit={(event) => {
         event.preventDefault();
-        create.mutate();
+        void submit();
       }}
     >
       <PageHeader title={t('order.manualOrder')} subtitle={t('order.confirmHelp')} />
@@ -315,7 +310,7 @@ export default function ManualOrderPage() {
         </dl>
       )}
 
-      <StickyBar>
+      <StickyBar aboveNav>
         {selected.length > 0 && (
           <div className="mb-2 flex items-baseline justify-between gap-3">
             <span className="text-xs text-muted-foreground">{t('order.walletDebit')}</span>
@@ -324,7 +319,7 @@ export default function ManualOrderPage() {
             </span>
           </div>
         )}
-        <Button type="submit" size="lg" full loading={create.isPending} disabled={selected.length === 0}>
+        <Button type="submit" size="lg" full loading={create.isLoading} disabled={selected.length === 0}>
           {selected.length === 0 ? t('shop.emptyCart') : t('order.manualOrder')}
         </Button>
       </StickyBar>

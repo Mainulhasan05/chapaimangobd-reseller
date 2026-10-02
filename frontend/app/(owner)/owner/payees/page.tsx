@@ -17,29 +17,37 @@
  *    there is room to lay it out, so no row carries a "কীভাবে?".
  * 3. An empty screen teaches. A first-time owner is told what a পার্টি is, with
  *    examples from the trade, and what happens after adding one.
- * 4. No row is a dead end: a name opens the খাতা, and the foot of the list links
- *    to the two screens that actually move these figures.
+ * 4. No row is a dead end: a name opens the খাতা, a due can be paid from the
+ *    row, and the foot of the list links to the two screens that move these
+ *    figures.
+ *
+ * Taking somebody off the list never takes their due off the books: the totals
+ * count archived payees, and the "সরানো পার্টি" switch brings them back.
  */
 
 import Link from 'next/link';
 import type { Route } from 'next';
-
 import { useState } from 'react';
 import { HandCoins, Plus, Receipt, ShoppingCart, Wallet } from 'lucide-react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, errorMessage, fieldErrors } from '@/lib/api';
-import { useDebounced } from '@/lib/use-debounced';
-import { t, tPayeeKind } from '@/lib/i18n/bn';
+import { t, tf, tPayeeKind } from '@/lib/i18n/bn';
 import { formatMoney, formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import type { Payee } from '@/lib/types';
+import { useUrlSearch, useUrlState } from '@/lib/use-url-state';
 import {
-  Alert,
+  useArchivePayeeMutation,
+  useGetPayeesQuery,
+  useRestorePayeeMutation,
+} from '@/lib/store/endpoints/cost';
+import { errorMessage } from '@/lib/api';
+import {
   Badge,
   Card,
   EmptyState,
   ErrorState,
+  FilteredEmpty,
   PageHeader,
+  PhoneLink,
   Stat,
   TableWrap,
   Td,
@@ -49,15 +57,12 @@ import {
 import { DownloadMenu } from '@/components/report/download-menu';
 import { Segmented, SearchInput, Toolbar, ToolbarSpacer, type SegmentOption } from '@/components/ui/toolbar';
 import { Switch } from '@/components/ui/switch';
-import { Button } from '@/components/ui/button';
-import { Field, Input, Select, Textarea } from '@/components/ui/form';
-import { PhoneField } from '@/components/ui/phone-field';
-import { Modal } from '@/components/ui/modal';
+import { Button, ButtonLink } from '@/components/ui/button';
+import { ConfirmSheet } from '@/components/ui/confirm-sheet';
 import { ListSkeleton, StatSkeleton } from '@/components/ui/skeleton';
-
-type PayeeKind = Payee['kind'];
-
-const PAYEE_KINDS: PayeeKind[] = ['supplier', 'labour', 'courier', 'transport', 'landlord', 'other'];
+import { useToast } from '@/components/ui/toast';
+import { PAYEE_KINDS, PayeeModal, type PayeeKind } from './payee-form';
+import { PaySheet } from './pay-sheet';
 
 type KindFilter = 'all' | PayeeKind;
 
@@ -65,11 +70,6 @@ const KIND_FILTERS: SegmentOption<KindFilter>[] = [
   { value: 'all', label: t('app.all') },
   ...PAYEE_KINDS.map((kind) => ({ value: kind, label: tPayeeKind(kind) })),
 ];
-
-type PayeeList = {
-  payees: Payee[];
-  totals: { count: number; due: number; advance: number; owingCount: number };
-};
 
 /**
  * What one payee's account comes to, as a figure that cannot be misread.
@@ -112,18 +112,18 @@ function DueFigure({ payee, align = 'right' }: { payee: Payee; align?: 'left' | 
  */
 function WhereFrom() {
   return (
-    <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
+    <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
       <span>{t('costSetup.thenPurchase')}</span>
       <Link
         href="/owner/purchases"
-        className="inline-flex items-center gap-1 font-semibold text-primary-ink underline"
+        className="tap inline-flex items-center gap-1 font-semibold text-primary-ink underline"
       >
         <ShoppingCart className="h-3.5 w-3.5" />
         {t('costSetup.recordPurchase')}
       </Link>
       <Link
         href="/owner/expenses"
-        className="inline-flex items-center gap-1 font-semibold text-primary-ink underline"
+        className="tap inline-flex items-center gap-1 font-semibold text-primary-ink underline"
       >
         <Receipt className="h-3.5 w-3.5" />
         {t('expense.new')}
@@ -133,35 +133,85 @@ function WhereFrom() {
 }
 
 export default function OwnerPayeesPage() {
-  const queryClient = useQueryClient();
-  const [term, setTerm] = useState('');
-  const [kind, setKind] = useState<KindFilter>('all');
-  const [owingOnly, setOwingOnly] = useState(false);
+  const toast = useToast();
+  const [filters, setFilters, { reset }] = useUrlState({
+    kind: 'all',
+    owing: false as boolean,
+    archived: false as boolean,
+  });
+  const search = useUrlSearch('q');
+  const kind = (KIND_FILTERS.some((option) => option.value === filters.kind)
+    ? filters.kind
+    : 'all') as KindFilter;
+
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Payee | null>(null);
+  const [paying, setPaying] = useState<Payee | null>(null);
+  const [archiving, setArchiving] = useState<Payee | null>(null);
 
-  const search = useDebounced(term);
-
-  const params = new URLSearchParams();
-  if (kind !== 'all') params.set('kind', kind);
-  if (owingOnly) params.set('owingOnly', 'true');
-  if (search.trim()) params.set('q', search.trim());
-  const qs = params.toString();
-
-  const payees = useQuery({
-    queryKey: ['owner', 'payees', { kind, owingOnly, q: search.trim() }],
-    queryFn: () => api.get<PayeeList>(`/owner/payees${qs ? `?${qs}` : ''}`),
+  const payees = useGetPayeesQuery({
+    kind: kind === 'all' ? undefined : kind,
+    owingOnly: filters.owing,
+    q: search.term,
+    includeArchived: filters.archived,
   });
 
-  const archive = useMutation({
-    mutationFn: (id: string) => api.del(`/owner/payees/${id}`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['owner', 'payees'] }),
-  });
+  const [archive] = useArchivePayeeMutation();
+  const [restore, restoreState] = useRestorePayeeMutation();
 
   const rows = payees.data?.payees ?? [];
   const totals = payees.data?.totals;
   /** A narrowed list that came back empty is a different sentence from a book nobody is in yet. */
-  const narrowed = Boolean(qs);
+  const narrowed = kind !== 'all' || filters.owing || Boolean(search.term);
+  // The previous list stays on screen, dimmed, while the next filter loads.
+  const switching = payees.isFetching && !payees.isLoading;
+
+  const clearFilters = () => {
+    reset();
+    search.setInput('');
+  };
+
+  const doRestore = async (payee: Payee) => {
+    try {
+      await restore({ id: payee.id }).unwrap();
+      toast(tf('payee.restoredToast', { name: payee.nameBn }));
+    } catch (error) {
+      toast(errorMessage(error), 'danger');
+    }
+  };
+
+  const doArchive = async (payee: Payee) => {
+    await archive({ id: payee.id }).unwrap();
+    toast(tf('payee.archivedToast', { name: payee.nameBn }), 'success', {
+      action: { label: t('app.undo'), onClick: () => void doRestore(payee) },
+    });
+  };
+
+  /** The actions a row offers, the same on a card and in the table. */
+  const actions = (payee: Payee, size: 'sm' | 'md') => {
+    if (payee.isArchived) {
+      return [
+        <Button
+          key="restore"
+          size={size}
+          variant="outline"
+          loading={restoreState.isLoading && restoreState.originalArgs?.id === payee.id}
+          onClick={() => void doRestore(payee)}
+        >
+          {t('app.restore')}
+        </Button>,
+      ];
+    }
+    return [
+      <Button key="edit" size={size} variant="ghost" onClick={() => setEditing(payee)}>
+        {t('app.edit')}
+      </Button>,
+      // Archived, never deleted: the ledger behind it settles an argument with a supplier.
+      <Button key="archive" size={size} variant="ghost" onClick={() => setArchiving(payee)}>
+        {t('payee.archive')}
+      </Button>,
+    ];
+  };
 
   return (
     <>
@@ -182,41 +232,68 @@ export default function OwnerPayeesPage() {
       />
 
       <Toolbar>
-        <Segmented label={t('payee.kind')} value={kind} onChange={setKind} options={KIND_FILTERS} />
+        <Segmented
+          label={t('payee.kind')}
+          value={kind}
+          onChange={(value) => setFilters({ kind: value })}
+          options={KIND_FILTERS}
+        />
         <ToolbarSpacer />
-        <SearchInput value={term} onChange={setTerm} placeholder={t('payee.name')} />
+        <SearchInput
+          value={search.input}
+          onChange={search.setInput}
+          placeholder={t('payee.searchPlaceholder')}
+        />
       </Toolbar>
 
       {/* Full width below `sm`: the whole row is the tap target on a phone. */}
-      <div className="mb-3 w-full sm:w-auto">
-        <Switch checked={owingOnly} onChange={setOwingOnly} label={t('payee.owingOnly')} />
+      <div className="mb-3 grid gap-x-6 sm:grid-cols-2 lg:max-w-2xl">
+        <Switch
+          checked={filters.owing}
+          onChange={(owing) => setFilters({ owing })}
+          label={t('payee.owingOnly')}
+        />
+        <Switch
+          checked={filters.archived}
+          onChange={(archived) => setFilters({ archived })}
+          label={t('payee.showArchived')}
+        />
       </div>
-
-      {archive.error && <Alert tone="danger">{errorMessage(archive.error)}</Alert>}
 
       {/*
        * Two figures, never one. Netting an advance off a due would produce a
        * number that is true of nobody: money already handed over is a different
        * fact from money still owed. See docs/adr/0025.
        *
-       * No `delta` on any of these. The API has no prior-period figure for a
-       * payee book, and a pill comparing a due against nothing is a decoration
-       * somebody would make a buying decision on.
+       * The due counts archived payees whether or not they are listed, and says
+       * how much of it they hold, so taking a name off the list never makes a
+       * debt look paid.
        */}
+      {payees.isLoading && (
+        <>
+          <StatSkeleton count={3} />
+          <ListSkeleton rows={4} />
+        </>
+      )}
+
       {totals && (
-        <div className="mb-5 grid gap-4 sm:grid-cols-3">
+        <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4">
           <Stat
+            className="col-span-2 sm:col-span-1"
             icon={HandCoins}
             label={t('payee.totalDue')}
             value={formatMoney(totals.due)}
-            hint={t('payee.dueHint')}
+            hint={
+              totals.archivedDue
+                ? tf('payee.archivedDueNote', { amount: formatMoney(totals.archivedDue) })
+                : t('payee.dueHint')
+            }
             tone={totals.due > 0 ? 'warning' : 'neutral'}
           />
           <Stat
             icon={Wallet}
             label={t('payee.totalAdvance')}
             value={formatMoney(totals.advance)}
-            hint={t('payee.advanceHint')}
             tone={totals.advance > 0 ? 'primary' : 'neutral'}
           />
           <Stat
@@ -227,14 +304,7 @@ export default function OwnerPayeesPage() {
         </div>
       )}
 
-      {payees.isLoading && (
-        <>
-          <StatSkeleton count={3} />
-          <ListSkeleton rows={4} />
-        </>
-      )}
-
-      {payees.isError && (
+      {payees.isError && !payees.data && (
         <ErrorState
           onRetry={() => payees.refetch()}
           isRetrying={payees.isFetching}
@@ -248,7 +318,7 @@ export default function OwnerPayeesPage() {
        * then what happens next: a পার্টি on its own moves no money until a কেনা or
        * a খরচ is written against it.
        */}
-      {payees.data && rows.length === 0 && !narrowed && (
+      {payees.data && rows.length === 0 && !narrowed && !filters.archived && (
         <EmptyState
           icon={HandCoins}
           title={t('payee.title')}
@@ -267,35 +337,29 @@ export default function OwnerPayeesPage() {
         />
       )}
 
-      {payees.data && rows.length === 0 && narrowed && (
-        <EmptyState icon={HandCoins} title={t('app.noResults')} description={t('payee.help')} />
+      {payees.data && rows.length === 0 && (narrowed || filters.archived) && (
+        <FilteredEmpty onClear={clearFilters} />
       )}
 
       {rows.length > 0 && (
-        <>
+        <div className={cn('transition-opacity', switching && 'opacity-60')} aria-busy={switching || undefined}>
           <ul className="space-y-3 lg:hidden">
             {rows.map((payee) => (
               <li key={payee.id}>
-                <Card className="p-4">
+                <Card className={cn('p-4', payee.isArchived && 'bg-muted/40')}>
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <Link
                         href={`/owner/payees/${payee.id}` as Route}
-                        className="block truncate font-semibold text-primary-ink hover:underline"
+                        className="block truncate py-1 font-semibold text-primary-ink hover:underline"
                       >
                         {payee.nameBn}
                       </Link>
-                      <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-x-2">
                         <Badge>{tPayeeKind(payee.kind)}</Badge>
+                        {payee.isArchived && <Badge tone="neutral">{t('payee.archivedBadge')}</Badge>}
                         {/* A number on a phone is for calling, not for reading. */}
-                        {payee.phone && (
-                          <a
-                            href={`tel:${payee.phone}`}
-                            className="tabular text-xs text-muted-foreground underline"
-                          >
-                            {payee.phone}
-                          </a>
-                        )}
+                        <PhoneLink phone={payee.phone} className="text-xs text-muted-foreground" />
                       </div>
                     </div>
                     <div className="shrink-0">
@@ -304,15 +368,18 @@ export default function OwnerPayeesPage() {
                   </div>
 
                   <div className="mt-3 flex gap-2 border-t border-border pt-3 [&>*]:flex-1">
-                    <Link href={`/owner/payees/${payee.id}` as Route}>
-                      <Button variant="outline" full>
-                        {t('payee.ledger')}
+                    {/* The due, paid from the row: the reason most people open this list. */}
+                    {payee.due > 0 && !payee.isArchived && (
+                      <Button onClick={() => setPaying(payee)}>
+                        <HandCoins className="h-4 w-4" />
+                        {t('payee.pay')}
                       </Button>
-                    </Link>
-                    <Button variant="outline" onClick={() => setEditing(payee)}>
-                      {t('app.edit')}
-                    </Button>
+                    )}
+                    <ButtonLink href={`/owner/payees/${payee.id}`} variant="outline">
+                      {t('payee.ledger')}
+                    </ButtonLink>
                   </div>
+                  <div className="mt-1 flex gap-2 [&>*]:flex-1">{actions(payee, 'md')}</div>
                 </Card>
               </li>
             ))}
@@ -330,7 +397,7 @@ export default function OwnerPayeesPage() {
             </thead>
             <tbody>
               {rows.map((payee) => (
-                <Tr key={payee.id}>
+                <Tr key={payee.id} className={payee.isArchived ? 'bg-muted/40' : undefined}>
                   <Td className="font-medium">
                     <Link
                       href={`/owner/payees/${payee.id}` as Route}
@@ -338,34 +405,32 @@ export default function OwnerPayeesPage() {
                     >
                       {payee.nameBn}
                     </Link>
+                    {payee.isArchived && (
+                      <Badge tone="neutral" className="ml-2">
+                        {t('payee.archivedBadge')}
+                      </Badge>
+                    )}
                   </Td>
                   <Td>
                     <Badge>{tPayeeKind(payee.kind)}</Badge>
                   </Td>
-                  <Td className="tabular text-sm">{payee.phone ?? '—'}</Td>
+                  <Td className="text-sm">
+                    {payee.phone ? <PhoneLink phone={payee.phone} showIcon={false} /> : '—'}
+                  </Td>
                   <Td className="text-right">
                     <DueFigure payee={payee} />
                   </Td>
                   <Td className="text-right">
-                    <div className="flex justify-end gap-2">
-                      <Link href={`/owner/payees/${payee.id}` as Route}>
-                        <Button size="sm" variant="outline">
-                          {t('payee.ledger')}
+                    <div className="flex flex-wrap justify-end gap-1">
+                      {payee.due > 0 && !payee.isArchived && (
+                        <Button size="sm" onClick={() => setPaying(payee)}>
+                          {t('payee.pay')}
                         </Button>
-                      </Link>
-                      <Button size="sm" variant="outline" onClick={() => setEditing(payee)}>
-                        {t('app.edit')}
-                      </Button>
-                      {/* Archived, never deleted: the ledger behind it is the
-                        * record that settles an argument with a supplier. */}
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => archive.mutate(payee.id)}
-                        loading={archive.isPending && archive.variables === payee.id}
-                      >
-                        {t('app.close')}
-                      </Button>
+                      )}
+                      <ButtonLink href={`/owner/payees/${payee.id}`} size="sm" variant="outline">
+                        {t('payee.ledger')}
+                      </ButtonLink>
+                      {actions(payee, 'sm')}
                     </div>
                   </Td>
                 </Tr>
@@ -374,11 +439,12 @@ export default function OwnerPayeesPage() {
           </TableWrap>
 
           <WhereFrom />
-        </>
+        </div>
       )}
 
       {(creating || editing) && (
         <PayeeModal
+          key={editing?.id ?? 'new'}
           payee={editing}
           onClose={() => {
             setCreating(false);
@@ -386,130 +452,32 @@ export default function OwnerPayeesPage() {
           }}
         />
       )}
-    </>
-  );
-}
 
-type Draft = { nameBn: string; kind: PayeeKind; phone: string; address: string; note: string };
+      {paying && <PaySheet key={paying.id} payee={paying} onClose={() => setPaying(null)} />}
 
-const blank: Draft = { nameBn: '', kind: 'supplier', phone: '', address: '', note: '' };
-
-function PayeeModal({ payee, onClose }: { payee: Payee | null; onClose: () => void }) {
-  const queryClient = useQueryClient();
-  const [draft, setDraft] = useState<Draft>(
-    payee
-      ? {
-          nameBn: payee.nameBn,
-          kind: payee.kind,
-          phone: payee.phone ?? '',
-          address: payee.address ?? '',
-          note: payee.note ?? '',
-        }
-      : blank
-  );
-
-  const save = useMutation({
-    mutationFn: () => {
-      const body = {
-        nameBn: draft.nameBn,
-        kind: draft.kind,
-        ...(draft.phone ? { phone: draft.phone } : {}),
-        ...(draft.address ? { address: draft.address } : {}),
-        ...(draft.note ? { note: draft.note } : {}),
-      };
-      return payee
-        ? api.patch(`/owner/payees/${payee.id}`, body)
-        : api.post('/owner/payees', body);
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['owner', 'payees'] });
-      if (payee) await queryClient.invalidateQueries({ queryKey: ['owner', 'payee', payee.id] });
-      onClose();
-    },
-  });
-
-  const errors = fieldErrors(save.error);
-
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      title={payee ? t('payee.edit') : t('payee.new')}
-      dirty={!payee && draft.nameBn.trim().length > 0}
-      footer={
-        <>
-          <Button variant="outline" onClick={onClose}>
-            {t('app.cancel')}
-          </Button>
-          <Button
-            loading={save.isPending}
-            disabled={draft.nameBn.trim().length < 2}
-            onClick={() => save.mutate()}
-          >
-            {t('app.save')}
-          </Button>
-        </>
-      }
-    >
-      {save.error && !Object.keys(errors).length && (
-        <Alert tone="danger">{errorMessage(save.error)}</Alert>
+      {archiving && (
+        <ConfirmSheet
+          title={tf('payee.archiveTitle', { name: archiving.nameBn })}
+          confirmLabel={t('payee.archive')}
+          tone="danger"
+          onClose={() => setArchiving(null)}
+          onConfirm={() => doArchive(archiving)}
+          summary={
+            <>
+              <p className="font-semibold">{archiving.nameBn}</p>
+              <p className="text-xs text-muted-foreground">{tPayeeKind(archiving.kind)}</p>
+            </>
+          }
+          consequences={[
+            ...(archiving.due > 0
+              ? [tf('payee.archiveDue', { amount: formatMoney(archiving.due) })]
+              : archiving.isAdvance
+                ? [tf('payee.archiveAdvance', { amount: formatMoney(archiving.advance) })]
+                : []),
+            t('payee.archiveKeep'),
+          ]}
+        />
       )}
-
-      {/* Why anyone would add a row here at all, said once, at the top. */}
-      <p className="mb-4 text-sm text-muted-foreground">{t('costSetup.thenPayee')}</p>
-
-      <Field label={t('payee.name')} htmlFor="nameBn" error={errors.nameBn} required>
-        <Input
-          id="nameBn"
-          value={draft.nameBn}
-          onChange={(e) => setDraft((prev) => ({ ...prev, nameBn: e.target.value }))}
-          autoFocus
-        />
-      </Field>
-
-      {/* The kind changes the label a reader sees and nothing else, so it is a
-        * plain select rather than a decision the form makes a fuss about. */}
-      <Field label={t('payee.kind')} htmlFor="kind" error={errors.kind}>
-        <Select
-          id="kind"
-          value={draft.kind}
-          onChange={(e) => setDraft((prev) => ({ ...prev, kind: e.target.value as PayeeKind }))}
-        >
-          {PAYEE_KINDS.map((kind) => (
-            <option key={kind} value={kind}>
-              {tPayeeKind(kind)}
-            </option>
-          ))}
-        </Select>
-      </Field>
-
-      <PhoneField
-        id="phone"
-        label={t('auth.phone')}
-        hint={t('app.optional')}
-        value={draft.phone}
-        onChange={(phone) => setDraft((prev) => ({ ...prev, phone }))}
-        error={errors.phone}
-        autoComplete="off"
-      />
-
-      <Field label={t('order.address')} htmlFor="address" error={errors.address}>
-        <Textarea
-          id="address"
-          rows={2}
-          value={draft.address}
-          onChange={(e) => setDraft((prev) => ({ ...prev, address: e.target.value }))}
-        />
-      </Field>
-
-      <Field label={t('app.notes')} htmlFor="note" error={errors.note}>
-        <Textarea
-          id="note"
-          rows={2}
-          value={draft.note}
-          onChange={(e) => setDraft((prev) => ({ ...prev, note: e.target.value }))}
-        />
-      </Field>
-    </Modal>
+    </>
   );
 }

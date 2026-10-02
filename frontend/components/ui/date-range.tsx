@@ -11,6 +11,7 @@
  */
 
 import { useState } from 'react';
+import { useScrollFade } from '@/components/ui/toolbar';
 import { CalendarDays, X } from 'lucide-react';
 import { t } from '@/lib/i18n/bn';
 import { businessDate, formatDate } from '@/lib/format';
@@ -29,6 +30,29 @@ export function startOfMonth(): string {
 }
 
 /**
+ * The Saturday this week began on. The Bangladeshi working week starts on
+ * Saturday, so "this week" on a Monday means the last three days, not one.
+ */
+export function startOfWeek(): string {
+  const today = businessDate();
+  // Noon UTC keeps the weekday stable whatever the device's own zone is.
+  const day = new Date(`${today}T12:00:00Z`).getUTCDay();
+  const sinceSaturday = (day + 1) % 7;
+  return daysAgo(sinceSaturday);
+}
+
+/**
+ * The first day of the mango season: 1 May. Before May the season being asked
+ * about is last year's, which is still the one with sales in it.
+ */
+export function startOfSeason(): string {
+  const today = businessDate();
+  const year = Number(today.slice(0, 4));
+  const month = Number(today.slice(5, 7));
+  return `${month >= 5 ? year : year - 1}-05-01`;
+}
+
+/**
  * The presets, in the order an owner reaches for them.
  *
  * Today leads because it is the answer to nearly every question asked of this
@@ -40,7 +64,9 @@ export const RANGE_PRESETS = [
   { key: 'yesterday', labelKey: 'range.yesterday', build: (): DateRange => ({ from: daysAgo(1), to: daysAgo(1) }) },
   { key: 'last7', labelKey: 'range.last7', build: (): DateRange => ({ from: daysAgo(6), to: businessDate() }) },
   { key: 'last30', labelKey: 'range.last30', build: (): DateRange => ({ from: daysAgo(29), to: businessDate() }) },
+  { key: 'thisWeek', labelKey: 'range.thisWeek', build: (): DateRange => ({ from: startOfWeek(), to: businessDate() }) },
   { key: 'thisMonth', labelKey: 'range.thisMonth', build: (): DateRange => ({ from: startOfMonth(), to: businessDate() }) },
+  { key: 'season', labelKey: 'range.season', build: (): DateRange => ({ from: startOfSeason(), to: businessDate() }) },
   { key: 'all', labelKey: 'range.all', build: (): DateRange => null },
 ] as const;
 
@@ -111,6 +137,7 @@ export function DateRangeFilter({
   }));
 
   const backwards = draft.from > draft.to;
+  const { ref, fadeProps } = useScrollFade<HTMLDivElement>();
 
   const openPanel = () => {
     setDraft({ from: range?.from ?? businessDate(), to: range?.to ?? businessDate() });
@@ -126,9 +153,11 @@ export function DateRangeFilter({
   return (
     <div className={cn('flex flex-col gap-2', className)}>
       <div
+        ref={ref}
+        {...fadeProps}
         role="radiogroup"
         aria-label={t('range.label')}
-        className="scroll-x-bare flex max-w-full items-center gap-1 rounded-xl bg-muted p-1"
+        className="scroll-x-bare scroll-fade flex max-w-full items-center gap-1 rounded-xl bg-muted p-1"
       >
         {RANGE_PRESETS.map((option) => {
           const active = preset === option.key;
@@ -143,7 +172,7 @@ export function DateRangeFilter({
                 onChange(option.key, option.build());
               }}
               className={cn(
-                'shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
+                'min-h-11 shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-colors sm:min-h-0',
                 active
                   ? 'bg-surface text-foreground elev-1'
                   : 'text-muted-foreground hover:text-foreground'
@@ -166,7 +195,7 @@ export function DateRangeFilter({
         aria-expanded={open}
         onClick={() => (open ? setOpen(false) : openPanel())}
         className={cn(
-          'flex w-fit shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors',
+          'flex min-h-11 w-fit shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors sm:min-h-0',
           preset === 'custom'
             ? 'border-primary bg-primary-softer text-primary-ink'
             : 'border-border text-muted-foreground hover:text-foreground'

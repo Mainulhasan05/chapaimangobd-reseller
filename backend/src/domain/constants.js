@@ -135,6 +135,15 @@ const EVENT_TYPE = Object.freeze({
   // Phase E. The owner switched a reseller account off or back on. docs/adr/0011.
   RESELLER_DEACTIVATED: 'reseller.deactivated',
   RESELLER_REACTIVATED: 'reseller.reactivated',
+  /*
+   * PLAN-4. Something is waiting on the owner: a reseller asked for money to be
+   * credited or paid out, sent KYC documents, or a complaint was written down.
+   * Each used to be discoverable only by opening the screen it sits on.
+   */
+  DEPOSIT_REQUESTED: 'deposit.requested',
+  WITHDRAWAL_REQUESTED: 'withdrawal.requested',
+  KYC_SUBMITTED: 'kyc.submitted',
+  COMPLAINT_CREATED: 'complaint.created',
 });
 
 /**

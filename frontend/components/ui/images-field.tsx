@@ -62,6 +62,9 @@ export function ImagesField({
   hint,
   error,
   id,
+  uploading,
+  busyIds,
+  confirmRemove,
 }: {
   label: string;
   /** Newly chosen files, not yet uploaded. */
@@ -74,6 +77,19 @@ export function ImagesField({
   hint?: string;
   error?: string;
   id?: string;
+  /**
+   * The chosen files are on their way up right now. Where a picture is sent the
+   * moment it is picked (an existing product, the landing page), each new tile
+   * says so and cannot be dropped halfway through its own upload.
+   */
+  uploading?: boolean;
+  /** Stored images being removed, each of which shows its own spinner. */
+  busyIds?: readonly string[];
+  /**
+   * Ask on the tile before a stored image goes. For the places where the
+   * removal is immediate and there is no Save to back out of.
+   */
+  confirmRemove?: boolean;
 }) {
   const generatedId = useId();
   const fieldId = id ?? generatedId;
@@ -182,6 +198,8 @@ export function ImagesField({
                 // business pulling a full size photograph to fill it.
                 src={image.thumbUrl ?? image.url}
                 isCover={index === 0}
+                busy={busyIds?.includes(image.id)}
+                confirm={confirmRemove}
                 onRemove={onRemoveExisting ? () => onRemoveExisting(image.id) : undefined}
               />
             ))}
@@ -193,7 +211,8 @@ export function ImagesField({
                 file={file}
                 isCover={existing.length === 0 && index === 0}
                 isNew
-                onRemove={() => removeAt(index)}
+                busy={uploading}
+                onRemove={uploading ? undefined : () => removeAt(index)}
               />
             ))}
           </div>
@@ -288,6 +307,8 @@ function Tile({
   alt,
   isCover,
   isNew,
+  busy,
+  confirm,
   onRemove,
 }: {
   /** A stored image, already on the server. */
@@ -297,8 +318,14 @@ function Tile({
   alt: string;
   isCover?: boolean;
   isNew?: boolean;
+  /** Uploading or being removed: a spinner over the picture, and no ✕. */
+  busy?: boolean;
+  /** Ask "সরাবেন?" on the tile before calling `onRemove`. */
+  confirm?: boolean;
   onRemove?: () => void;
 }) {
+  const [asking, setAsking] = useState(false);
+
   return (
     <div className="relative aspect-square overflow-hidden rounded-lg bg-muted ring-1 ring-border">
       {/*
@@ -325,15 +352,56 @@ function Tile({
         </span>
       )}
 
-      {onRemove && (
+      {busy && (
+        <span
+          role="status"
+          aria-label={isNew ? t('photos.uploading') : t('app.saving')}
+          className="absolute inset-0 flex items-center justify-center bg-foreground/45 text-background"
+        >
+          <Spinner className="h-5 w-5" />
+        </span>
+      )}
+
+      {/*
+       * The hit area is the whole 44px corner; the visible circle stays small so
+       * it does not cover the photograph it belongs to.
+       */}
+      {onRemove && !busy && !asking && (
         <button
           type="button"
-          onClick={onRemove}
+          onClick={() => (confirm ? setAsking(true) : onRemove())}
           aria-label={t('file.remove')}
-          className="absolute right-1 top-1 flex h-7 w-7 items-center justify-center rounded-full bg-black/55 text-white transition-colors hover:bg-danger"
+          className="group absolute right-0 top-0 flex h-11 w-11 items-start justify-end p-1"
         >
-          <X className="h-4 w-4" />
+          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-foreground/60 text-background transition-colors group-hover:bg-danger group-hover:text-danger-foreground">
+            <X className="h-4 w-4" />
+          </span>
         </button>
+      )}
+
+      {asking && onRemove && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-foreground/80 p-1 text-background">
+          <span className="text-xs font-semibold">{t('photos.removeAsk')}</span>
+          <div className="flex gap-1">
+            <button
+              type="button"
+              onClick={() => {
+                setAsking(false);
+                onRemove();
+              }}
+              className="tap rounded-md bg-danger px-2 text-xs font-semibold text-danger-foreground"
+            >
+              {t('app.yes')}
+            </button>
+            <button
+              type="button"
+              onClick={() => setAsking(false)}
+              className="tap rounded-md bg-background px-2 text-xs font-semibold text-foreground"
+            >
+              {t('app.no')}
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

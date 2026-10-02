@@ -44,7 +44,18 @@ const GROUPS = Object.freeze({
     },
   ],
   [ROLES.OWNER]: [
-    { key: 'orders', events: [EVENT_TYPE.ORDER_CONFIRMED, EVENT_TYPE.ORDER_CUSTOMER_EDITED] },
+    {
+      key: 'orders',
+      events: [
+        EVENT_TYPE.ORDER_CONFIRMED,
+        EVENT_TYPE.ORDER_CUSTOMER_EDITED,
+        EVENT_TYPE.COMPLAINT_CREATED,
+      ],
+    },
+    // Requests waiting on the owner. Push and Telegram on, SMS off, like every
+    // owner event: see defaultsFor.
+    { key: 'wallet', events: [EVENT_TYPE.DEPOSIT_REQUESTED, EVENT_TYPE.WITHDRAWAL_REQUESTED] },
+    { key: 'kyc', events: [EVENT_TYPE.KYC_SUBMITTED] },
     {
       key: 'alerts',
       events: [

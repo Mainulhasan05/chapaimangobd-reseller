@@ -12,6 +12,7 @@ const sms = require('./sms.controller');
 const customers = require('./customers.controller');
 const complaints = require('./complaints.controller');
 const auditLog = require('./audit.controller');
+const outbox = require('./outbox.controller');
 const supplies = require('./supplies.controller');
 const payees = require('./payees.controller');
 const purchases = require('./purchases.controller');
@@ -83,6 +84,19 @@ router.patch(
   asyncHandler(catalog.updateProduct)
 );
 router.delete('/products/:id', asyncHandler(catalog.archiveProduct));
+router.post('/products/:id/restore', asyncHandler(catalog.restoreProduct));
+// Which photo leads: the cover every shop shows on the product card.
+router.post('/products/:id/images/:imageId/cover', asyncHandler(catalog.setProductCover));
+/*
+ * One box's stock count, set or added to atomically. The product form never
+ * carries stock for an existing box, so an edit cannot put back boxes an order
+ * took while the form was open.
+ */
+router.patch(
+  '/products/:id/variants/:variantId/stock',
+  validate({ body: schema.variantStock }),
+  asyncHandler(catalog.setVariantStock)
+);
 /*
  * What one box of this variant consumes when the parcel goes out: the ক্যারেট, the
  * কাগজ, the সুই. Its own route because the product form is multipart and a nested
@@ -105,8 +119,14 @@ router.patch(
 router.delete('/delivery-zones/:id', asyncHandler(catalog.deleteZone));
 
 /* resellers */
-router.get('/resellers', asyncHandler(resellers.listResellers));
+router.get(
+  '/resellers',
+  validate({ query: schema.listResellers }),
+  asyncHandler(resellers.listResellers)
+);
 router.get('/resellers/:id', asyncHandler(resellers.getReseller));
+// What switching this reseller off would cancel, asked before the switch is thrown.
+router.get('/resellers/:id/deactivation-preview', asyncHandler(resellers.deactivationPreview));
 router.patch(
   '/resellers/:id',
   validate({ body: schema.updateReseller }),
@@ -201,6 +221,14 @@ router.post(
   validate({ body: schema.createComplaint }),
   asyncHandler(complaints.createComplaint)
 );
+// The courier and tracking number, while the parcel is with the courier.
+router.patch(
+  '/orders/:id/courier',
+  validate({ body: schema.editCourier }),
+  asyncHandler(orders.editCourier)
+);
+// The couriers written on recent parcels, for the ship sheet to offer.
+router.get('/couriers/recent', asyncHandler(orders.recentCouriers));
 // Delivery name, phone and address, until the order ships. PLAN-2 decision 9.
 router.patch(
   '/orders/:id/customer',
@@ -239,6 +267,7 @@ router.post(
   validate({ body: schema.resolveComplaint }),
   asyncHandler(complaints.resolveComplaint)
 );
+router.post('/complaints/:id/reopen', asyncHandler(complaints.reopenComplaint));
 
 /* audit log */
 router.get('/audit', validate({ query: schema.listAudit }), asyncHandler(auditLog.list));
@@ -358,6 +387,8 @@ router.post('/sms/test', validate({ body: schema.sendTestSms }), asyncHandler(sm
  */
 router.get('/notifications', asyncHandler(notifications.list));
 router.post('/notifications/read', asyncHandler(notifications.markRead));
+// One row, the one that was tapped. Mark-all above stays for the badge.
+router.post('/notifications/:id/read', asyncHandler(notifications.markOneRead));
 router.get('/push/key', asyncHandler(notifications.pushKey));
 router.post(
   '/push/subscribe',
@@ -365,6 +396,18 @@ router.post(
   asyncHandler(notifications.subscribePush)
 );
 router.post('/push/unsubscribe', asyncHandler(notifications.unsubscribePush));
+
+/*
+ * Failed deliveries: outbox messages that gave up after every attempt. The
+ * dashboard counts them; this is where they are seen, retried or let go.
+ */
+router.get(
+  '/outbox/failed',
+  validate({ query: schema.listOutboxFailed }),
+  asyncHandler(outbox.listFailed)
+);
+router.post('/outbox/:id/retry', asyncHandler(outbox.retry));
+router.post('/outbox/:id/dismiss', asyncHandler(outbox.dismiss));
 
 /*
  * Telegram and per-event channel choices, the same handlers the reseller uses.
@@ -434,6 +477,12 @@ router.post(
   validate({ body: cost.manualPayeeEntry }),
   asyncHandler(payees.manualEntry)
 );
+// A wrong payment or hand-typed entry, taken back by a new entry. Never an edit.
+router.post(
+  '/payees/:id/ledger/:entryId/reverse',
+  validate({ body: cost.reversePayeeEntry }),
+  asyncHandler(payees.reverseEntry)
+);
 
 /* purchases — recorded when the goods are in hand. docs/adr/0024 */
 router.get(
@@ -482,6 +531,12 @@ router.post(
   validate({ body: cost.voidExpense }),
   asyncHandler(expenses.voidExpense)
 );
+// "দিয়ে দিয়েছি": settles an unpaid expense and posts the payment to its payee.
+router.post(
+  '/expenses/:id/mark-paid',
+  validate({ body: cost.markExpensePaid }),
+  asyncHandler(expenses.markPaid)
+);
 
 /*
  * cost reports
@@ -491,15 +546,32 @@ router.post(
  * from utils/orderFilter.js.
  */
 router.get('/reports/supplies', range, asyncHandler(costReports.supplies));
-router.get('/reports/purchases', range, asyncHandler(costReports.purchases));
+// The purchase and expense sheets take their list's filters, so paper matches screen.
+router.get(
+  '/reports/purchases',
+  validate({ query: cost.purchaseReport }),
+  asyncHandler(costReports.purchases)
+);
 // No range: a due is where an account stands now, not a property of a period.
 router.get('/reports/payables', asyncHandler(costReports.payables));
-router.get('/reports/expenses', range, asyncHandler(costReports.expenses));
+router.get(
+  '/reports/expenses',
+  validate({ query: cost.expenseReport }),
+  asyncHandler(costReports.expenses)
+);
 // The report this whole plan exists for.
 router.get('/reports/profit', range, asyncHandler(costReports.profit));
 // Receivable and payable side by side, for the dashboard. Never netted.
 router.get('/reports/position', asyncHandler(costReports.position));
-router.get('/exports/purchases.csv', range, asyncHandler(costReports.exportPurchases));
-router.get('/exports/expenses.csv', range, asyncHandler(costReports.exportExpenses));
+router.get(
+  '/exports/purchases.csv',
+  validate({ query: cost.purchaseExport }),
+  asyncHandler(costReports.exportPurchases)
+);
+router.get(
+  '/exports/expenses.csv',
+  validate({ query: cost.expenseExport }),
+  asyncHandler(costReports.exportExpenses)
+);
 
 module.exports = router;

@@ -3,10 +3,10 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { api, ApiError, errorMessage, fieldErrors } from '@/lib/api';
-import { sessionKey } from '@/lib/session';
-import type { OtpSent, Session } from '@/lib/types';
+import { ApiError, errorMessage, fieldErrors } from '@/lib/api';
+import { useAppDispatch } from '@/lib/store/hooks';
+import { sessionApi } from '@/lib/store/endpoints/session';
+import { useRegisterMutation, useSendRegisterOtpMutation } from '@/lib/store/endpoints/public';
 import { t } from '@/lib/i18n/bn';
 import { Button } from '@/components/ui/button';
 import { Field, Input } from '@/components/ui/form';
@@ -25,7 +25,7 @@ import { Alert } from '@/components/ui/layout';
  */
 export default function RegisterPage() {
   const router = useRouter();
-  const queryClient = useQueryClient();
+  const dispatch = useAppDispatch();
 
   const [step, setStep] = useState<'phone' | 'details'>('phone');
   const [sentAt, setSentAt] = useState<number | null>(null);
@@ -35,35 +35,59 @@ export default function RegisterPage() {
 
   const secondsLeft = useResendCountdown(sentAt);
 
-  const sendCode = useMutation({
-    mutationFn: () => api.post<OtpSent>('/auth/register/otp', { phone: form.phone }),
-    onSuccess: () => {
+  // Errors are read from each mutation's state and shown on the form.
+  const [sendCodeTrigger, sendCode] = useSendRegisterOtpMutation();
+  const [registerTrigger, register] = useRegisterMutation();
+
+  const submitPhone = async () => {
+    try {
+      await sendCodeTrigger({ phone: form.phone }).unwrap();
       setSentAt(Date.now());
       setStep('details');
-    },
-  });
+    } catch {
+      // Shown on the form.
+    }
+  };
 
-  const register = useMutation({
-    mutationFn: () =>
-      api.post<Session>('/auth/register', {
+  const resend = () => {
+    sendCodeTrigger({ phone: form.phone })
+      .unwrap()
+      .then(() => setSentAt(Date.now()))
+      .catch(() => undefined);
+  };
+
+  const submitDetails = async () => {
+    try {
+      await registerTrigger({
         name: form.name,
         phone: form.phone,
         password: form.password,
         otp: form.otp,
         ...(form.shopName ? { shopName: form.shopName } : {}),
-      }),
-    onSuccess: async () => {
-      // The register response omits the features block, so refetch rather than
-      // seeding the cache with a partial session.
-      await queryClient.invalidateQueries({ queryKey: sessionKey });
+      }).unwrap();
+      /*
+       * The register response omits the features block, so the session is read
+       * fresh rather than seeded with half of itself, and read before leaving,
+       * so the dashboard's shell does not see the signed-out answer and bounce
+       * back to /login.
+       */
+      const request = dispatch(
+        sessionApi.endpoints.getSession.initiate(undefined, { forceRefetch: true })
+      );
+      await request
+        .unwrap()
+        .catch(() => undefined)
+        .finally(() => request.unsubscribe());
       /*
        * The dashboard, not the KYC page. A new account is never asked to verify
        * (docs/adr/0017), so that page would have nothing on it; the setup
        * checklist on the dashboard is what a new reseller actually needs.
        */
       router.replace('/reseller');
-    },
-  });
+    } catch {
+      // Shown on the form.
+    }
+  };
 
   if (step === 'phone') {
     const errors = fieldErrors(sendCode.error);
@@ -74,7 +98,7 @@ export default function RegisterPage() {
       <form
         onSubmit={(event) => {
           event.preventDefault();
-          sendCode.mutate();
+          void submitPhone();
         }}
       >
         <h1 className="mb-1 text-xl font-bold">{t('auth.registerTitle')}</h1>
@@ -91,7 +115,7 @@ export default function RegisterPage() {
           required
         />
 
-        <Button type="submit" full size="lg" loading={sendCode.isPending}>
+        <Button type="submit" full size="lg" loading={sendCode.isLoading}>
           {t('auth.sendCode')}
         </Button>
 
@@ -116,7 +140,7 @@ export default function RegisterPage() {
     <form
       onSubmit={(event) => {
         event.preventDefault();
-        register.mutate();
+        void submitDetails();
       }}
     >
       <h1 className="mb-1 text-xl font-bold">{t('auth.registerTitle')}</h1>
@@ -142,8 +166,8 @@ export default function RegisterPage() {
       <OtpField id="otp" value={form.otp} onChange={set('otp')} error={errors.otp} className="mb-2" />
       <ResendCode
         secondsLeft={secondsLeft}
-        pending={sendCode.isPending}
-        onResend={() => sendCode.mutate()}
+        pending={sendCode.isLoading}
+        onResend={resend}
       />
 
       <Field label={t('auth.name')} htmlFor="name" error={errors.name} required>
@@ -172,7 +196,7 @@ export default function RegisterPage() {
         required
       />
 
-      <Button type="submit" full size="lg" loading={register.isPending}>
+      <Button type="submit" full size="lg" loading={register.isLoading}>
         {t('auth.register')}
       </Button>
     </form>

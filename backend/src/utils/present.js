@@ -4,6 +4,7 @@ const { toTaka } = require('./money');
 const { availableActions } = require('../domain/orderStateMachine');
 const { fromMilli } = require('./quantity');
 const { variantLabel } = require('../domain/variants');
+const { ROLES } = require('../domain/constants');
 const storage = require('../config/storage');
 const imageService = require('../services/images');
 
@@ -115,6 +116,37 @@ const order = (o) => ({
 const orderFor = (o, role) => ({ ...order(o), actions: availableActions(o, role) });
 
 /**
+ * The shop behind an order, for the owner: who it is and how to ring them.
+ *
+ * The phone lives on the reseller's account, not on the profile, which is why
+ * the populate below reaches through to the user. `_id` stays beside `id`
+ * because screens written before this read the populated document's `_id`.
+ * Anything not populated (a bare id) passes through untouched.
+ *
+ * The populate is a function, not a constant, because Mongoose annotates the
+ * options object it is handed.
+ */
+const ownerResellerPopulate = () => ({
+  path: 'reseller',
+  select: 'shopName slug user',
+  populate: { path: 'user', select: 'phoneE164' },
+});
+
+const ownerReseller = (r) => {
+  if (!r || r.shopName === undefined) return r || null;
+  return {
+    _id: r._id,
+    id: r._id,
+    shopName: r.shopName,
+    slug: r.slug,
+    phone: r.user && r.user.phoneE164 ? r.user.phoneE164 : null,
+  };
+};
+
+/** `orderFor` for the owner, with the shop presented by `ownerReseller`. */
+const ownerOrder = (o) => ({ ...orderFor(o, ROLES.OWNER), reseller: ownerReseller(o.reseller) });
+
+/**
  * What a customer may see. No cost price, no margin, no reseller identifiers:
  * the tracking page must not teach a buyer what the reseller paid.
  */
@@ -161,6 +193,13 @@ const ledgerEntry = (e) => ({
 const variant = (v, { unit, trackStock }) => ({
   id: v._id,
   label: variantLabel(v, unit),
+  /*
+   * What the owner typed, or null for a box that goes by its derived name. The
+   * edit form needs the two apart: filling the name field with the derived
+   * "৬ কেজি" would save it as a custom name, which then stops following the
+   * content and the unit when either changes.
+   */
+  customLabel: (v.label || '').trim() || null,
   content: fromMilli(v.contentMilli),
   costPrice: toTaka(v.costPricePoisha),
   maxSellPrice: v.maxSellPricePoisha == null ? null : toTaka(v.maxSellPricePoisha),
@@ -237,6 +276,9 @@ module.exports = {
   totals,
   order,
   orderFor,
+  ownerOrder,
+  ownerReseller,
+  ownerResellerPopulate,
   publicOrder,
   ledgerEntry,
   product,

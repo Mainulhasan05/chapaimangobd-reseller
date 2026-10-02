@@ -2,18 +2,31 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { KeyRound, ShieldAlert, Smartphone } from 'lucide-react';
-import { api, ApiError, errorMessage, fieldErrors } from '@/lib/api';
-import { sessionKey, useSession } from '@/lib/session';
-import type { OtpSent, User } from '@/lib/types';
-import { t } from '@/lib/i18n/bn';
-import { Alert, Card, CardHeader, PageHeader } from '@/components/ui/layout';
+import { KeyRound, LogOut, MonitorSmartphone, ShieldAlert, Smartphone } from 'lucide-react';
+import { ApiError, errorMessage, fieldErrors } from '@/lib/api';
+import { useSession } from '@/lib/session';
+import { useAppDispatch } from '@/lib/store/hooks';
+import { api } from '@/lib/store/api';
+import {
+  useChangePasswordMutation,
+  useChangePhoneMutation,
+  useSendPhoneChangeOtpMutation,
+} from '@/lib/store/endpoints/public';
+import {
+  useGetDevicesQuery,
+  useRevokeDeviceMutation,
+  type TrustedDevice,
+} from '@/lib/store/endpoints/shell';
+import { t, tf } from '@/lib/i18n/bn';
+import { formatDateTime } from '@/lib/format';
+import { Alert, Badge, Card, CardHeader, ErrorState, PageHeader } from '@/components/ui/layout';
 import { Button } from '@/components/ui/button';
 import { Field, Input } from '@/components/ui/form';
 import { PasswordField } from '@/components/ui/password-field';
 import { PhoneField } from '@/components/ui/phone-field';
 import { OtpField, ResendCode, useResendCountdown } from '@/components/ui/otp-field';
+import { ConfirmSheet } from '@/components/ui/confirm-sheet';
+import { ListSkeleton, Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
 
 const generalErrorOf = (error: unknown) =>
@@ -23,12 +36,28 @@ const generalErrorOf = (error: unknown) =>
 const localPhone = (e164: string) => e164.replace(/^\+880/, '0');
 
 /**
- * The signed-in person's own account: password and login phone. The same for
- * the owner and a reseller, because both are one person with one phone.
+ * The signed-in person's own account: password and login phone, and for the
+ * owner the browsers trusted to sign in without a code. Password and phone are
+ * the same for the owner and a reseller, because both are one person with one
+ * phone.
  */
 export function AccountSettings() {
   const { data: session } = useSession();
-  if (!session) return null;
+
+  // The heading straight away, so the page never opens blank on a slow line.
+  if (!session) {
+    return (
+      <>
+        <PageHeader title={t('account.title')} subtitle={t('account.subtitle')} />
+        <div className="grid items-start gap-5 lg:grid-cols-2">
+          <Skeleton className="h-72 w-full rounded-2xl" />
+          <Skeleton className="h-72 w-full rounded-2xl" />
+        </div>
+      </>
+    );
+  }
+
+  const owner = session.user.role === 'owner';
 
   return (
     <>
@@ -43,36 +72,35 @@ export function AccountSettings() {
       <div className="grid items-start gap-5 lg:grid-cols-2">
         <PasswordCard mustChange={Boolean(session.user.mustChangePassword)} />
         <PhoneCard current={session.user.phoneE164} />
+        {/* Resellers have no trusted devices; the API refuses them. */}
+        {owner && !session.user.mustChangePassword && <DevicesCard />}
       </div>
     </>
   );
 }
 
 function PasswordCard({ mustChange }: { mustChange: boolean }) {
-  const queryClient = useQueryClient();
   const toast = useToast();
   const [form, setForm] = useState({ currentPassword: '', newPassword: '' });
+  // Clears mustChangePassword through the session tag, which stops the shell redirecting here.
+  const [change, state] = useChangePasswordMutation();
 
-  const change = useMutation({
-    mutationFn: () => api.post<{ user: User }>('/auth/password/change', form),
-    onSuccess: async () => {
-      setForm({ currentPassword: '', newPassword: '' });
-      // Clears mustChangePassword, which is what lets the shell stop redirecting here.
-      await queryClient.invalidateQueries({ queryKey: sessionKey });
-      toast(t('account.passwordChanged'));
-    },
-  });
-
-  const errors = fieldErrors(change.error);
-  const generalError = generalErrorOf(change.error);
+  const errors = fieldErrors(state.error);
+  const generalError = generalErrorOf(state.error);
 
   return (
     <Card>
       <CardHeader title={t('account.passwordTitle')} subtitle={t('account.passwordHelp')} />
       <form
-        onSubmit={(event) => {
+        onSubmit={async (event) => {
           event.preventDefault();
-          change.mutate();
+          try {
+            await change(form).unwrap();
+            setForm({ currentPassword: '', newPassword: '' });
+            toast(t('account.passwordChanged'));
+          } catch {
+            // Shown beside the fields below.
+          }
         }}
       >
         {generalError && <Alert tone="danger">{generalError}</Alert>}
@@ -97,7 +125,7 @@ function PasswordCard({ mustChange }: { mustChange: boolean }) {
           required
         />
 
-        <Button type="submit" full loading={change.isPending}>
+        <Button type="submit" full loading={state.isLoading}>
           <KeyRound className="h-4 w-4" />
           {t('account.passwordSubmit')}
         </Button>
@@ -109,11 +137,16 @@ function PasswordCard({ mustChange }: { mustChange: boolean }) {
 /**
  * Two steps, like registration: the new number receives a code, then the code
  * and the password move the account. Every session ends, this one included,
- * because the phone is the login identity.
+ * because the phone is the login identity, and the final button says so again:
+ * the warning at the top of the card is a scroll away by then.
+ *
+ * Each step shows its own errors inside its own form. A refused number used to
+ * appear above both, which after the step changed read as a problem with the
+ * code.
  */
 function PhoneCard({ current }: { current: string }) {
   const router = useRouter();
-  const queryClient = useQueryClient();
+  const dispatch = useAppDispatch();
   const toast = useToast();
   const [step, setStep] = useState<'phone' | 'code'>('phone');
   const [newPhone, setNewPhone] = useState('');
@@ -122,30 +155,26 @@ function PhoneCard({ current }: { current: string }) {
   const [sentAt, setSentAt] = useState<number | null>(null);
   const secondsLeft = useResendCountdown(sentAt);
 
-  const sendCode = useMutation({
-    mutationFn: () => api.post<OtpSent>('/auth/phone/otp', { newPhone }),
-    onSuccess: () => {
+  const [sendCode, sendState] = useSendPhoneChangeOtpMutation();
+  const [change, changeState] = useChangePhoneMutation();
+
+  const send = async () => {
+    try {
+      await sendCode({ newPhone }).unwrap();
       setSentAt(Date.now());
       setStep('code');
-    },
-  });
+    } catch {
+      // Shown in the step that asked.
+    }
+  };
 
-  const change = useMutation({
-    mutationFn: () => api.post('/auth/phone/change', { newPhone, otp: code, password }),
-    onSuccess: () => {
-      // Signed out on the server already. Nothing from this session may linger.
-      queryClient.clear();
-      toast(t('account.phoneChanged'));
-      router.replace('/login');
-    },
-  });
-
-  const sendErrors = fieldErrors(sendCode.error);
-  const changeErrors = fieldErrors(change.error);
-  const generalError =
-    step === 'phone'
-      ? generalErrorOf(sendCode.error)
-      : (generalErrorOf(change.error) ?? (sendCode.error ? errorMessage(sendCode.error) : null));
+  const sendErrors = fieldErrors(sendState.error);
+  const changeErrors = fieldErrors(changeState.error);
+  // On the code step a failed resend is the code step's problem.
+  const sendGeneral = !sendState.error
+    ? null
+    : (generalErrorOf(sendState.error) ?? (step === 'code' ? errorMessage(sendState.error) : null));
+  const changeGeneral = generalErrorOf(changeState.error);
 
   return (
     <Card>
@@ -155,13 +184,11 @@ function PhoneCard({ current }: { current: string }) {
         <Input id="currentPhone" value={localPhone(current)} readOnly disabled className="tabular" />
       </Field>
 
-      {generalError && <Alert tone="danger">{generalError}</Alert>}
-
       {step === 'phone' ? (
         <form
           onSubmit={(event) => {
             event.preventDefault();
-            sendCode.mutate();
+            void send();
           }}
         >
           <PhoneField
@@ -173,16 +200,25 @@ function PhoneCard({ current }: { current: string }) {
             autoComplete="off"
             required
           />
-          <Button type="submit" full variant="outline" loading={sendCode.isPending}>
+          {sendGeneral && <Alert tone="danger">{sendGeneral}</Alert>}
+          <Button type="submit" full variant="outline" loading={sendState.isLoading}>
             <Smartphone className="h-4 w-4" />
             {t('auth.sendCode')}
           </Button>
         </form>
       ) : (
         <form
-          onSubmit={(event) => {
+          onSubmit={async (event) => {
             event.preventDefault();
-            change.mutate();
+            try {
+              await change({ newPhone, otp: code, password }).unwrap();
+              // Signed out on the server already. Nothing from this session may linger.
+              dispatch(api.util.resetApiState());
+              toast(t('account.phoneChanged'));
+              router.replace('/login');
+            } catch {
+              // Shown beside the fields below.
+            }
           }}
         >
           <p className="mb-4 text-sm">
@@ -190,18 +226,18 @@ function PhoneCard({ current }: { current: string }) {
             <button
               type="button"
               onClick={() => {
-                change.reset();
-                sendCode.reset();
+                changeState.reset();
+                sendState.reset();
                 setStep('phone');
               }}
-              className="font-semibold text-primary-ink hover:underline"
+              className="tap font-semibold text-primary-ink hover:underline"
             >
               {t('auth.changeNumber')}
             </button>
           </p>
 
           <OtpField id="phoneOtp" value={code} onChange={setCode} error={changeErrors.otp} className="mb-2" />
-          <ResendCode secondsLeft={secondsLeft} pending={sendCode.isPending} onResend={() => sendCode.mutate()} />
+          <ResendCode secondsLeft={secondsLeft} pending={sendState.isLoading} onResend={() => void send()} />
 
           <PasswordField
             id="phonePassword"
@@ -212,10 +248,91 @@ function PhoneCard({ current }: { current: string }) {
             required
           />
 
-          <Button type="submit" full loading={change.isPending}>
+          {(changeGeneral || sendGeneral) && (
+            <Alert tone="danger">{changeGeneral ?? sendGeneral}</Alert>
+          )}
+
+          <p className="mb-3 flex items-start gap-2 text-sm text-warning-ink">
+            <LogOut aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
+            {t('account.phoneSubmitNote')}
+          </p>
+          <Button type="submit" full loading={changeState.isLoading}>
             {t('account.phoneSubmit')}
           </Button>
         </form>
+      )}
+    </Card>
+  );
+}
+
+/**
+ * The browsers that may sign in with a password alone for thirty days
+ * (docs/adr/0014). They were created and expired with nobody able to see them,
+ * so a lost phone stayed trusted until its thirty days ran out. Forgetting one
+ * here makes its next sign-in ask for a code.
+ */
+function DevicesCard() {
+  const toast = useToast();
+  const devices = useGetDevicesQuery();
+  const [revoke] = useRevokeDeviceMutation();
+  const [target, setTarget] = useState<TrustedDevice | null>(null);
+
+  const rows = devices.data?.devices ?? [];
+
+  return (
+    <Card className="lg:col-span-2">
+      <CardHeader title={t('account.devicesTitle')} subtitle={t('account.devicesHelp')} />
+
+      {devices.isLoading && <ListSkeleton rows={2} />}
+      {devices.isError && !devices.data && (
+        <ErrorState onRetry={() => devices.refetch()} isRetrying={devices.isFetching} error={devices.error} />
+      )}
+      {devices.data && rows.length === 0 && (
+        <p className="text-sm text-muted-foreground">{t('account.devicesEmpty')}</p>
+      )}
+
+      {rows.length > 0 && (
+        <ul className="divide-y divide-border">
+          {rows.map((device) => (
+            <li key={device.id} className="flex flex-wrap items-center gap-3 py-3">
+              <MonitorSmartphone aria-hidden className="h-5 w-5 shrink-0 text-muted-foreground" />
+              <div className="min-w-0 flex-1">
+                <p className="flex flex-wrap items-center gap-2 text-sm font-semibold">
+                  <span lang="en">{device.label ?? t('account.deviceUnknown')}</span>
+                  {device.current && <Badge tone="primary">{t('account.deviceCurrent')}</Badge>}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {device.lastUsedAt
+                    ? tf('account.deviceLastUsed', { time: formatDateTime(device.lastUsedAt) })
+                    : tf('account.deviceAdded', { time: formatDateTime(device.createdAt) })}
+                </p>
+              </div>
+              <Button size="sm" variant="outline" onClick={() => setTarget(device)}>
+                {t('account.deviceRevoke')}
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {target && (
+        <ConfirmSheet
+          title={t('account.deviceRevokeTitle')}
+          tone="danger"
+          confirmLabel={t('account.deviceRevoke')}
+          summary={
+            <p className="font-semibold">
+              <span lang="en">{target.label ?? t('account.deviceUnknown')}</span>
+              {target.current && ` · ${t('account.deviceCurrent')}`}
+            </p>
+          }
+          consequences={[t('account.deviceRevokeConsequence'), t('account.deviceRevokeOpenSessions')]}
+          onClose={() => setTarget(null)}
+          onConfirm={async () => {
+            await revoke({ id: target.id }).unwrap();
+            toast(t('account.deviceRevoked'));
+          }}
+        />
       )}
     </Card>
   );

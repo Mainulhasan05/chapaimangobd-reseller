@@ -5,6 +5,7 @@ const PayeeLedgerEntry = require('../models/PayeeLedgerEntry');
 const { PAYEE_LEDGER_KIND } = require('../domain/constants');
 const { conflict, notFound } = require('../utils/errors');
 const { assertPoisha } = require('../utils/money');
+const { businessDate } = require('../utils/dhakaTime');
 
 /**
  * The only code permitted to change a payee's due. See docs/adr/0025.
@@ -44,6 +45,12 @@ const keys = {
   purchaseCancel: (purchaseId) => `purchase:${purchaseId}:cancel:v1`,
   expense: (expenseId) => `expense:${expenseId}:due:v1`,
   payment: (paymentId) => `payment:${paymentId}:v1`,
+  /*
+   * Settling an unpaid expense. `seq` is the expense's own settlement count, so
+   * settling it again after a reversed settlement is a new payment and not the
+   * old one found again by its key.
+   */
+  expensePayment: (expenseId, seq) => `expense:${expenseId}:paid:${seq}:v1`,
   reversal: (entryId, reason) => `payee-reversal:${entryId}:${reason}`,
   manual: (nonce) => `payee-manual:${nonce}`,
 };
@@ -58,6 +65,8 @@ const keys = {
  * @param {import('mongoose').ClientSession} session
  * @param {object} input
  * @param {number} input.amountPoisha Signed. Positive increases what we owe.
+ * @param {string} [input.businessDate] The Dhaka date the movement belongs to.
+ *   Today when left out, which is right for anything typed as it happens.
  */
 async function postEntry(session, input) {
   const {
@@ -70,6 +79,7 @@ async function postEntry(session, input) {
     reversalOf = null,
     note,
     createdBy = null,
+    businessDate: day = businessDate(),
   } = input;
 
   if (!session) throw new Error('postEntry must be called inside a transaction session');
@@ -105,6 +115,7 @@ async function postEntry(session, input) {
           refType,
           refId,
           reversalOf,
+          businessDate: day,
           note,
           createdBy,
         },

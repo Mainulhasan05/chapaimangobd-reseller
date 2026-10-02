@@ -1,7 +1,9 @@
 'use client';
 
-import { useState } from 'react';
-import { t, tStatus } from '@/lib/i18n/bn';
+import Link from 'next/link';
+import type { Route } from 'next';
+import { ChevronRight } from 'lucide-react';
+import { t, tf, tStatus } from '@/lib/i18n/bn';
 import { formatNumber } from '@/lib/format';
 import type { OrderStatus } from '@/lib/types';
 import { PIPELINE_STAGES, RAMP } from './chart-tokens';
@@ -15,11 +17,20 @@ import { PIPELINE_STAGES, RAMP } from './chart-tokens';
  * unrelated categories, which is the opposite of what a pipeline is.
  *
  * Every segment is also a labelled row underneath, so identity never rests on
- * colour alone, and a stage too thin to see still has its number.
+ * colour alone, and a stage too thin to see still has its number. The rows are
+ * the controls: each opens the orders list at that stage. The segments used to
+ * be buttons that did nothing but brighten, which a keyboard stopped on and a
+ * screen reader announced as something to press; the bar is now one picture
+ * with one description.
  */
-export function PipelineBar({ byStatus }: { byStatus: Partial<Record<OrderStatus, number>> }) {
-  const [active, setActive] = useState<string | null>(null);
-
+export function PipelineBar({
+  byStatus,
+  hrefFor,
+}: {
+  byStatus: Partial<Record<OrderStatus, number>>;
+  /** Where a stage's row leads, normally the orders list filtered to it. */
+  hrefFor: (stage: OrderStatus) => Route;
+}) {
   const rows = PIPELINE_STAGES.map((stage, index) => ({
     stage,
     label: tStatus(stage),
@@ -34,6 +45,7 @@ export function PipelineBar({ byStatus }: { byStatus: Partial<Record<OrderStatus
   }
 
   const present = rows.filter((row) => row.count > 0);
+  const summary = present.map((row) => `${row.label} ${formatNumber(row.count)}`).join(', ');
 
   return (
     <div>
@@ -42,42 +54,36 @@ export function PipelineBar({ byStatus }: { byStatus: Partial<Record<OrderStatus
        * on one ramp read as distinct because of the gap, not because of a stroke
        * drawn around them.
        */}
-      <div className="flex h-8 gap-0.5 overflow-hidden rounded-lg">
+      <div
+        role="img"
+        aria-label={tf('dash.inFlightLabel', { summary })}
+        className="flex h-8 gap-0.5 overflow-hidden rounded-lg"
+      >
         {present.map((row) => (
-          <button
+          <span
             key={row.stage}
-            type="button"
-            // The mark is the hit target on a bar; no crosshair.
-            onPointerEnter={() => setActive(row.stage)}
-            onPointerLeave={() => setActive(null)}
-            onFocus={() => setActive(row.stage)}
-            onBlur={() => setActive(null)}
-            aria-label={`${row.label}: ${formatNumber(row.count)}`}
-            className="min-w-1 transition-[filter] first:rounded-l-lg last:rounded-r-lg"
-            style={{
-              width: `${(row.count / total) * 100}%`,
-              background: row.color,
-              filter: active === row.stage ? 'brightness(1.12)' : undefined,
-            }}
+            className="min-w-1 first:rounded-l-lg last:rounded-r-lg"
+            style={{ width: `${(row.count / total) * 100}%`, background: row.color }}
           />
         ))}
       </div>
 
-      <ul className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-3">
+      <ul className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1">
         {rows.map((row) => (
-          <li
-            key={row.stage}
-            className={`flex items-center gap-2 text-xs transition-opacity ${
-              active && active !== row.stage ? 'opacity-50' : ''
-            }`}
-          >
-            <span
-              aria-hidden
-              className="h-2.5 w-2.5 shrink-0 rounded-sm"
-              style={{ background: row.color }}
-            />
-            <span className="min-w-0 flex-1 truncate text-muted-foreground">{row.label}</span>
-            <span className="tabular font-bold">{formatNumber(row.count)}</span>
+          <li key={row.stage}>
+            <Link
+              href={hrefFor(row.stage)}
+              className="-mx-2 flex min-h-11 items-center gap-2 rounded-lg px-2 text-sm transition-colors hover:bg-muted"
+            >
+              <span
+                aria-hidden
+                className="h-2.5 w-2.5 shrink-0 rounded-sm"
+                style={{ background: row.color }}
+              />
+              <span className="min-w-0 flex-1 truncate text-muted-foreground">{row.label}</span>
+              <span className="tabular font-bold">{formatNumber(row.count)}</span>
+              <ChevronRight aria-hidden className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            </Link>
           </li>
         ))}
       </ul>

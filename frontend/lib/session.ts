@@ -1,45 +1,48 @@
 'use client';
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
-import { api, ApiError } from '@/lib/api';
+import { useAppDispatch } from '@/lib/store/hooks';
+import { api } from '@/lib/store/api';
+import { useGetSessionQuery, useLogoutMutation } from '@/lib/store/endpoints/session';
 import type { Session } from '@/lib/types';
 
-export const sessionKey = ['session'] as const;
-
 /**
- * The signed-in user. A 401 here is an answer, not a failure, so it resolves to
- * null rather than throwing and is never retried.
+ * The signed-in user, read from the shared cache. Every screen and the shell
+ * call this, and they share one request: RTK Query de-duplicates it.
+ *
+ * Fresh for a minute on remount, rather than the store's default 30 seconds,
+ * because it changes only when the person signs in or out or the owner changes
+ * their account, and those paths refresh it explicitly.
  */
 export function useSession() {
-  return useQuery({
-    queryKey: sessionKey,
-    queryFn: async () => {
-      try {
-        return await api.get<Session>('/auth/me');
-      } catch (error) {
-        if (error instanceof ApiError && error.status === 401) return null;
-        throw error;
-      }
-    },
-    retry: false,
-    staleTime: 60_000,
-  });
+  return useGetSessionQuery(undefined, { refetchOnMountOrArgChange: 60 });
 }
 
 export function useLogout() {
   const router = useRouter();
-  const queryClient = useQueryClient();
+  const dispatch = useAppDispatch();
+  const [logout, state] = useLogoutMutation();
 
-  return useMutation({
-    mutationFn: () => api.post('/auth/logout'),
-    onSettled: () => {
-      // Clear every cached query, not just the session: the next user on this
-      // device must not see the previous one orders.
-      queryClient.clear();
-      router.replace('/login');
+  return {
+    isPending: state.isLoading,
+    mutate: () => {
+      void logout()
+        .unwrap()
+        .catch(() => undefined)
+        .finally(() => {
+          // Clear every cached response, not just the session: the next user on
+          // this device must not see the previous one's orders.
+          dispatch(api.util.resetApiState());
+          router.replace('/login');
+        });
     },
-  });
+  };
+}
+
+/** Re-reads the session, for the screens that just changed it (login, password). */
+export function useRefreshSession() {
+  const dispatch = useAppDispatch();
+  return () => dispatch(api.util.invalidateTags(['Session']));
 }
 
 /**

@@ -22,6 +22,16 @@ const { toTaka } = require('../utils/money');
 /** One taka figure, as a person would write it. */
 const taka = (poisha) => `${toTaka(poisha)} টাকা`;
 
+/** What went wrong, as the complaints screen names it. */
+const COMPLAINT_KIND_BN = Object.freeze({
+  quality: 'মান খারাপ',
+  damaged: 'পচা / নষ্ট',
+  short_weight: 'ওজনে কম',
+  wrong_item: 'ভুল পণ্য',
+  late: 'দেরিতে পৌঁছেছে',
+  other: 'অন্যান্য',
+});
+
 /**
  * The line for one event.
  *
@@ -213,6 +223,38 @@ const TEXT = {
   [EVENT_TYPE.RESELLER_REACTIVATED]: () => ({
     title: 'আপনার অ্যাকাউন্ট আবার চালু হয়েছে',
     body: 'এখন আবার অর্ডার নিতে পারবেন',
+  }),
+
+  /* ------------------------------------------------- waiting on the owner -- */
+
+  // A reseller says they paid. Their balance does not move until this is approved,
+  // so a deposit nobody looks at is a reseller who cannot confirm orders.
+  [EVENT_TYPE.DEPOSIT_REQUESTED]: (d) => ({
+    title: 'নতুন জমার অনুরোধ',
+    body:
+      [d.shopName, d.amountPoisha != null ? taka(d.amountPoisha) : null]
+        .filter(Boolean)
+        .join(' · ') || 'অনুমোদনের অপেক্ষায়',
+  }),
+
+  [EVENT_TYPE.WITHDRAWAL_REQUESTED]: (d) => ({
+    title: 'নতুন উত্তোলনের আবেদন',
+    body:
+      [d.shopName, d.amountPoisha != null ? taka(d.amountPoisha) : null]
+        .filter(Boolean)
+        .join(' · ') || 'অনুমোদনের অপেক্ষায়',
+  }),
+
+  // Only a reseller the owner asked can send these (docs/adr/0017), and their
+  // shop may be closed until someone looks.
+  [EVENT_TYPE.KYC_SUBMITTED]: (d) => ({
+    title: 'নতুন কেওয়াইসি জমা পড়েছে',
+    body: d.shopName ? `${d.shopName} · যাচাইয়ের অপেক্ষায়` : 'যাচাইয়ের অপেক্ষায়',
+  }),
+
+  [EVENT_TYPE.COMPLAINT_CREATED]: (d) => ({
+    title: 'নতুন অভিযোগ',
+    body: [d.orderCode, COMPLAINT_KIND_BN[d.kind]].filter(Boolean).join(' · ') || undefined,
   }),
 };
 

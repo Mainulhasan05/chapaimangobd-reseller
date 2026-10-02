@@ -143,6 +143,7 @@ async function recordExpense(input) {
         idempotencyKey: payeeLedger.keys.expense(created._id),
         refType: 'expense',
         refId: created._id,
+        businessDate: created.businessDate,
         note: `${category.nameBn}${note ? ` — ${note}` : ''}`,
         createdBy: actorId,
       });
@@ -224,6 +225,97 @@ async function voidExpense({ expenseId, reason, actorUser, ip }) {
   return expense;
 }
 
+/**
+ * Settles an unpaid expense: "দিয়ে দিয়েছি". Posts the payment to the payee's
+ * ledger and flips the status, in one transaction, so a bill can never read as
+ * paid while the due still says it is owed, or the other way round.
+ *
+ * The payment is its own entry, `PAYMENT` against `refType: 'payment'` with the
+ * expense as its reference, and the original `EXPENSE` entry is left exactly as
+ * it was. Two facts, two entries: the bill arrived, then it was paid. Voiding the
+ * expense afterwards reverses only the bill, because the money really did leave,
+ * and what is left is an advance the owner can see — or reverse, if the payment
+ * was the mistake (purchaseService.reversePayeeEntry, which also puts this
+ * expense back to unpaid).
+ *
+ * Status-guarded: the claim requires `unpaid` and not voided, so a double tap
+ * settles once. The key carries the settlement count as a second guard.
+ *
+ * @param {Date} [input.date] When the money was handed over. Today by default.
+ * @throws 409 ALREADY_PAID, 409 EXPENSE_VOIDED.
+ */
+async function markPaid({ expenseId, paidFrom, date, actorUser, ip }) {
+  const existing = await Expense.findById(expenseId);
+  if (!existing) throw notFound('Expense not found');
+
+  const refusal = (row) => {
+    if (row.voidedAt) return conflict('EXPENSE_VOIDED', 'A void expense cannot be paid');
+    if (row.paymentStatus === EXPENSE_PAYMENT_STATUS.PAID) {
+      return conflict('ALREADY_PAID', 'This expense is already paid');
+    }
+    return null;
+  };
+  const refused = refusal(existing);
+  if (refused) throw refused;
+  if (!existing.payee) {
+    // Cannot be reached through recordExpense, which refuses an unpaid expense
+    // owed to nobody; said here so a hand-edited row cannot post a payment to null.
+    throw badRequest('PAYEE_REQUIRED', 'This expense names nobody to pay');
+  }
+
+  const actorId = actorUser ? actorUser._id : null;
+  const day = businessDate(date || new Date());
+
+  const expense = await withTransaction(async (session) => {
+    const claimed = await Expense.findOneAndUpdate(
+      { _id: expenseId, voidedAt: null, paymentStatus: EXPENSE_PAYMENT_STATUS.UNPAID },
+      {
+        $set: { paymentStatus: EXPENSE_PAYMENT_STATUS.PAID, paidFrom, paidAt: new Date() },
+        $inc: { paymentSeq: 1 },
+      },
+      { new: true, session }
+    );
+    if (!claimed) {
+      const now = await Expense.findById(expenseId).session(session);
+      throw refusal(now) || conflict('ALREADY_PAID', 'This expense is already paid');
+    }
+
+    const entry = await payeeLedger.postEntry(session, {
+      payee: claimed.payee,
+      kind: PAYEE_LEDGER_KIND.PAYMENT,
+      // Negative: paying the bill reduces what is owed by exactly the bill.
+      amountPoisha: -claimed.amountPoisha,
+      idempotencyKey: payeeLedger.keys.expensePayment(claimed._id, claimed.paymentSeq),
+      refType: 'payment',
+      refId: claimed._id,
+      businessDate: day,
+      note: `${claimed.categoryNameBn} — paid by ${paidFrom}`,
+      createdBy: actorId,
+    });
+
+    await Expense.updateOne({ _id: claimed._id }, { $set: { paymentEntry: entry._id } }, { session });
+    claimed.paymentEntry = entry._id;
+    return claimed;
+  });
+
+  await audit.record({
+    actor: actorId,
+    action: 'expense.markPaid',
+    targetType: 'Expense',
+    targetId: expense._id,
+    before: { paymentStatus: EXPENSE_PAYMENT_STATUS.UNPAID },
+    after: {
+      paymentStatus: EXPENSE_PAYMENT_STATUS.PAID,
+      paidFrom,
+      amountPoisha: expense.amountPoisha,
+      businessDate: day,
+    },
+    ip,
+  });
+
+  return expense;
+}
+
 /** The six the owner named, for a fresh install. Idempotent: skips what exists. */
 const DEFAULT_CATEGORIES = [
   { nameBn: 'লেবার খরচ', scope: CATEGORY_SCOPE.PERIOD, sortOrder: 10 },
@@ -246,4 +338,11 @@ async function seedCategories() {
   return created;
 }
 
-module.exports = { recordExpense, voidExpense, seedCategories, DEFAULT_CATEGORIES, assertScope };
+module.exports = {
+  recordExpense,
+  voidExpense,
+  markPaid,
+  seedCategories,
+  DEFAULT_CATEGORIES,
+  assertScope,
+};

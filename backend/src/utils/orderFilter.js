@@ -1,6 +1,6 @@
 'use strict';
 
-const { orderSearchFilter } = require('./orderSearch');
+const { orderSearchFilter, escapeRegex, toLatinDigits } = require('./orderSearch');
 const { agingCutoff } = require('./dhakaTime');
 const { ORDER_STATUS } = require('../domain/constants');
 
@@ -19,7 +19,7 @@ const { ORDER_STATUS } = require('../domain/constants');
  * the definition the rest of the system already uses for "today's orders", so
  * this can no longer disagree with the dashboard about which day an order is on.
  */
-function buildOrderFilter(query = {}, { agingHours } = {}) {
+function buildOrderFilter(query = {}, { agingHours, resellerIds } = {}) {
   const filter = {};
 
   if (query.status) filter.status = { $in: String(query.status).split(',') };
@@ -48,10 +48,39 @@ function buildOrderFilter(query = {}, { agingHours } = {}) {
     filter.confirmedAt = { $lt: agingCutoff(agingHours) };
   }
 
-  const search = orderSearchFilter(query.q);
+  const search = orderSearchFilter(query.q, { resellerIds });
   if (search) Object.assign(filter, search);
 
   return filter;
 }
 
-module.exports = { buildOrderFilter };
+/**
+ * The shops whose name contains the search term, for the owner's lists.
+ *
+ * A separate step because it is a query and `buildOrderFilter` asks the database
+ * nothing. Every owner surface that takes `q` — the list, the counts, the sheet
+ * and the CSV — resolves it through here, so typing a shop name narrows all four
+ * the same way. Capped: a two-letter term matching every shop is a term that
+ * matches every order anyway.
+ */
+async function shopMatches(q) {
+  const term = toLatinDigits(q || '').trim();
+  if (term.length < 2) return [];
+  // Required here rather than at the top: this module is otherwise pure, and the
+  // unit tests load it without a model registry.
+  // eslint-disable-next-line global-require
+  const ResellerProfile = require('../models/ResellerProfile');
+  const rows = await ResellerProfile.find({ shopName: new RegExp(escapeRegex(term), 'i') })
+    .select('_id')
+    .limit(50)
+    .lean();
+  return rows.map((row) => row._id);
+}
+
+/** The owner's filter, shop names included. See `shopMatches`. */
+async function buildOwnerOrderFilter(query = {}, { agingHours } = {}) {
+  const resellerIds = query.q ? await shopMatches(query.q) : [];
+  return buildOrderFilter(query, { agingHours, resellerIds });
+}
+
+module.exports = { buildOrderFilter, buildOwnerOrderFilter, shopMatches };

@@ -4,14 +4,17 @@ const Order = require('../../models/Order');
 const Complaint = require('../../models/Complaint');
 const Source = require('../../models/Source');
 const audit = require('../../services/audit');
+const { notifyOwners } = require('../../services/notify');
 const { ok } = require('../../middleware/error');
-const { notFound, badRequest } = require('../../utils/errors');
+const { notFound, badRequest, conflict } = require('../../utils/errors');
 const { toTaka } = require('../../utils/money');
 const { fromMilli } = require('../../utils/quantity');
 const present = require('../../utils/present');
+const { escapeRegex, toLatinDigits } = require('../../utils/orderSearch');
 const {
   ORDER_STATUS,
   SOURCE_COMPLAINT_KINDS,
+  EVENT_TYPE,
 } = require('../../domain/constants');
 
 /**
@@ -94,6 +97,17 @@ async function createComplaint(req, res) {
     ip: req.ip,
   });
 
+  /*
+   * Every other owner account hears about it; whoever typed it does not. No
+   * `orderId` in the data, so the link opens the complaints list rather than
+   * the order. See services/notify.js notifyOwners.
+   */
+  await notifyOwners({
+    eventType: EVENT_TYPE.COMPLAINT_CREATED,
+    data: { complaintId: complaint._id, orderCode: order.orderCode, kind },
+    except: req.user._id,
+  });
+
   return ok(res, { complaint: present.complaint(complaint) }, 201);
 }
 
@@ -123,11 +137,77 @@ async function resolveComplaint(req, res) {
   return ok(res, { complaint: present.complaint(complaint) });
 }
 
+/**
+ * Opens a resolved complaint again: the customer rang back, or it was closed by
+ * mistake. The earlier resolution is cleared from the complaint and kept in the
+ * audit log, which is where "what did we say last time" is answered.
+ */
+async function reopenComplaint(req, res) {
+  const complaint = await Complaint.findOneAndUpdate(
+    { _id: req.params.id, resolved: true },
+    { $set: { resolved: false, resolvedAt: null, resolution: null, resolvedBy: null } },
+    { new: false }
+  );
+  if (!complaint) {
+    if (!(await Complaint.exists({ _id: req.params.id }))) throw notFound('Complaint not found');
+    throw conflict('COMPLAINT_OPEN', 'This complaint is already open');
+  }
+
+  await audit.record({
+    actor: req.user._id,
+    action: 'complaint.reopen',
+    targetType: 'Complaint',
+    targetId: complaint._id,
+    before: {
+      resolved: true,
+      resolvedAt: complaint.resolvedAt,
+      resolution: complaint.resolution || null,
+    },
+    after: { resolved: false },
+    ip: req.ip,
+  });
+
+  const fresh = await Complaint.findById(complaint._id).populate('reseller', 'shopName');
+  return ok(res, { complaint: present.complaint(fresh) });
+}
+
 /* ------------------------------------------------------------------ reading */
+
+/**
+ * The search box on the complaints list: an order code, the customer's phone or
+ * their name, whichever the owner has in front of them. Code and phone are
+ * snapshots on the complaint; the name is not, so it is found through the orders
+ * it names. Bengali digits are read as Latin ones, as on the order list.
+ */
+async function complaintSearch(q) {
+  const term = toLatinDigits(q || '').trim();
+  if (!term) return null;
+  const escaped = escapeRegex(term);
+
+  const or = [{ orderCode: new RegExp(`^${escaped}`, 'i') }];
+  const digits = term.replace(/[^0-9]/g, '');
+  if (digits.length >= 4) or.push({ customerPhoneE164: new RegExp(`${digits}$`) });
+
+  const named = await Order.find({ 'customer.name': new RegExp(escaped, 'i') })
+    .select('_id')
+    .limit(500)
+    .lean();
+  if (named.length > 0) or.push({ order: { $in: named.map((o) => o._id) } });
+
+  return { $or: or };
+}
+
+/** The customer's name on each complaint's order, which the complaint does not copy. */
+async function customerNames(complaints) {
+  const orders = await Order.find({ _id: { $in: complaints.map((c) => c.order) } })
+    .select('customer.name')
+    .lean();
+  return new Map(orders.map((o) => [String(o._id), o.customer.name]));
+}
 
 /** The owner's working list. Open ones first unless asked otherwise. */
 async function listComplaints(req, res) {
-  const { kind, source, resolved, from, to, page, limit } = req.query;
+  const { kind, source, resolved, from, to, q, page, limit } = req.query;
 
   const filter = {};
   if (kind) filter.kind = { $in: kind.split(',') };
@@ -138,6 +218,8 @@ async function listComplaints(req, res) {
     if (from) filter.businessDate.$gte = from;
     if (to) filter.businessDate.$lte = to;
   }
+  const search = await complaintSearch(q);
+  if (search) Object.assign(filter, search);
 
   const [complaints, total, open] = await Promise.all([
     Complaint.find(filter)
@@ -149,7 +231,17 @@ async function listComplaints(req, res) {
     Complaint.countDocuments({ ...filter, resolved: false }),
   ]);
 
-  return ok(res, { complaints: complaints.map(present.complaint), total, open, page, limit });
+  const names = await customerNames(complaints);
+  return ok(res, {
+    complaints: complaints.map((c) => ({
+      ...present.complaint(c),
+      customerName: names.get(String(c.order)) || null,
+    })),
+    total,
+    open,
+    page,
+    limit,
+  });
 }
 
 /** Every complaint about one order, for its detail screen. */
@@ -260,7 +352,19 @@ async function getSource(req, res) {
     source,
     record,
     complaints: complaints.map(present.complaint),
-    orders: orders.map(present.order),
+    /*
+     * Each order whole, plus the lines that came from this orchard. Picked by
+     * the source id and never by the snapshot name: the name on a line is what
+     * the orchard was called at accept, and matching on it lost every line the
+     * moment the orchard was renamed. One order can carry two orchards' fruit
+     * (docs/adr/0006), which is why `items` alone is not the answer.
+     */
+    orders: orders.map((order) => ({
+      ...present.order(order),
+      sourceItems: (order.items || [])
+        .filter((item) => item.source && String(item.source) === String(source._id))
+        .map(present.line),
+    })),
   });
 }
 
@@ -316,6 +420,7 @@ async function sourcesReport(req, res) {
 module.exports = {
   createComplaint,
   resolveComplaint,
+  reopenComplaint,
   listComplaints,
   orderComplaints,
   getSource,

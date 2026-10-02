@@ -37,13 +37,37 @@ const MAX_VARIANTS = 8;
 const MAX_BOX_QTY = 999;
 
 /**
- * What a box is called when the owner did not name it.
+ * The units as a reader says them. The stored unit is a domain value the server
+ * validates against a fixed list; this is only what is shown. Kept in step with
+ * `unit.*` in frontend/lib/i18n/bn.ts.
+ */
+const UNIT_LABEL_BN = Object.freeze({
+  kg: 'কেজি',
+  gram: 'গ্রাম',
+  litre: 'লিটার',
+  pcs: 'পিস',
+  dozen: 'ডজন',
+  box: 'বাক্স',
+  sheet: 'শিট',
+  roll: 'রোল',
+  metre: 'মিটার',
+  packet: 'প্যাকেট',
+  bundle: 'বান্ডিল',
+});
+
+const BN_DIGITS = '০১২৩৪৫৬৭৮৯';
+const bnDigits = (value) => String(value).replace(/[0-9]/g, (d) => BN_DIGITS[Number(d)]);
+
+/**
+ * What a box is called when the owner did not name it: "৬ কেজি".
  *
  * Derived rather than stored, so a product whose unit changes does not keep a
- * label naming the old one. The owner may still type their own.
+ * label naming the old one. The owner may still type their own. Bengali, digits
+ * included, because this is display text on a shop form and a packing sheet,
+ * never an identifier anybody types back in. It used to read "6 kg".
  */
 function defaultLabel(contentMilli, unit) {
-  return `${fromMilli(contentMilli)} ${unit}`;
+  return `${bnDigits(fromMilli(contentMilli))} ${UNIT_LABEL_BN[unit] || unit}`;
 }
 
 /** What to show for a variant: the owner's name for it, or the derived one. */
@@ -99,6 +123,8 @@ function sellableVariants(product) {
 }
 
 module.exports = {
+  UNIT_LABEL_BN,
+  bnDigits,
   MAX_VARIANTS,
   MAX_BOX_QTY,
   defaultLabel,

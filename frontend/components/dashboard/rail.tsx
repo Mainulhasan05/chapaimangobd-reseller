@@ -145,7 +145,8 @@ export function QueuePanel({
               href={href}
               aria-label={title}
               className={cn(
-                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors',
+                // 44px on a phone, like every other card arrow.
+                '-my-2 -mr-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg transition-colors sm:my-0 sm:mr-0 sm:h-9 sm:w-9',
                 busy
                   ? 'bg-black/10 hover:bg-black/16'
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground'
@@ -219,7 +220,7 @@ export function QueueTile({
    * is bright.
    */
   const className = cn(
-    'flex items-center gap-2.5 rounded-xl px-3 py-2.5 transition-colors',
+    'flex min-h-11 items-center gap-2.5 rounded-xl px-3 py-2.5 transition-colors',
     'bg-muted group-data-[busy=true]/panel:bg-white/45',
     empty && 'opacity-70',
     href && 'hover:bg-subtle group-data-[busy=true]/panel:hover:bg-white/60'

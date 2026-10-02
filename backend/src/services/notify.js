@@ -121,4 +121,33 @@ async function notify({ user, eventType, title, body, data = {} }) {
   }
 }
 
-module.exports = { notify, resolveChannels, SMS_WORTHY };
+/**
+ * Tells every active owner account that something is waiting on them.
+ *
+ * `except` is whoever caused it, who does not need telling: a complaint is
+ * written down by the owner, and a notification of what you have just typed
+ * yourself is noise on your own phone. With one owner account that means the
+ * person who logged it hears nothing, which is the point; a second account
+ * holding the business's other phone hears about it. Never throws, like notify.
+ */
+async function notifyOwners({ eventType, data = {}, except = null }) {
+  try {
+    const owners = await User.find({
+      role: ROLES.OWNER,
+      isActive: { $ne: false },
+      ...(except ? { _id: { $ne: except } } : {}),
+    });
+    const sent = [];
+    for (const owner of owners) {
+      // eslint-disable-next-line no-await-in-loop
+      const created = await notify({ user: owner, eventType, data });
+      if (created) sent.push(created);
+    }
+    return sent;
+  } catch (err) {
+    logger.error({ err, eventType }, 'notifyOwners: failed');
+    return [];
+  }
+}
+
+module.exports = { notify, notifyOwners, resolveChannels, SMS_WORTHY };

@@ -75,13 +75,13 @@ function SiteHeader() {
         <div className="ml-auto flex items-center gap-2">
           <Link
             href="/login"
-            className="rounded-lg px-3 py-2 text-sm font-semibold text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+            className="tap inline-flex items-center rounded-lg px-3 text-sm font-semibold text-white/80 transition-colors hover:bg-white/10 hover:text-white"
           >
             {t('landing.navLogin')}
           </Link>
           <Link
             href="/register"
-            className="rounded-lg bg-brand px-3.5 py-2 text-sm font-bold text-brand-foreground transition-[filter] hover:brightness-105 sm:px-4"
+            className="tap inline-flex items-center rounded-lg bg-brand px-3.5 text-sm font-bold text-brand-foreground transition-[filter] hover:brightness-105 sm:px-4"
           >
             {t('landing.navJoin')}
           </Link>
@@ -369,14 +369,14 @@ function SiteFooter() {
           </div>
         </div>
 
-        <nav className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
-          <Link href="/track" className="text-muted-foreground hover:text-foreground">
+        <nav className="flex flex-wrap items-center gap-x-5 text-sm">
+          <Link href="/track" className="tap inline-flex items-center text-muted-foreground hover:text-foreground">
             {t('landing.track')}
           </Link>
-          <Link href="/login" className="text-muted-foreground hover:text-foreground">
+          <Link href="/login" className="tap inline-flex items-center text-muted-foreground hover:text-foreground">
             {t('landing.navLogin')}
           </Link>
-          <Link href="/register" className="font-semibold text-primary-ink hover:underline">
+          <Link href="/register" className="tap inline-flex items-center font-semibold text-primary-ink hover:underline">
             {t('landing.navJoin')}
           </Link>
         </nav>

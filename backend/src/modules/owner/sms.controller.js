@@ -9,7 +9,9 @@ const env = require('../../config/env');
 const audit = require('../../services/audit');
 const { getSettings, updateSettings } = require('../../services/settings');
 const { ok } = require('../../middleware/error');
-const { notFound, badRequest } = require('../../utils/errors');
+const { notFound, badRequest, conflict } = require('../../utils/errors');
+const { toTaka } = require('../../utils/money');
+const { businessDate, startOfBusinessDay } = require('../../utils/dhakaTime');
 const { normalizeBdPhone } = require('../../utils/phone');
 const { escapeRegex } = require('../../utils/orderSearch');
 const { SMS_STATUS, SMS_PURPOSE } = require('../../domain/constants');
@@ -26,6 +28,16 @@ const { SMS_STATUS, SMS_PURPOSE } = require('../../domain/constants');
  */
 
 /* ------------------------------------------------------------------ shape -- */
+
+/**
+ * Purposes a resend is refused for.
+ *
+ * An OTP is logged masked, so resending the row would text the customer six
+ * asterisks; and a fresh code is what the person needs anyway, which only the
+ * sign-in screen can issue. A test proved the gateway once and proves nothing
+ * more the second time — the test form is where another one is sent from.
+ */
+const NOT_RESENDABLE = Object.freeze([SMS_PURPOSE.OTP, SMS_PURPOSE.TEST]);
 
 /** The list row. Deliberately without the raw provider reply, which is large. */
 const shapeRow = (log) => ({
@@ -47,6 +59,8 @@ const shapeRow = (log) => ({
   error: log.error || null,
   durationMs: log.durationMs,
   sentAt: log.sentAt,
+  // Whether the resend button applies at all. See NOT_RESENDABLE.
+  resendable: !NOT_RESENDABLE.includes(log.purpose),
   createdAt: log.createdAt,
 });
 
@@ -86,8 +100,9 @@ async function overview(_req, res) {
   }
 
   const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-  const startOfToday = new Date();
-  startOfToday.setHours(0, 0, 0, 0);
+  // Dhaka's midnight, not the server's: a UTC server counted 00:00-06:00 Dhaka
+  // as yesterday. See utils/dhakaTime.js.
+  const startOfToday = startOfBusinessDay(businessDate());
 
   const [monthly, today, credits] = await Promise.all([
     SmsLog.aggregate([
@@ -116,13 +131,33 @@ async function overview(_req, res) {
     blocked: bucket(SMS_STATUS.BLOCKED).count || 0,
   };
 
+  /*
+   * What the owner paid the gateway over the same thirty days: segments sent,
+   * whoever was charged credits for them, at the gateway's rate. Only when that
+   * rate is configured; otherwise null rather than a guess, because the price a
+   * reseller pays for a credit is what the owner sells at, not what it costs.
+   */
+  const segmentsSent = bucket(SMS_STATUS.SENT).segments || 0;
+  const costPerSegmentPoisha = env.SMS_COST_PER_SEGMENT_POISHA;
+  const spent30dPoisha =
+    costPerSegmentPoisha == null ? null : segmentsSent * costPerSegmentPoisha;
+
   return ok(res, {
     enabled: settings.features.sms,
     configured: gateway.isConfigured(),
     senderId: gateway.isConfigured() ? env.smsSenderId : null,
     balance,
+    /*
+     * Automas reports what is left as a count of messages, not as money, so the
+     * unit travels with the number and a screen never prints "৳104".
+     */
+    balanceUnit: 'sms',
+    lowBalanceAt: env.SMS_LOW_BALANCE,
+    balanceLow: balance == null ? null : balance < env.SMS_LOW_BALANCE,
     balanceError,
     pricePerCredit: settings.smsPricePerCreditPoisha / 100,
+    costPerSegment: costPerSegmentPoisha == null ? null : toTaka(costPerSegmentPoisha),
+    spent30d: spent30dPoisha == null ? null : toTaka(spent30dPoisha),
     stats: {
       sentToday: today,
       last30: counts,
@@ -288,6 +323,14 @@ async function sendTest(req, res) {
 async function resend(req, res) {
   const original = await SmsLog.findById(req.params.id);
   if (!original) throw notFound('SMS log not found');
+  if (NOT_RESENDABLE.includes(original.purpose)) {
+    throw conflict(
+      'SMS_NOT_RESENDABLE',
+      original.purpose === SMS_PURPOSE.OTP
+        ? 'A sign-in code is never resent; ask for a new one from the sign-in screen'
+        : 'A test message is not resent; send a new test instead'
+    );
+  }
 
   // Charged again, to the same reseller, because it is another message off the
   // gateway. A resend the owner does not want billed is one they should not do.

@@ -3,6 +3,8 @@
 const Payee = require('../models/Payee');
 const Supply = require('../models/Supply');
 const Purchase = require('../models/Purchase');
+const PayeeLedgerEntry = require('../models/PayeeLedgerEntry');
+const Expense = require('../models/Expense');
 const supplyStock = require('./supplyStock');
 const payeeLedger = require('./payeeLedger');
 const audit = require('./audit');
@@ -13,6 +15,7 @@ const {
   PAYEE_LEDGER_KIND,
   MOVEMENT_KIND,
   ALLOCATION_BASIS,
+  EXPENSE_PAYMENT_STATUS,
 } = require('../domain/constants');
 const { notFound, badRequest, conflict } = require('../utils/errors');
 const { businessDate } = require('../utils/dhakaTime');
@@ -159,6 +162,8 @@ async function recordPurchase(input) {
         idempotencyKey: payeeLedger.keys.purchase(created._id),
         refType: 'purchase',
         refId: created._id,
+        // The day the goods came in, so the ledger and the purchase agree on it.
+        businessDate: created.businessDate,
         note: `Purchase ${created.purchaseCode}`,
         createdBy: doc.createdBy,
       });
@@ -273,8 +278,10 @@ async function cancelPurchase({ purchaseId, reason, actorUser, ip }) {
  *
  * @param {string} nonce Supplied by the caller so a double-submitted form cannot
  *   pay the same money twice.
+ * @param {Date} [date] When the money was handed over, which is not always the
+ *   day it is typed in. Its Dhaka date is the entry's business date.
  */
-async function payPayee({ payeeId, amountPoisha, nonce, paidFrom, note, actorUser, ip }) {
+async function payPayee({ payeeId, amountPoisha, nonce, paidFrom, note, date, actorUser, ip }) {
   if (!Number.isSafeInteger(amountPoisha) || amountPoisha <= 0) {
     throw badRequest('INVALID_AMOUNT', 'A payment must be a whole positive amount');
   }
@@ -283,6 +290,7 @@ async function payPayee({ payeeId, amountPoisha, nonce, paidFrom, note, actorUse
   if (!payee) throw notFound('Payee not found');
 
   const actorId = actorUser ? actorUser._id : null;
+  const day = businessDate(date || new Date());
 
   const entry = await withTransaction((session) =>
     payeeLedger.postEntry(session, {
@@ -292,6 +300,7 @@ async function payPayee({ payeeId, amountPoisha, nonce, paidFrom, note, actorUse
       amountPoisha: -amountPoisha,
       idempotencyKey: payeeLedger.keys.payment(nonce),
       refType: 'payment',
+      businessDate: day,
       note: note || (paidFrom ? `Paid by ${paidFrom}` : 'Payment'),
       createdBy: actorId,
     })
@@ -303,11 +312,128 @@ async function payPayee({ payeeId, amountPoisha, nonce, paidFrom, note, actorUse
     targetType: 'Payee',
     targetId: payee._id,
     before: { duePoisha: payee.duePoisha },
-    after: { duePoisha: entry.dueAfterPoisha, amountPoisha, paidFrom },
+    after: { duePoisha: entry.dueAfterPoisha, amountPoisha, paidFrom, businessDate: day },
     ip,
   });
 
   return entry;
 }
 
-module.exports = { recordPurchase, cancelPurchase, payPayee };
+/**
+ * The entries an owner may take back by hand: a payment, and the three kinds a
+ * person types. Everything else answers to its own record and is undone there —
+ * a purchase is cancelled (docs/adr/0024), an expense is voided — because
+ * reversing its due alone would leave the purchase standing and owed by nobody.
+ * A reversal is never itself reversed: the remedy for a wrong correction is the
+ * original entry posted again, which says what happened, not a reversal of a
+ * reversal, which only says that somebody changed their mind twice.
+ */
+const REVERSIBLE_KINDS = Object.freeze([
+  PAYEE_LEDGER_KIND.PAYMENT,
+  PAYEE_LEDGER_KIND.OPENING,
+  PAYEE_LEDGER_KIND.ADJUSTMENT,
+  PAYEE_LEDGER_KIND.DISCOUNT,
+]);
+
+/** Whether an entry is one the owner may reverse, before asking whether it was. */
+const isReversible = (entry) => REVERSIBLE_KINDS.includes(entry.kind) && !entry.reversalOf;
+
+const notReversibleMessage = (entry) => {
+  if (entry.kind === PAYEE_LEDGER_KIND.PURCHASE) return 'A purchase is undone by cancelling it';
+  if (entry.kind === PAYEE_LEDGER_KIND.EXPENSE) return 'An expense is undone by voiding it';
+  return 'This entry cannot be reversed';
+};
+
+/**
+ * Takes back a wrong payment or a wrong hand-typed entry with a new entry of the
+ * opposite sign. The original stays exactly as it was: the history says a
+ * payment was recorded and then reversed, with the reason, which is what settles
+ * the argument with the seller later. See docs/adr/0002.
+ *
+ * A payment that settled an expense puts that expense back to unpaid in the same
+ * transaction, so the expense list and the due never tell two stories. A voided
+ * expense is left alone: its obligation was already reversed, and the payment
+ * coming back is what squares the account.
+ *
+ * Once only. The check before the transaction gives the clear answer; the one
+ * inside it, and the deterministic key under both, are what make it hold when two
+ * taps arrive together.
+ *
+ * @throws 404 NOT_FOUND when the entry is not on this payee's ledger.
+ * @throws 400 ENTRY_NOT_REVERSIBLE for a purchase, an expense or a reversal.
+ * @throws 409 ALREADY_REVERSED when it has been reversed before.
+ */
+async function reversePayeeEntry({ payeeId, entryId, reason, actorUser, ip }) {
+  const payee = await Payee.findById(payeeId);
+  if (!payee) throw notFound('Payee not found');
+
+  const original = await PayeeLedgerEntry.findOne({ _id: entryId, payee: payee._id });
+  if (!original) throw notFound('Ledger entry not found');
+  if (!isReversible(original)) {
+    throw badRequest('ENTRY_NOT_REVERSIBLE', notReversibleMessage(original));
+  }
+  const already = () => conflict('ALREADY_REVERSED', 'This entry has already been reversed');
+  if (await PayeeLedgerEntry.exists({ reversalOf: original._id })) throw already();
+
+  const actorId = actorUser ? actorUser._id : null;
+
+  const { entry, expense } = await withTransaction(async (session) => {
+    if (await PayeeLedgerEntry.exists({ reversalOf: original._id }).session(session)) {
+      throw already();
+    }
+
+    const posted = await payeeLedger.postReversal(session, original, {
+      reason: 'owner',
+      note: reason,
+      createdBy: actorId,
+    });
+
+    let reopened = null;
+    if (original.kind === PAYEE_LEDGER_KIND.PAYMENT && original.refId) {
+      reopened = await Expense.findOneAndUpdate(
+        { _id: original.refId, paymentEntry: original._id, voidedAt: null },
+        {
+          $set: {
+            paymentStatus: EXPENSE_PAYMENT_STATUS.UNPAID,
+            paidAt: null,
+            paymentEntry: null,
+          },
+        },
+        { new: true, session }
+      );
+    }
+
+    return { entry: posted, expense: reopened };
+  });
+
+  await audit.record({
+    actor: actorId,
+    action: 'payee.reverse',
+    targetType: 'Payee',
+    targetId: payee._id,
+    before: {
+      entryId: original._id,
+      kind: original.kind,
+      amountPoisha: original.amountPoisha,
+      duePoisha: entry.dueAfterPoisha + original.amountPoisha,
+    },
+    after: {
+      reversalId: entry._id,
+      duePoisha: entry.dueAfterPoisha,
+      reason,
+      ...(expense ? { expenseReopened: expense._id } : {}),
+    },
+    ip,
+  });
+
+  return { entry, original, expense };
+}
+
+module.exports = {
+  recordPurchase,
+  cancelPurchase,
+  payPayee,
+  reversePayeeEntry,
+  isReversible,
+  REVERSIBLE_KINDS,
+};

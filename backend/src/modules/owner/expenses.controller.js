@@ -9,7 +9,8 @@ const { ok } = require('../../middleware/error');
 const { notFound } = require('../../utils/errors');
 const { toPoisha, toTaka } = require('../../utils/money');
 const { startOfBusinessDay } = require('../../utils/dhakaTime');
-const { EXPENSE_SCOPE } = require('../../domain/constants');
+const { expenseFilter, countedExpenses } = require('../../utils/costFilter');
+const { EXPENSE_SCOPE, EXPENSE_PAYMENT_STATUS } = require('../../domain/constants');
 
 /**
  * Expenses, and the categories they are filed under. See docs/adr/0027.
@@ -43,6 +44,9 @@ const present = (e) => ({
   paidFrom: e.paidFrom || null,
   // Set when this expense raised a payee's due, which is what voiding reverses.
   ledgerEntry: e.ledgerEntry || null,
+  // Set when an unpaid expense was settled later; null on one recorded as paid.
+  paidAt: e.paidAt || null,
+  paymentEntry: e.paymentEntry || null,
   isVoided: Boolean(e.voidedAt),
   voidedAt: e.voidedAt || null,
   voidReason: e.voidReason || null,
@@ -136,65 +140,58 @@ async function seedCategories(req, res) {
 /* ------------------------------------------------------------------ expenses */
 
 async function listExpenses(req, res) {
-  const {
-    categoryId,
-    payeeId,
-    orderId,
-    scope,
-    paymentStatus,
-    includeVoided,
-    from,
-    to,
-    page,
-    limit,
-  } = req.query;
-
-  const filter = {};
-  if (categoryId) filter.category = categoryId;
-  if (payeeId) filter.payee = payeeId;
-  if (orderId) filter.order = orderId;
-  if (scope) filter.scope = scope;
-  if (paymentStatus) filter.paymentStatus = paymentStatus;
+  const { page, limit } = req.query;
   // Voided expenses are hidden by default: they are kept for the audit trail, not
   // for the running total.
-  if (includeVoided !== 'true') filter.voidedAt = null;
-  if (from || to) {
-    filter.businessDate = {};
-    if (from) filter.businessDate.$gte = from;
-    if (to) filter.businessDate.$lte = to;
-  }
+  const filter = expenseFilter(req.query);
 
-  const [expenses, total] = await Promise.all([
+  const [expenses, total, byScope] = await Promise.all([
     Expense.find(filter)
       .sort({ businessDate: -1, createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit),
     Expense.countDocuments(filter),
+    // Over the whole filter, never the page in hand; see listPurchases.
+    Expense.aggregate([
+      { $match: countedExpenses(req.query) },
+      {
+        $group: {
+          _id: '$scope',
+          amountPoisha: { $sum: '$amountPoisha' },
+          unpaidPoisha: {
+            $sum: {
+              $cond: [
+                { $eq: ['$paymentStatus', EXPENSE_PAYMENT_STATUS.UNPAID] },
+                '$amountPoisha',
+                0,
+              ],
+            },
+          },
+        },
+      },
+    ]),
   ]);
 
-  const rows = expenses.map(present);
-  const live = rows.filter((r) => !r.isVoided);
+  const scopeSum = (scope, key) => {
+    const row = byScope.find((r) => r._id === scope);
+    return row ? row[key] : 0;
+  };
+  const sum = (key) => byScope.reduce((acc, r) => acc + r[key], 0);
 
   return ok(res, {
-    expenses: rows,
+    expenses: expenses.map(present),
     page,
     limit,
     total,
     totals: {
-      all: live.reduce((sum, r) => sum + r.amount, 0),
+      all: toTaka(sum('amountPoisha')),
       /*
        * Split, never summed into one "total cost". An order figure and a period
        * figure answer different questions and the P&L uses them differently.
        */
-      order: live
-        .filter((r) => r.scope === EXPENSE_SCOPE.ORDER)
-        .reduce((sum, r) => sum + r.amount, 0),
-      period: live
-        .filter((r) => r.scope === EXPENSE_SCOPE.PERIOD)
-        .reduce((sum, r) => sum + r.amount, 0),
-      unpaid: live
-        .filter((r) => r.paymentStatus === 'unpaid')
-        .reduce((sum, r) => sum + r.amount, 0),
+      order: toTaka(scopeSum(EXPENSE_SCOPE.ORDER, 'amountPoisha')),
+      period: toTaka(scopeSum(EXPENSE_SCOPE.PERIOD, 'amountPoisha')),
+      unpaid: toTaka(sum('unpaidPoisha')),
     },
   });
 }
@@ -232,6 +229,21 @@ async function voidExpense(req, res) {
   return ok(res, { expense: present(expense) });
 }
 
+/**
+ * "দিয়ে দিয়েছি": settles an unpaid expense. Posts the payment to the payee and
+ * flips the status in one transaction. See expenseService.markPaid.
+ */
+async function markPaid(req, res) {
+  const expense = await expenseService.markPaid({
+    expenseId: req.params.id,
+    paidFrom: req.body.paidFrom,
+    date: req.body.date ? startOfBusinessDay(req.body.date) : new Date(),
+    actorUser: req.user,
+    ip: req.ip,
+  });
+  return ok(res, { expense: present(expense) });
+}
+
 module.exports = {
   present,
   presentCategory,
@@ -244,4 +256,5 @@ module.exports = {
   getExpense,
   createExpense,
   voidExpense,
+  markPaid,
 };

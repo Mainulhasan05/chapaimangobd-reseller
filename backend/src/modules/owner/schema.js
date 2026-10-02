@@ -8,6 +8,8 @@ const {
   SMS_STATUS,
   SMS_PURPOSE,
   COMPLAINT_KIND,
+  KYC_STATUS,
+  REVIEW_STATUS,
 } = require('../../domain/constants');
 const {
   ICONS: LANDING_ICONS,
@@ -155,6 +157,24 @@ const updateProduct = createProduct.partial().extend({
   removeImages: storageKeys,
 });
 
+/*
+ * One box's stock: the count somebody just took (`set`) or a change to it
+ * (`add`, negative to take some away). Exactly one, because "set 40 and add 5"
+ * has no single meaning. Whole boxes.
+ */
+const boxCount = z.number().int('Whole boxes only');
+const variantStock = z
+  .object({
+    set: boxCount.nonnegative().max(1000000).optional(),
+    add: boxCount.min(-1000000).max(1000000).optional(),
+  })
+  .strict()
+  .refine((v) => (v.set === undefined) !== (v.add === undefined), {
+    message: 'Send either set or add',
+    path: ['set'],
+  })
+  .refine((v) => v.add !== 0, { message: 'Add a number other than zero', path: ['add'] });
+
 /* delivery zones */
 const createZone = z.object({
   name: z.string().trim().min(2, 'Name is required').max(120),
@@ -173,6 +193,25 @@ const updateReseller = z.object({
   // Asks this one reseller to verify their identity, which is what puts the KYC
   // module on their screens at all. Off for everyone by default. docs/adr/0017.
   kycRequired: z.boolean().optional(),
+});
+
+/**
+ * The reseller list. `q` is matched on the server against the shop, the person
+ * and the phone, because the client only ever holds one page of it. Sorting by
+ * anything but `newest` answers the whole list unpaged: the cursor is built on
+ * the creation time and cannot carry a balance, and a reseller list is dozens of
+ * rows, not thousands.
+ */
+const RESELLER_SORTS = ['newest', 'name', 'balance_desc', 'balance_asc'];
+const listResellers = z.object({
+  kycStatus: z.preprocess(
+    (v) => (v === '' ? undefined : v),
+    z.enum(values(KYC_STATUS)).optional()
+  ),
+  q: z.string().trim().max(80).optional(),
+  sort: z.preprocess((v) => (v === '' ? undefined : v), z.enum(RESELLER_SORTS).default('newest')),
+  cursor: z.string().max(200).optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
 });
 
 const reviewDecision = z.object({
@@ -206,6 +245,12 @@ const rangeIsForwards = (v) => !v.from || !v.to || v.from <= v.to;
 const listOrders = z
   .object({
     ...orderFilters,
+    /*
+     * Newest first unless asked. `oldest` is the fulfilment queue's order: by
+     * when the order was confirmed, falling back to when it was placed, so the
+     * one that has waited longest is at the top. See orders.controller.js.
+     */
+    sort: z.enum(['oldest', 'newest']).optional(),
     page: z.coerce.number().int().min(1).default(1),
     limit: z.coerce.number().int().min(1).max(100).default(20),
   })
@@ -260,6 +305,8 @@ const listComplaints = z
     kind: z.string().optional(),
     source: objectId.optional(),
     resolved: boolish.optional(),
+    // An order code, the customer's phone or their name.
+    q: z.string().trim().max(80).optional(),
     from: dateString.optional(),
     to: dateString.optional(),
     page: z.coerce.number().int().min(1).default(1),
@@ -278,6 +325,21 @@ const shipOrder = z.object({
   trackingNumber: z.string().trim().max(120).optional(),
   sendCustomerSms,
 });
+
+/*
+ * A correction to what was written when the parcel left. At least one field,
+ * and the courier name keeps the ship sheet's rule; an empty tracking number
+ * clears it. See orderService.editCourier.
+ */
+const editCourier = z
+  .object({
+    courierName: z.string().trim().min(2, 'Courier name is required').max(120).optional(),
+    trackingNumber: z.string().trim().max(120).optional(),
+  })
+  .refine((v) => v.courierName !== undefined || v.trackingNumber !== undefined, {
+    message: 'Change the courier or the tracking number',
+    path: ['courierName'],
+  });
 
 const transitionBody = z.object({
   reason: z.string().trim().max(500).optional(),
@@ -332,7 +394,8 @@ const dhakaDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD');
  * rows. Dates are Dhaka calendar days.
  */
 const listAudit = z.object({
-  actor: objectId.optional(),
+  // An account, or `system` for the entries nobody clicked.
+  actor: objectId.or(z.literal('system')).optional(),
   targetType: z.string().trim().max(60).optional(),
   targetId: objectId.optional(),
   action: z.string().trim().max(80).optional(),
@@ -340,6 +403,12 @@ const listAudit = z.object({
   to: dhakaDate.optional(),
   cursor: z.string().max(200).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+
+/* failed deliveries */
+const listOutboxFailed = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
 });
 
 /* finance */
@@ -354,8 +423,14 @@ const approveWithdrawal = z.object({
 });
 
 const listFinance = z.object({
-  status: z.string().optional(),
+  // A typo here used to answer an empty list, which reads as "nothing waiting".
+  status: z.preprocess(
+    (v) => (v === '' ? undefined : v),
+    z.enum(values(REVIEW_STATUS)).optional()
+  ),
   method: z.enum(values(DEPOSIT_METHOD)).optional(),
+  // One reseller's requests, for the reseller detail page.
+  resellerId: objectId.optional(),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });
@@ -490,9 +565,11 @@ module.exports = {
   updateSource,
   createProduct,
   updateProduct,
+  variantStock,
   createZone,
   updateZone,
   updateReseller,
+  listResellers,
   reviewDecision,
   dateString,
   dateRange,
@@ -504,6 +581,7 @@ module.exports = {
   resolveComplaint,
   listComplaints,
   shipOrder,
+  editCourier,
   transitionBody,
   cancelBody,
   customerSmsPreview,
@@ -512,6 +590,7 @@ module.exports = {
   overrideDeliveryCharge,
   editCustomer,
   listAudit,
+  listOutboxFailed,
   manualEntry,
   approveWithdrawal,
   listFinance,

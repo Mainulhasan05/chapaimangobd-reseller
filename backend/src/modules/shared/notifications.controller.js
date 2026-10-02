@@ -1,9 +1,11 @@
 'use strict';
 
+const mongoose = require('mongoose');
 const Notification = require('../../models/Notification');
 const PushSubscription = require('../../models/PushSubscription');
 const webpush = require('../../channels/webpush');
 const { ok } = require('../../middleware/error');
+const { notFound } = require('../../utils/errors');
 const { readPaging, findPage } = require('../../utils/cursor');
 
 const PAGE_SIZE = 30;
@@ -57,6 +59,32 @@ async function markRead(req, res) {
 }
 
 /**
+ * Marks one notification read: the one that was just tapped.
+ *
+ * Mark-all stays for clearing the badge in one go, but tapping a single row
+ * used to read nothing, or everything, and either way the list stopped saying
+ * which ones had been looked at. Scoped to the signed-in user, so another
+ * account's id is a 404 exactly like an id that does not exist. Reading an
+ * already-read row keeps its first `readAt`. The unread count comes back so
+ * the badge can be set from the answer.
+ */
+async function markOneRead(req, res) {
+  if (!mongoose.isValidObjectId(req.params.id)) throw notFound('Notification not found');
+
+  const mine = { _id: req.params.id, user: req.user._id };
+  const notification =
+    (await Notification.findOneAndUpdate(
+      { ...mine, readAt: null },
+      { $set: { readAt: new Date() } },
+      { new: true }
+    )) || (await Notification.findOne(mine));
+  if (!notification) throw notFound('Notification not found');
+
+  const unread = await Notification.countDocuments({ user: req.user._id, readAt: null });
+  return ok(res, { notification, unread });
+}
+
+/**
  * One browser's push subscription, keyed by its endpoint.
  *
  * Upserted rather than inserted: the same person on the same browser re-grants
@@ -80,4 +108,4 @@ async function unsubscribePush(req, res) {
 
 const pushKey = (_req, res) => ok(res, { publicKey: webpush.publicKey() });
 
-module.exports = { list, markRead, subscribePush, unsubscribePush, pushKey };
+module.exports = { list, markRead, markOneRead, subscribePush, unsubscribePush, pushKey };

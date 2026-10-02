@@ -11,6 +11,7 @@ const { toTaka } = require('../../utils/money');
 const { fromMilli } = require('../../utils/quantity');
 const { streamCsv } = require('../../utils/csv');
 const { formatDhakaDateTime } = require('../../utils/dhakaTime');
+const { purchaseFilter, countedExpenses } = require('../../utils/costFilter');
 
 /**
  * The cost-side reports. See docs/adr/0027.
@@ -88,6 +89,26 @@ async function purchases(req, res) {
        */
       avgLandedUnitCost: toTaka(r.avgLandedUnitCostPoisha),
     })),
+    /*
+     * The purchases themselves, oldest first, for the itemised section of the
+     * sheet. Cancelled ones appear with their status and are in no total above.
+     */
+    rows: report.rows.map((r) => ({
+      id: r.purchaseId,
+      purchaseCode: r.purchaseCode,
+      businessDate: r.businessDate,
+      invoiceNo: r.invoiceNo,
+      payeeId: r.payeeId,
+      payeeNameBn: r.payeeNameBn,
+      status: r.status,
+      supplies: r.supplies,
+      goodsCost: toTaka(r.goodsCostPoisha),
+      chargeTotal: toTaka(r.chargeTotalPoisha),
+      spent: toTaka(r.totalPoisha),
+      billed: toTaka(r.payeeTotalPoisha),
+    })),
+    rowCount: report.rowCount,
+    truncated: report.truncated,
   });
 }
 
@@ -156,6 +177,24 @@ async function expenses(req, res) {
       all: toTaka(report.totals.allPoisha),
       unpaid: toTaka(report.totals.unpaidPoisha),
     },
+    // The expenses themselves, oldest first, for the itemised section.
+    rows: report.rows.map((r) => ({
+      id: r.expenseId,
+      businessDate: r.businessDate,
+      categoryId: r.categoryId,
+      categoryNameBn: r.categoryNameBn,
+      scope: r.scope,
+      orderId: r.orderId,
+      orderCode: r.orderCode,
+      payeeId: r.payeeId,
+      payeeNameBn: r.payeeNameBn,
+      paymentStatus: r.paymentStatus,
+      paidFrom: r.paidFrom,
+      amount: toTaka(r.amountPoisha),
+      note: r.note,
+    })),
+    rowCount: report.rowCount,
+    truncated: report.truncated,
   });
 }
 
@@ -239,13 +278,8 @@ async function position(req, res) {
  * column is the landed unit cost and that is a property of a line.
  */
 async function exportPurchases(req, res) {
-  const { from, to } = req.query;
-  const filter = {};
-  if (from || to) {
-    filter.businessDate = {};
-    if (from) filter.businessDate.$gte = from;
-    if (to) filter.businessDate.$lte = to;
-  }
+  // The list's own filters, so a download is the screen it was asked from.
+  const filter = purchaseFilter(req.query);
 
   const headers = [
     'purchaseCode',
@@ -298,13 +332,8 @@ async function exportPurchases(req, res) {
 }
 
 async function exportExpenses(req, res) {
-  const { from, to } = req.query;
-  const filter = { voidedAt: null };
-  if (from || to) {
-    filter.businessDate = {};
-    if (from) filter.businessDate.$gte = from;
-    if (to) filter.businessDate.$lte = to;
-  }
+  // The list's own filters, never a voided expense.
+  const filter = countedExpenses(req.query);
 
   const headers = [
     'businessDate',

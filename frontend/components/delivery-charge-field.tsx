@@ -1,17 +1,16 @@
 'use client';
 
 import { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { api, errorMessage } from '@/lib/api';
+import { errorMessage } from '@/lib/api';
 import { t } from '@/lib/i18n/bn';
 import { formatMoney, formatMoneyPlain, formatSignedMoney } from '@/lib/format';
 import { checkMoney, moneyError, type MoneyCheck } from '@/lib/money';
+import { useChangeDeliveryChargeMutation } from '@/lib/store/endpoints/orders';
 import type { DeliveryChargeChange, Order } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { Field, MoneyInput } from '@/components/ui/form';
-import { Alert } from '@/components/ui/layout';
 import { Button } from '@/components/ui/button';
-import { Modal } from '@/components/ui/modal';
+import { Modal, ModalCancel } from '@/components/ui/modal';
 import { useToast } from '@/components/ui/toast';
 
 /**
@@ -47,12 +46,14 @@ export type DeliveryChargeState = {
 /**
  * The delivery charge as an editable value, for one order.
  *
- * Shared by the accept and ship modals and the order page. The typed value is
- * keyed by order id: the modals stay mounted between orders, and a figure typed
- * for one parcel must never be offered, prefilled, for the next one.
+ * Shared by the accept and ship sheets and the order page, each of which is
+ * mounted only while open, so a figure typed for one parcel is never offered,
+ * prefilled, for the next. The draft is still keyed by order id, because the
+ * order under an open sheet can be refetched with a new charge from elsewhere.
  */
 export function useDeliveryCharge(order: Order | null): DeliveryChargeState {
   const [draft, setDraft] = useState<{ orderId: string; value: string } | null>(null);
+  const [change] = useChangeDeliveryChargeMutation();
 
   const current = order ? formatMoneyPlain(order.deliveryCharge) : '';
   const value = order && draft?.orderId === order.id ? draft.value : current;
@@ -75,9 +76,7 @@ export function useDeliveryCharge(order: Order | null): DeliveryChargeState {
     adjustment,
     apply: async () => {
       if (!order || !changed || !check.ok) return null;
-      return api.patch<DeliveryChargeChange>(`/owner/orders/${order.id}/delivery-charge`, {
-        deliveryCharge: check.value,
-      });
+      return change({ id: order.id, deliveryCharge: check.value }).unwrap();
     },
     reset: () => setDraft(null),
   };
@@ -89,6 +88,11 @@ export function useDeliveryCharge(order: Order | null): DeliveryChargeState {
  * Changing the charge on a confirmed order does not rewrite the original debit;
  * it posts a separate adjustment to the reseller's wallet. That is worth saying
  * before the button is pressed, not discovered afterwards in a statement.
+ *
+ * The hint says whose money this is. It read "change it once you know the
+ * courier's real cost", which invited typing the courier's bill here; but this
+ * is what the reseller is billed, and what the courier is paid is an expense on
+ * the order (CONTEXT.md: courier cost is never the delivery charge).
  */
 export function DeliveryChargeField({
   order,
@@ -106,9 +110,9 @@ export function DeliveryChargeField({
       <Field
         label={t('order.deliveryCharge')}
         htmlFor={id}
-        hint={t('order.deliveryChargeHint').replace('{amount}', formatMoney(order.deliveryCharge))}
+        hint={t('orders.deliveryChargeHint').replace('{amount}', formatMoney(order.deliveryCharge))}
         error={moneyError(state.value, { allowZero: true })}
-        className={state.adjustment != null ? 'mb-2' : className}
+        className={state.adjustment != null ? 'mb-2' : 'mb-1'}
       >
         <MoneyInput
           id={id}
@@ -116,6 +120,16 @@ export function DeliveryChargeField({
           onChange={(event) => state.setValue(event.target.value)}
         />
       </Field>
+
+      {/* Words, not a link: following one from inside a sheet would drop what was typed. */}
+      <p
+        className={cn(
+          'text-xs text-muted-foreground',
+          state.adjustment != null ? 'mb-2' : (className ?? 'mb-4')
+        )}
+      >
+        {t('orders.courierCostHint')}
+      </p>
 
       {state.adjustment != null && (
         <p className={cn('mb-4 rounded-lg bg-warning-soft px-3 py-2 text-xs text-warning-ink', className)}>
@@ -127,33 +141,27 @@ export function DeliveryChargeField({
 }
 
 /**
- * Changing the charge on its own, from the order page.
+ * Changing the charge on its own, from the order page. Mount only while open.
  *
  * The toast names the adjustment that actually posted, from the API's answer
  * rather than from the estimate under the field: if a second tab changed the
  * charge in between, the figure the reseller's wallet moved by is the true one.
  */
-export function DeliveryChargeModal({
-  order,
-  onClose,
-}: {
-  order: Order | null;
-  onClose: () => void;
-}) {
-  const queryClient = useQueryClient();
+export function DeliveryChargeModal({ order, onClose }: { order: Order; onClose: () => void }) {
   const toast = useToast();
   const charge = useDeliveryCharge(order);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [tried, setTried] = useState(false);
 
-  const close = () => {
-    charge.reset();
-    onClose();
-  };
-
-  const save = useMutation({
-    mutationFn: () => charge.apply(),
-    onSuccess: async (result) => {
-      await queryClient.invalidateQueries({ queryKey: ['owner'] });
-      close();
+  const save = async () => {
+    setTried(true);
+    if (!charge.changed) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await charge.apply();
+      onClose();
       toast(
         result?.adjustment
           ? t('order.deliveryAdjustPosted').replace(
@@ -162,33 +170,37 @@ export function DeliveryChargeModal({
             )
           : t('order.deliveryChargeSaved')
       );
-    },
-  });
-
-  if (!order) return null;
+    } catch (failure) {
+      setError(errorMessage(failure));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <Modal
       open
-      onClose={close}
+      onClose={busy ? () => {} : onClose}
       title={`${t('order.deliveryChargeEdit')} · ${order.orderCode}`}
       dirty={charge.changed}
+      footerLead={
+        error ? (
+          <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm font-medium text-danger-ink">
+            {error}
+          </p>
+        ) : tried && !charge.changed && charge.check.ok ? (
+          <p className="text-xs text-muted-foreground">{t('orders.chargeUnchanged')}</p>
+        ) : undefined
+      }
       footer={
         <>
-          <Button variant="outline" onClick={close}>
-            {t('app.cancel')}
-          </Button>
-          <Button
-            loading={save.isPending}
-            disabled={!charge.changed}
-            onClick={() => save.mutate()}
-          >
+          <ModalCancel disabled={busy} />
+          <Button loading={busy} onClick={save}>
             {t('app.save')}
           </Button>
         </>
       }
     >
-      {save.error && <Alert tone="danger">{errorMessage(save.error)}</Alert>}
       <DeliveryChargeField order={order} state={charge} id="edit-delivery-charge" className="mb-0" />
     </Modal>
   );

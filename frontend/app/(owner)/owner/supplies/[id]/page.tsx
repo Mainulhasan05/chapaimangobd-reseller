@@ -1,35 +1,39 @@
 'use client';
 
-import { use, useState } from 'react';
+import { use, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { Route } from 'next';
 import {
-  ArrowLeft,
+  ArchiveRestore,
   Boxes,
   ClipboardCheck,
+  PackageOpen,
   ShoppingCart,
   SlidersHorizontal,
   TriangleAlert,
 } from 'lucide-react';
-import { api, errorMessage, fieldErrors } from '@/lib/api';
-import { t, tMovementKind, tUnit } from '@/lib/i18n/bn';
-import { formatMoney, formatNumber, formatDate } from '@/lib/format';
-import type { SupplyDetail } from '@/lib/types';
+import { errorMessage, fieldErrors } from '@/lib/api';
+import { t, tf, tMovementKind, tUnit } from '@/lib/i18n/bn';
+import { formatMoney, formatDate } from '@/lib/format';
+import { cn } from '@/lib/utils';
+import {
+  useAdjustSupplyMutation,
+  useGetSupplyQuery,
+  useSetSupplyArchivedMutation,
+  useStockTakeSupplyMutation,
+  type SupplyMovement,
+  type SupplyView,
+} from '@/lib/store/endpoints/catalog';
 import { Alert, Badge, Card, CardHeader, ErrorState, PageHeader, Stat } from '@/components/ui/layout';
 import { Td, Th, Tr, TableWrap } from '@/components/ui/table';
-import { Field, Input, Select, Textarea } from '@/components/ui/form';
-import { Button } from '@/components/ui/button';
-import { Modal } from '@/components/ui/modal';
+import { Field, Input, Select, Textarea, focusFirstInvalid } from '@/components/ui/form';
+import { Button, ButtonLink } from '@/components/ui/button';
+import { BackLink } from '@/components/ui/back-link';
+import { Modal, ModalCancel } from '@/components/ui/modal';
 import { ListSkeleton, StatSkeleton } from '@/components/ui/skeleton';
+import { Segmented } from '@/components/ui/toolbar';
 import { useToast } from '@/components/ui/toast';
-import {
-  AvgCostWhyModal,
-  ExplainedStat,
-  OnHandWhyModal,
-  useWhy,
-  type AvgCostWhy,
-  type OnHandWhy,
-} from '@/components/why';
+import { AvgCostWhyModal, ExplainedStat, OnHandWhyModal, useWhy } from '@/components/why';
 
 /**
  * One item of মালামাল: what is on the shelf, what it cost, and where both of
@@ -48,31 +52,24 @@ import {
  *    this, and the reason behind every movement now links somewhere.
  */
 
-type Provenance = {
-  onHand: OnHandWhy;
-  avgCost: AvgCostWhy;
-};
+type SupplyRecord = SupplyView['supply'];
+
+/** Three decimals, because a recipe of 1.375 sheets is a real number here. */
+const QTY = new Intl.NumberFormat('bn-BD', { maximumFractionDigits: 3 });
+const qty = (value: number, unit: string) => `${QTY.format(value)} ${tUnit(unit)}`;
+const signedQty = (value: number, unit: string) => `${value > 0 ? '+' : ''}${qty(value, unit)}`;
 
 export default function SupplyDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const toast = useToast();
   const why = useWhy();
   const [counting, setCounting] = useState(false);
   const [adjusting, setAdjusting] = useState(false);
 
-  const query = useQuery({
-    queryKey: ['owner', 'supply', id],
-    queryFn: () => api.get<SupplyDetail & { provenance: Provenance }>(`/owner/supplies/${id}`),
-  });
+  const query = useGetSupplyQuery({ id });
+  const [setArchived, restoring] = useSetSupplyArchivedMutation();
 
-  const back = (
-    <Link
-      href="/owner/supplies"
-      className="mb-3 inline-flex items-center gap-1 text-sm text-[var(--muted-fg)] hover:underline"
-    >
-      <ArrowLeft className="h-4 w-4" />
-      {t('supply.title')}
-    </Link>
-  );
+  const back = <BackLink fallback="/owner/supplies" label={t('supply.title')} />;
 
   if (query.isLoading) {
     return (
@@ -84,25 +81,30 @@ export default function SupplyDetailPage({ params }: { params: Promise<{ id: str
     );
   }
 
-  if (query.isError) {
+  if (!query.data) {
     return (
       <>
         {back}
-        <ErrorState
-          onRetry={() => query.refetch()}
-          isRetrying={query.isFetching}
-          error={query.error}
-        />
+        <ErrorState onRetry={() => query.refetch()} isRetrying={query.isFetching} error={query.error} />
       </>
     );
   }
 
-  const { supply, movements, purchases, usedBy, health, provenance } = query.data!;
+  const { supply, movements, purchases, usedBy, health, provenance } = query.data;
 
   // What is missing before this item actually does anything. Both are common on a
   // fresh install and neither is an error, so they read as instructions.
   const neverBought = purchases.length === 0;
   const noRecipe = usedBy.length === 0;
+
+  const restore = async () => {
+    try {
+      await setArchived({ id, isArchived: false }).unwrap();
+      toast(tf('supplies.restored', { name: supply.nameBn }));
+    } catch (error) {
+      toast(errorMessage(error), 'danger');
+    }
+  };
 
   return (
     <>
@@ -112,25 +114,34 @@ export default function SupplyDetailPage({ params }: { params: Promise<{ id: str
         title={supply.nameBn}
         subtitle={`${t('supply.unit')}: ${tUnit(supply.unit)}`}
         action={
-          <div className="flex flex-wrap items-center gap-2">
-            {/*
-              * Counting is the primary action, not the generic adjust. It is the
-              * only thing that corrects a drifting recipe, and it is what somebody
-              * standing in the godown with a phone actually wants.
-              */}
-            <Button onClick={() => setCounting(true)}>
-              <ClipboardCheck className="h-4 w-4" />
-              {t('supply.stockTake')}
+          supply.isArchived ? (
+            <Button variant="outline" loading={restoring.isLoading} onClick={restore}>
+              <ArchiveRestore className="h-4 w-4" />
+              {t('app.restore')}
             </Button>
-            <Button variant="quiet" onClick={() => setAdjusting(true)}>
-              <SlidersHorizontal className="h-4 w-4" />
-              {t('supply.adjust')}
-            </Button>
-          </div>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2">
+              {/*
+                * Counting is the primary action, not the generic adjust. It is the
+                * only thing that corrects a drifting recipe, and it is what somebody
+                * standing in the godown with a phone actually wants.
+                */}
+              <Button onClick={() => setCounting(true)}>
+                <ClipboardCheck className="h-4 w-4" />
+                {t('supply.stockTake')}
+              </Button>
+              <Button variant="outline" onClick={() => setAdjusting(true)}>
+                <SlidersHorizontal className="h-4 w-4" />
+                {t('supply.adjust')}
+              </Button>
+            </div>
+          )
         }
       />
 
       {/* --- what is wrong, loudest first --- */}
+
+      {supply.isArchived && <Alert tone="neutral">{t('supplies.archivedBanner')}</Alert>}
 
       {supply.isNegative && (
         <Alert tone="danger" icon={TriangleAlert} title={t('supply.negative')}>
@@ -140,7 +151,7 @@ export default function SupplyDetailPage({ params }: { params: Promise<{ id: str
 
       {!supply.isNegative && supply.isLow && (
         <Alert tone="warning" title={t('supply.low')}>
-          {t('supply.reorderHint')}
+          {t('supplies.reorderHint')}
         </Alert>
       )}
 
@@ -154,25 +165,23 @@ export default function SupplyDetailPage({ params }: { params: Promise<{ id: str
         </Alert>
       )}
 
-      {supply.isArchived && <Alert tone="neutral">{t('supply.archived')}</Alert>}
-
       {/* --- what to do next, when this item is not doing anything yet --- */}
 
-      {(neverBought || noRecipe) && (
+      {!supply.isArchived && (neverBought || noRecipe) && (
         <Alert tone="primary" title={t('costSetup.next')}>
           <ul className="mt-1 space-y-2 text-sm">
             {neverBought && (
-              <li className="flex flex-wrap items-center gap-2">
+              <li className="flex flex-wrap items-center gap-x-2">
                 <span>{t('costSetup.noPurchaseYet')}</span>
-                <Link href="/owner/purchases" className="font-semibold underline">
+                <Link href="/owner/purchases" className="tap inline-flex items-center font-semibold underline">
                   {t('costSetup.recordPurchase')}
                 </Link>
               </li>
             )}
             {noRecipe && (
-              <li className="flex flex-wrap items-center gap-2">
+              <li className="flex flex-wrap items-center gap-x-2">
                 <span>{t('costSetup.noRecipeYet')}</span>
-                <Link href="/owner/products" className="font-semibold underline">
+                <Link href="/owner/products" className="tap inline-flex items-center font-semibold underline">
                   {t('costSetup.setRecipe')}
                 </Link>
               </li>
@@ -183,26 +192,18 @@ export default function SupplyDetailPage({ params }: { params: Promise<{ id: str
 
       {/* --- the numbers. The two the system worked out explain themselves. --- */}
 
-      <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <ExplainedStat
           label={t('supply.onHand')}
-          value={`${formatNumber(supply.onHand)} ${tUnit(supply.unit)}`}
+          value={qty(supply.onHand, supply.unit)}
           onWhy={why.openOnHand}
         />
-        <ExplainedStat
-          label={t('supply.avgCost')}
-          value={formatMoney(supply.avgCost)}
-          onWhy={why.openAvgCost}
-        />
+        <ExplainedStat label={t('supply.avgCost')} value={formatMoney(supply.avgCost)} onWhy={why.openAvgCost} />
         {/* Typed or trivially derived, so no working to show. */}
         <Stat label={t('supply.value')} value={formatMoney(supply.value)} icon={Boxes} />
         <Stat
           label={t('supply.reorderLevel')}
-          value={
-            supply.reorderLevel > 0
-              ? `${formatNumber(supply.reorderLevel)} ${tUnit(supply.unit)}`
-              : '—'
-          }
+          value={supply.reorderLevel > 0 ? qty(supply.reorderLevel, supply.unit) : '—'}
         />
       </div>
 
@@ -212,25 +213,32 @@ export default function SupplyDetailPage({ params }: { params: Promise<{ id: str
           <CardHeader title={t('supply.usedBy')} subtitle={t('recipe.estimateNote')} />
           {noRecipe ? (
             <div className="text-sm">
-              <p className="mb-2 text-[var(--muted-fg)]">{t('costSetup.noRecipeYet')}</p>
-              <Link href="/owner/products" className="font-semibold text-[var(--primary)] underline">
+              <p className="mb-2 text-muted-foreground">{t('costSetup.noRecipeYet')}</p>
+              <ButtonLink href="/owner/products" variant="outline" size="sm">
                 {t('costSetup.goToProducts')}
-              </Link>
+              </ButtonLink>
             </div>
           ) : (
-            <ul className="space-y-2">
+            <ul className="-my-1 divide-y divide-border">
               {usedBy.map((row) => (
-                <li
-                  key={`${row.productId}-${row.variantId}`}
-                  className="flex items-baseline justify-between gap-3 text-sm"
-                >
-                  <span>
-                    {row.productNameBn}
-                    <span className="text-[var(--muted-fg)]"> · {row.variantLabel}</span>
-                  </span>
-                  <span className="tabular whitespace-nowrap">
-                    {t('supply.perBox')} {formatNumber(row.perBox)} {tUnit(supply.unit)}
-                  </span>
+                <li key={`${row.productId}-${row.variantId}`}>
+                  {/* Straight to that product's recipe sheet, open. */}
+                  <Link
+                    href={`/owner/products?recipe=${row.productId}` as Route}
+                    aria-label={`${row.productNameBn} · ${row.variantLabel} — ${t('supplies.editRecipe')}`}
+                    className="-mx-2 flex min-h-11 items-center justify-between gap-3 rounded-lg px-2 py-2 text-sm transition-colors hover:bg-muted"
+                  >
+                    <span className="min-w-0">
+                      {row.productNameBn}
+                      <span className="text-muted-foreground"> · {row.variantLabel}</span>
+                    </span>
+                    <span className="flex shrink-0 items-center gap-2">
+                      <span className="tabular whitespace-nowrap">
+                        {t('supply.perBox')} {qty(row.perBox, supply.unit)}
+                      </span>
+                      <PackageOpen aria-hidden className="h-4 w-4 text-muted-foreground" />
+                    </span>
+                  </Link>
                 </li>
               ))}
             </ul>
@@ -243,38 +251,42 @@ export default function SupplyDetailPage({ params }: { params: Promise<{ id: str
             title={t('supply.purchaseHistory')}
             subtitle={t('purchase.landedHint')}
             action={
-              <Link
-                href="/owner/purchases"
-                className="inline-flex items-center gap-1 text-sm text-[var(--primary)] hover:underline"
-              >
+              <ButtonLink href="/owner/purchases" variant="quiet" size="sm">
                 <ShoppingCart className="h-4 w-4" />
                 {t('costSetup.recordPurchase')}
-              </Link>
+              </ButtonLink>
             }
           />
           {neverBought ? (
-            <p className="text-sm text-[var(--muted-fg)]">{t('costSetup.noPurchaseYet')}</p>
+            <p className="text-sm text-muted-foreground">{t('costSetup.noPurchaseYet')}</p>
           ) : (
-            <ul className="space-y-2">
+            <ul className="space-y-3">
               {purchases.map((row) => (
                 <li key={row.id} className="text-sm">
                   <div className="flex items-baseline justify-between gap-3">
-                    <span>{row.payeeNameBn}</span>
-                    <span className="tabular whitespace-nowrap">
-                      {formatNumber(row.quantity)} {tUnit(supply.unit)}
+                    <span className="min-w-0">
+                      {row.payeeNameBn}
+                      {row.status === 'cancelled' && (
+                        <Badge tone="danger" className="ml-2">
+                          {t('supplies.purchaseCancelled')}
+                        </Badge>
+                      )}
+                    </span>
+                    <span className={cn('tabular whitespace-nowrap', row.status === 'cancelled' && 'line-through')}>
+                      {qty(row.quantity, supply.unit)}
                     </span>
                   </div>
-                  <div className="flex items-baseline justify-between gap-3 text-xs text-[var(--muted-fg)]">
-                    <span>{formatDate(row.businessDate)}</span>
+                  <div className="flex items-baseline justify-between gap-3 text-xs text-muted-foreground">
+                    <span className="tabular">
+                      {formatDate(row.businessDate)} · {row.purchaseCode}
+                    </span>
                     <span className="tabular">
                       {/*
                         * The rate and what it actually cost, together. The gap
                         * between them is the whole reason this feature exists.
                         */}
                       {t('why.rate')} {formatMoney(row.unitCost)} →{' '}
-                      <span className="font-semibold text-[var(--fg)]">
-                        {formatMoney(row.landedUnitCost)}
-                      </span>
+                      <span className="font-semibold text-foreground">{formatMoney(row.landedUnitCost)}</span>
                     </span>
                   </div>
                 </li>
@@ -284,46 +296,46 @@ export default function SupplyDetailPage({ params }: { params: Promise<{ id: str
         </Card>
       </div>
 
-      {/* --- everything that ever moved, and whether anybody counted it --- */}
+      {/* --- everything that ever moved, who wrote it, and whether anybody counted it --- */}
       <Card className="mt-5">
         <CardHeader title={t('supply.movements')} />
         {movements.length === 0 ? (
-          <p className="text-sm text-[var(--muted-fg)]">{t('supply.movementsEmpty')}</p>
+          <p className="text-sm text-muted-foreground">{t('supply.movementsEmpty')}</p>
         ) : (
           <>
             {/* Phone: a card each, because six columns in a sideways scroller
                 hides the one that matters. */}
             <ul className="space-y-2 lg:hidden">
               {movements.map((m) => (
-                <li key={m.id} className="rounded-md border border-[var(--border)] p-2 text-sm">
+                <li key={m.id} className="rounded-lg border border-border p-3 text-sm">
                   <div className="flex items-baseline justify-between gap-2">
                     <span className="font-medium">{tMovementKind(m.kind)}</span>
-                    <span className={`tabular ${m.quantity < 0 ? 'text-[var(--danger)]' : ''}`}>
-                      {m.quantity > 0 ? '+' : ''}
-                      {formatNumber(m.quantity)}
+                    <span className={cn('tabular font-semibold', m.quantity < 0 && 'text-danger')}>
+                      {signedQty(m.quantity, supply.unit)}
                     </span>
                   </div>
-                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[var(--muted-fg)]">
+                  <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
                     <span>{formatDate(m.businessDate)}</span>
                     <Badge tone={m.isEstimated ? 'warning' : 'success'}>
                       {m.isEstimated ? t('supply.estimated') : t('supply.counted2')}
                     </Badge>
-                    <span>
-                      {t('supply.onHandAfter')} {formatNumber(m.onHandAfter)}
+                    <span className="tabular">
+                      {t('supply.onHandAfter')} {qty(m.onHandAfter, supply.unit)}
                     </span>
                   </div>
+                  <MovementSource movement={m} className="mt-1" />
                   {m.note && <p className="mt-1 text-xs">{m.note}</p>}
                 </li>
               ))}
             </ul>
 
-            <TableWrap from="lg" minWidth="44rem">
+            <TableWrap from="lg" minWidth="48rem">
               <thead>
                 <tr>
                   <Th>{t('supply.adjustKind')}</Th>
                   <Th>{t('app.date')}</Th>
-                  <Th align="right">{t('supply.quantity')}</Th>
-                  <Th align="right">{t('supply.onHandAfter')}</Th>
+                  <Th className="text-right">{t('supply.quantity')}</Th>
+                  <Th className="text-right">{t('supply.onHandAfter')}</Th>
                   <Th>{t('supply.estimatedHint')}</Th>
                   <Th>{t('expense.note')}</Th>
                 </tr>
@@ -331,24 +343,21 @@ export default function SupplyDetailPage({ params }: { params: Promise<{ id: str
               <tbody>
                 {movements.map((m) => (
                   <Tr key={m.id}>
-                    <Td>{tMovementKind(m.kind)}</Td>
+                    <Td>
+                      {tMovementKind(m.kind)}
+                      <MovementSource movement={m} />
+                    </Td>
                     <Td>{formatDate(m.businessDate)}</Td>
-                    <Td
-                      align="right"
-                      className={`tabular ${m.quantity < 0 ? 'text-[var(--danger)]' : ''}`}
-                    >
-                      {m.quantity > 0 ? '+' : ''}
-                      {formatNumber(m.quantity)}
+                    <Td className={cn('tabular text-right', m.quantity < 0 && 'text-danger')}>
+                      {signedQty(m.quantity, supply.unit)}
                     </Td>
-                    <Td align="right" className="tabular">
-                      {formatNumber(m.onHandAfter)}
-                    </Td>
+                    <Td className="tabular text-right">{qty(m.onHandAfter, supply.unit)}</Td>
                     <Td>
                       <Badge tone={m.isEstimated ? 'warning' : 'success'}>
                         {m.isEstimated ? t('supply.estimated') : t('supply.counted2')}
                       </Badge>
                     </Td>
-                    <Td className="text-xs text-[var(--muted-fg)]">{m.note ?? '—'}</Td>
+                    <Td className="text-xs text-muted-foreground">{m.note ?? '—'}</Td>
                   </Tr>
                 ))}
               </tbody>
@@ -363,14 +372,73 @@ export default function SupplyDetailPage({ params }: { params: Promise<{ id: str
         rows={provenance.onHand}
         onHand={supply.onHand}
       />
-      <AvgCostWhyModal
-        open={why.which === 'avgCost'}
-        onClose={why.close}
-        from={provenance.avgCost}
-      />
-      <CountModal id={id} supply={supply} open={counting} onClose={() => setCounting(false)} />
-      <AdjustModal id={id} supply={supply} open={adjusting} onClose={() => setAdjusting(false)} />
+      <AvgCostWhyModal open={why.which === 'avgCost'} onClose={why.close} from={provenance.avgCost} />
+
+      {/* Mounted only while open, so each opening holds its own nonce and its own typing. */}
+      {counting && <CountSheet id={id} supply={supply} onClose={() => setCounting(false)} />}
+      {adjusting && <AdjustSheet id={id} supply={supply} onClose={() => setAdjusting(false)} />}
     </>
+  );
+}
+
+/**
+ * What a movement points back at, and who wrote it: the order a consumption
+ * came from, the purchase a receipt came from (and whether that purchase was
+ * since cancelled), the person who typed a manual row.
+ */
+function MovementSource({ movement, className }: { movement: SupplyMovement; className?: string }) {
+  const code = movement.refCode ?? null;
+  const parts: React.ReactNode[] = [];
+
+  if (movement.refType === 'order' && movement.refId) {
+    parts.push(
+      <Link
+        key="ref"
+        href={`/owner/orders/${movement.refId}` as Route}
+        className="font-semibold text-primary-ink underline-offset-2 hover:underline"
+      >
+        {tf('supplies.orderRef', { code: code ?? '' })}
+      </Link>
+    );
+  } else if (movement.refType === 'purchase' && movement.refId) {
+    parts.push(
+      <Link
+        key="ref"
+        href="/owner/purchases"
+        className="font-semibold text-primary-ink underline-offset-2 hover:underline"
+      >
+        {tf('supplies.purchaseRef', { code: code ?? '' })}
+      </Link>
+    );
+    if (movement.purchaseCancelled) {
+      parts.push(
+        <Badge key="cancelled" tone="danger">
+          {t('supplies.purchaseCancelled')}
+        </Badge>
+      );
+    }
+  }
+
+  if (movement.createdBy?.name) {
+    parts.push(<span key="by">{tf('supplies.recordedBy', { name: movement.createdBy.name })}</span>);
+  } else if (movement.isEstimated) {
+    parts.push(<span key="by">{t('supplies.byRecipe')}</span>);
+  }
+
+  if (parts.length === 0) return null;
+  return (
+    <div className={cn('flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground', className)}>
+      {parts}
+    </div>
+  );
+}
+
+/** An error pinned above a sheet's buttons. */
+function SheetError({ message }: { message: string }) {
+  return (
+    <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm font-medium text-danger-ink">
+      {message}
+    </p>
   );
 }
 
@@ -380,222 +448,243 @@ export default function SupplyDetailPage({ params }: { params: Promise<{ id: str
  * Takes the counted total, never a difference: "there are ninety-four" is what
  * somebody with a clipboard knows, and making them work out "six went missing" is
  * asking them to do arithmetic the computer is for.
+ *
+ * Mounted per opening: the nonce used to be held by a sheet that stayed mounted,
+ * so the second count of the day reused the first one's nonce and the server
+ * quietly treated it as a retry of the first.
  */
-function CountModal({
-  id,
-  supply,
-  open,
-  onClose,
-}: {
-  id: string;
-  supply: SupplyDetail['supply'];
-  open: boolean;
-  onClose: () => void;
-}) {
-  const queryClient = useQueryClient();
+function CountSheet({ id, supply, onClose }: { id: string; supply: SupplyRecord; onClose: () => void }) {
   const toast = useToast();
+  const bodyRef = useRef<HTMLDivElement>(null);
   const [counted, setCounted] = useState('');
   const [note, setNote] = useState('');
-  // Held per open sheet, so a double tap or a retry on a bad connection cannot
-  // post the same count twice.
+  const [tried, setTried] = useState(false);
+  // One per opening, so a double tap or a retry on a bad connection cannot post
+  // the same count twice, and the next opening is a new count.
   const [nonce] = useState(() => crypto.randomUUID());
+  const [stockTake, state] = useStockTakeSupplyMutation();
 
-  const save = useMutation({
-    mutationFn: () =>
-      api.post<{ agreed: boolean }>(`/owner/supplies/${id}/stock-take`, {
-        counted: Number(counted),
-        nonce,
-        ...(note ? { note } : {}),
-      }),
-    onSuccess: async (data) => {
-      await queryClient.invalidateQueries({ queryKey: ['owner'] });
-      toast(data.agreed ? t('supply.countedAgreed') : t('app.saved'));
+  const errors = fieldErrors(state.error);
+  const value = counted.trim() === '' ? null : Number(counted);
+  const problem = value === null ? t('supplies.quantityRequired') : value < 0 ? t('supplies.notZero') : null;
+  const difference = value !== null && value >= 0 ? value - supply.onHand : null;
+
+  const save = async () => {
+    setTried(true);
+    if (problem || value === null) {
+      requestAnimationFrame(() => focusFirstInvalid(bodyRef.current));
+      return;
+    }
+    try {
+      const result = await stockTake({ id, counted: value, nonce, ...(note.trim() ? { note: note.trim() } : {}) }).unwrap();
+      toast(
+        result.agreed
+          ? t('supply.countedAgreed')
+          : tf('supplies.countSaved', { n: qty(value, supply.unit) })
+      );
       onClose();
-      setCounted('');
-      setNote('');
-    },
-  });
+    } catch {
+      // Shown above the buttons.
+    }
+  };
 
-  const errors = fieldErrors(save.error);
-  const valid = counted !== '' && Number(counted) >= 0;
-  const difference = valid ? Number(counted) - supply.onHand : null;
-
-  if (!open) return null;
+  const countedError = errors.counted ?? (tried ? (problem ?? undefined) : undefined);
 
   return (
     <Modal
       open
       onClose={onClose}
+      dirty={counted.trim() !== '' || note.trim() !== ''}
       title={t('supply.stockTake')}
+      footerLead={
+        state.isError && !Object.keys(errors).length ? <SheetError message={errorMessage(state.error)} /> : undefined
+      }
       footer={
         <>
-          <Button variant="outline" onClick={onClose}>
-            {t('app.cancel')}
-          </Button>
-          <Button loading={save.isPending} disabled={!valid} onClick={() => save.mutate()}>
+          <ModalCancel disabled={state.isLoading} />
+          <Button loading={state.isLoading} onClick={save}>
             {t('app.save')}
           </Button>
         </>
       }
     >
-      <p className="mb-3 text-sm text-[var(--muted-fg)]">{t('supply.stockTakeHelp')}</p>
+      <div ref={bodyRef}>
+        <p className="mb-3 text-sm text-muted-foreground">{t('supply.stockTakeHelp')}</p>
 
-      {save.error && !Object.keys(errors).length && (
-        <Alert tone="danger">{errorMessage(save.error)}</Alert>
-      )}
+        <div className="mb-4 flex items-baseline justify-between gap-3 rounded-xl bg-muted px-4 py-3 text-sm">
+          <span className="text-muted-foreground">{t('supply.onHand')}</span>
+          <span className="tabular font-semibold">{qty(supply.onHand, supply.unit)}</span>
+        </div>
 
-      <div className="mb-3 rounded-md bg-[var(--muted)] p-2 text-sm">
-        {t('supply.onHand')}:{' '}
-        <span className="tabular font-semibold">
-          {formatNumber(supply.onHand)} {tUnit(supply.unit)}
-        </span>
+        <Field label={t('supply.counted')} htmlFor="count-value" error={countedError} required>
+          <Input
+            id="count-value"
+            type="number"
+            inputMode="decimal"
+            step="0.001"
+            min="0"
+            value={counted}
+            invalid={Boolean(countedError)}
+            onChange={(e) => setCounted(e.target.value)}
+            className="tabular"
+            trailing={<span className="text-sm text-muted-foreground">{tUnit(supply.unit)}</span>}
+          />
+        </Field>
+
+        {/*
+          * The subtraction, shown as it is typed, so the owner sees what they are
+          * about to record before they record it rather than after.
+          */}
+        {difference !== null && difference !== 0 && (
+          <p className="mb-4 text-sm">
+            <span className={cn('tabular font-semibold', difference < 0 ? 'text-danger' : 'text-success')}>
+              {signedQty(difference, supply.unit)}
+            </span>{' '}
+            <span className="text-muted-foreground">{t('movement.ADJUSTMENT')}</span>
+          </p>
+        )}
+        {difference === 0 && <p className="mb-4 text-sm text-muted-foreground">{t('supply.countedAgreed')}</p>}
+
+        <Field label={t('expense.note')} htmlFor="count-note" hint={t('app.optional')}>
+          <Textarea id="count-note" value={note} onChange={(e) => setNote(e.target.value)} rows={2} />
+        </Field>
       </div>
-
-      <Field label={t('supply.counted')} error={errors.counted} required>
-        <Input
-          type="number"
-          inputMode="decimal"
-          step="0.001"
-          min="0"
-          value={counted}
-          onChange={(e) => setCounted(e.target.value)}
-          className="tabular"
-          autoFocus
-        />
-      </Field>
-
-      {/*
-        * The subtraction, shown as it is typed, so the owner sees what they are
-        * about to record before they record it rather than after.
-        */}
-      {difference !== null && difference !== 0 && (
-        <p className="mb-3 text-sm">
-          <span className={difference < 0 ? 'text-[var(--danger)]' : 'text-[var(--success)]'}>
-            {difference > 0 ? '+' : ''}
-            {formatNumber(difference)} {tUnit(supply.unit)}
-          </span>{' '}
-          <span className="text-[var(--muted-fg)]">{t('movement.ADJUSTMENT')}</span>
-        </p>
-      )}
-      {difference === 0 && (
-        <p className="mb-3 text-sm text-[var(--muted-fg)]">{t('supply.countedAgreed')}</p>
-      )}
-
-      <Field label={t('expense.note')}>
-        <Textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} />
-      </Field>
     </Modal>
   );
 }
 
+/*
+ * `ADJUSTMENT` is the only kind whose direction the owner chooses; the rest have
+ * one obvious direction and the server normalises the sign, so a typed minus on
+ * "নষ্ট হয়েছে" cannot accidentally add stock.
+ */
+const KINDS = ['DAMAGED', 'LOST', 'OPENING', 'RETURN_TO_PAYEE', 'ADJUSTMENT'] as const;
+const DOWN_KINDS = new Set(['DAMAGED', 'LOST', 'RETURN_TO_PAYEE']);
+
+/** The manual correction reads "হাতে ঠিক করা" here; a stock take's correction keeps its own name. */
+const kindLabel = (kind: string) => (kind === 'ADJUSTMENT' ? t('supplies.adjustManual') : tMovementKind(kind));
+
 /** হাতে হিসাব ঠিক করুন — breakage, a loss, an opening balance, a return. */
-function AdjustModal({
-  id,
-  supply,
-  open,
-  onClose,
-}: {
-  id: string;
-  supply: SupplyDetail['supply'];
-  open: boolean;
-  onClose: () => void;
-}) {
-  const queryClient = useQueryClient();
+function AdjustSheet({ id, supply, onClose }: { id: string; supply: SupplyRecord; onClose: () => void }) {
   const toast = useToast();
-  const [kind, setKind] = useState('DAMAGED');
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const [kind, setKind] = useState<string>('DAMAGED');
+  // Direction is a choice, not a minus sign: most Android number pads have no minus key.
+  const [direction, setDirection] = useState<'up' | 'down'>('down');
   const [quantity, setQuantity] = useState('');
   const [note, setNote] = useState('');
+  const [tried, setTried] = useState(false);
   const [nonce] = useState(() => crypto.randomUUID());
+  const [adjust, state] = useAdjustSupplyMutation();
 
-  const save = useMutation({
-    mutationFn: () =>
-      api.post(`/owner/supplies/${id}/adjust`, {
-        kind,
-        quantity: Number(quantity),
-        nonce,
-        ...(note ? { note } : {}),
-      }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['owner'] });
-      toast(t('app.saved'));
+  const errors = fieldErrors(state.error);
+  const manual = kind === 'ADJUSTMENT';
+  const amount = quantity.trim() === '' ? null : Math.abs(Number(quantity));
+  const goesDown = manual ? direction === 'down' : DOWN_KINDS.has(kind);
+  const signed = amount === null ? null : goesDown ? -amount : amount;
+  const after = signed === null ? null : supply.onHand + signed;
+  const problem =
+    amount === null || Number.isNaN(amount)
+      ? t('supplies.quantityRequired')
+      : amount === 0
+        ? t('supplies.notZero')
+        : null;
+
+  const save = async () => {
+    setTried(true);
+    if (problem || signed === null) {
+      requestAnimationFrame(() => focusFirstInvalid(bodyRef.current));
+      return;
+    }
+    try {
+      await adjust({ id, kind, quantity: signed, nonce, ...(note.trim() ? { note: note.trim() } : {}) }).unwrap();
+      toast(tf('supplies.adjustSaved', { kind: kindLabel(kind), n: qty(after ?? 0, supply.unit) }));
       onClose();
-      setQuantity('');
-      setNote('');
-    },
-  });
+    } catch {
+      // Shown above the buttons.
+    }
+  };
 
-  const errors = fieldErrors(save.error);
-
-  if (!open) return null;
-
-  /*
-   * `ADJUSTMENT` is the only kind whose direction the owner chooses; the rest have
-   * one obvious direction and the server normalises the sign, so a typed minus on
-   * "নষ্ট হয়েছে" cannot accidentally add stock.
-   */
-  const KINDS = ['DAMAGED', 'LOST', 'OPENING', 'RETURN_TO_PAYEE', 'ADJUSTMENT'];
-  const signed = kind === 'ADJUSTMENT';
+  const quantityError = errors.quantity ?? (tried ? (problem ?? undefined) : undefined);
 
   return (
     <Modal
       open
       onClose={onClose}
+      dirty={quantity.trim() !== '' || note.trim() !== ''}
       title={t('supply.adjust')}
+      footerLead={
+        state.isError && !Object.keys(errors).length ? <SheetError message={errorMessage(state.error)} /> : undefined
+      }
       footer={
         <>
-          <Button variant="outline" onClick={onClose}>
-            {t('app.cancel')}
-          </Button>
-          <Button
-            loading={save.isPending}
-            disabled={!quantity || Number(quantity) === 0}
-            onClick={() => save.mutate()}
-          >
+          <ModalCancel disabled={state.isLoading} />
+          <Button loading={state.isLoading} onClick={save}>
             {t('app.save')}
           </Button>
         </>
       }
     >
-      {save.error && !Object.keys(errors).length && (
-        <Alert tone="danger">{errorMessage(save.error)}</Alert>
-      )}
+      <div ref={bodyRef}>
+        <Field label={t('supply.adjustKind')} htmlFor="adjust-kind" error={errors.kind} required>
+          <Select id="adjust-kind" value={kind} onChange={(e) => setKind(e.target.value)}>
+            {KINDS.map((k) => (
+              <option key={k} value={k}>
+                {kindLabel(k)}
+              </option>
+            ))}
+          </Select>
+        </Field>
 
-      <Field label={t('supply.adjustKind')} error={errors.kind} required>
-        <Select value={kind} onChange={(e) => setKind(e.target.value)}>
-          {KINDS.map((k) => (
-            <option key={k} value={k}>
-              {tMovementKind(k)}
-            </option>
-          ))}
-        </Select>
-      </Field>
+        {manual && (
+          <div className="mb-4">
+            <p className="mb-1.5 text-[0.8125rem] font-semibold">{t('supplies.direction')}</p>
+            <Segmented
+              label={t('supplies.direction')}
+              value={direction}
+              onChange={setDirection}
+              options={[
+                { value: 'up', label: t('supplies.up') },
+                { value: 'down', label: t('supplies.down') },
+              ]}
+            />
+          </div>
+        )}
 
-      <Field
-        label={t('supply.quantity')}
-        error={errors.quantity}
-        hint={signed ? t('movement.ADJUSTMENT') : undefined}
-        required
-      >
-        <Input
-          type="number"
-          inputMode="decimal"
-          step="0.001"
-          {...(signed ? {} : { min: '0' })}
-          value={quantity}
-          onChange={(e) => setQuantity(e.target.value)}
-          className="tabular"
-        />
-      </Field>
+        <Field
+          label={t('supply.quantity')}
+          htmlFor="adjust-quantity"
+          error={quantityError}
+          hint={manual ? undefined : t('supplies.adjustOneWay')}
+          required
+        >
+          <Input
+            id="adjust-quantity"
+            type="number"
+            inputMode="decimal"
+            step="0.001"
+            min="0"
+            value={quantity}
+            invalid={Boolean(quantityError)}
+            onChange={(e) => setQuantity(e.target.value)}
+            className="tabular"
+            trailing={<span className="text-sm text-muted-foreground">{tUnit(supply.unit)}</span>}
+          />
+        </Field>
 
-      {kind === 'RETURN_TO_PAYEE' && (
-        <p className="mb-3 text-xs text-[var(--muted-fg)]">
-          {t('supply.onHand')}: {formatNumber(supply.onHand)} {tUnit(supply.unit)}
-        </p>
-      )}
+        {/* What the shelf will say afterwards, before it is saved. */}
+        <div className="mb-4 flex items-baseline justify-between gap-3 rounded-xl bg-muted px-4 py-3 text-sm">
+          <span className="text-muted-foreground">{t('supplies.after')}</span>
+          <span className={cn('tabular font-semibold', after !== null && after < 0 && 'text-danger')}>
+            {qty(supply.onHand, supply.unit)}
+            {after !== null && !problem && ` → ${qty(after, supply.unit)}`}
+          </span>
+        </div>
 
-      <Field label={t('expense.note')}>
-        <Textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} />
-      </Field>
+        <Field label={t('expense.note')} htmlFor="adjust-note" hint={t('app.optional')}>
+          <Textarea id="adjust-note" value={note} onChange={(e) => setNote(e.target.value)} rows={2} />
+        </Field>
+      </div>
     </Modal>
   );
 }

@@ -4,6 +4,8 @@ const Supply = require('../../models/Supply');
 const StockMovement = require('../../models/StockMovement');
 const Purchase = require('../../models/Purchase');
 const Product = require('../../models/Product');
+const Order = require('../../models/Order');
+const User = require('../../models/User');
 
 const supplyStock = require('../../services/supplyStock');
 const audit = require('../../services/audit');
@@ -20,6 +22,7 @@ const {
 const { holdingValuePoisha, isLow } = require('../../domain/supplyValue');
 const { recipeAccuracy } = require('../../domain/packaging');
 const { startOfBusinessDay } = require('../../utils/dhakaTime');
+const { variantLabel } = require('../../domain/variants');
 
 /**
  * Supplies: the things the business buys and uses up. See docs/adr/0022.
@@ -51,7 +54,7 @@ const present = (s) => ({
   sortOrder: s.sortOrder,
 });
 
-const presentMovement = (m) => ({
+const presentMovement = (m, refs = EMPTY_REFS) => ({
   id: m._id,
   seq: m.seq,
   kind: m.kind,
@@ -63,14 +66,70 @@ const presentMovement = (m) => ({
   isEstimated: m.isEstimated,
   refType: m.refType,
   refId: m.refId || null,
+  // The purchase code or order code the row links to, so the screen can say
+  // which one without a request per row. Null for a manual movement.
+  refCode: refs.codes.get(String(m.refId)) || null,
+  /*
+   * For a purchase row, whether that purchase has since been cancelled: the
+   * receipt still stands in the history, beside the reversal that undid it, and
+   * a reader needs to know the two belong together. Null on every other row.
+   */
+  purchaseCancelled:
+    m.refType === 'purchase' && refs.cancelled.has(String(m.refId))
+      ? refs.cancelled.get(String(m.refId))
+      : null,
+  // Who recorded it. Null for a consumption, which nobody typed.
+  createdBy: refs.users.get(String(m.createdBy)) || null,
   reversalOf: m.reversalOf || null,
   businessDate: m.businessDate,
   note: m.note || null,
   createdAt: m.createdAt,
 });
 
+const EMPTY_REFS = { codes: new Map(), cancelled: new Map(), users: new Map() };
+
+/**
+ * Everything a page of movements points at, read in three queries rather than
+ * one per row: the purchase and order codes, whether each purchase is cancelled,
+ * and the names of whoever recorded them.
+ */
+async function movementRefs(movements) {
+  const idsOf = (type) => [
+    ...new Set(movements.filter((m) => m.refType === type && m.refId).map((m) => String(m.refId))),
+  ];
+  const userIds = [
+    ...new Set(movements.filter((m) => m.createdBy).map((m) => String(m.createdBy))),
+  ];
+
+  const [purchases, orders, users] = await Promise.all([
+    Purchase.find({ _id: { $in: idsOf('purchase') } }).select('purchaseCode status').lean(),
+    Order.find({ _id: { $in: idsOf('order') } }).select('orderCode').lean(),
+    User.find({ _id: { $in: userIds } }).select('name').lean(),
+  ]);
+
+  const refs = { codes: new Map(), cancelled: new Map(), users: new Map() };
+  purchases.forEach((p) => {
+    refs.codes.set(String(p._id), p.purchaseCode);
+    refs.cancelled.set(String(p._id), p.status === PURCHASE_STATUS.CANCELLED);
+  });
+  orders.forEach((o) => refs.codes.set(String(o._id), o.orderCode));
+  users.forEach((u) => refs.users.set(String(u._id), { id: u._id, name: u.name }));
+  return refs;
+}
+
+const presentMovements = async (movements) => {
+  const refs = await movementRefs(movements);
+  return movements.map((m) => presentMovement(m, refs));
+};
+
 async function listSupplies(req, res) {
-  const filter = req.query.includeArchived === 'true' ? {} : { isArchived: false };
+  /*
+   * Live ones by default; `includeArchived` adds the archived ones beside them
+   * and `archivedOnly` is the archived filter on its own, where restoring is.
+   */
+  let filter = { isArchived: false };
+  if (req.query.includeArchived === 'true') filter = {};
+  if (req.query.archivedOnly === 'true') filter = { isArchived: true };
   if (req.query.q) filter.nameBn = { $regex: req.query.q, $options: 'i' };
 
   let supplies = await Supply.find(filter).sort({ sortOrder: 1, nameBn: 1 });
@@ -289,7 +348,7 @@ async function getSupply(req, res) {
         productId: product._id,
         productNameBn: product.nameBn,
         variantId: variant._id,
-        variantLabel: variant.label || `${fromMilli(variant.contentMilli)} ${product.unit}`,
+        variantLabel: variantLabel(variant, product.unit),
         perBox: fromMilli(row.qtyMilli),
       });
     });
@@ -297,7 +356,7 @@ async function getSupply(req, res) {
 
   return ok(res, {
     supply: present(supply),
-    movements: movements.map(presentMovement),
+    movements: await presentMovements(movements),
     purchases: purchases.map((p) => {
       const line = p.lines.find((l) => String(l.supply) === String(supply._id));
       return {
@@ -339,7 +398,7 @@ async function listMovements(req, res) {
     StockMovement.countDocuments({ supply: supply._id }),
   ]);
 
-  return ok(res, { movements: movements.map(presentMovement), page, limit, total });
+  return ok(res, { movements: await presentMovements(movements), page, limit, total });
 }
 
 /**
@@ -394,7 +453,8 @@ async function adjustSupply(req, res) {
   });
 
   const fresh = await Supply.findById(supply._id);
-  return ok(res, { supply: present(fresh), movement: presentMovement(movement) }, 201);
+  const [presented] = await presentMovements([movement]);
+  return ok(res, { supply: present(fresh), movement: presented }, 201);
 }
 
 /**
@@ -444,7 +504,7 @@ async function stockTake(req, res) {
   return ok(res, {
     supply: present(fresh),
     // Null when the count already agreed. A movement of zero is not a fact.
-    movement: movement ? presentMovement(movement) : null,
+    movement: movement ? (await presentMovements([movement]))[0] : null,
     agreed: movement === null,
   });
 }

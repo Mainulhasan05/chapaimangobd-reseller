@@ -11,7 +11,7 @@
  * row with different punctuation.
  *
  * Paying more than the due is legitimate and the API never refuses it, so
- * nothing here caps the amount at the balance.
+ * nothing here caps the amount at the balance; the pay sheet warns instead.
  *
  * Rebuilt to the same brief as `owner/supplies/[id]`:
  *
@@ -19,39 +19,34 @@
  *    comes from the dictionary, none of it from an accountant.
  * 2. **The due explains itself.** It is a running total of an append-only ledger,
  *    which is exactly the kind of number somebody disbelieves while holding a
- *    paper slip, so it carries a "কীভাবে?" that opens the working: every entry,
- *    its amount, and where the balance stood after it.
+ *    paper slip, so it carries a "কীভাবে?" that opens the working: where the
+ *    balance stood, every entry, and where it stood after each.
  * 3. **An inert account says what to do.** A payee with no ledger, no purchase and
  *    no খরচ is doing nothing, and the screen says so and links to the places that
  *    change that.
- * 4. **Nothing is a dead end.** A ledger row posted by a purchase or an expense
- *    links to that screen, and both side cards carry the arrow to their list.
+ * 4. **Nothing is a dead end.** A ledger row names what it came from and links to
+ *    that payee's purchases or expenses; a wrong payment is taken back from the
+ *    row itself, with a reason, and never edited.
  */
 
 import { use, useState } from 'react';
 import Link from 'next/link';
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  ArrowLeft,
-  HandCoins,
-  Phone,
-  Receipt,
-  ShoppingBasket,
-  TriangleAlert,
-  Wallet,
-} from 'lucide-react';
-import { api, errorMessage, fieldErrors } from '@/lib/api';
-import { t, tPaidFrom, tPayeeKind, tPayeeLedgerKind } from '@/lib/i18n/bn';
-import {
-  formatDate,
-  formatDateTime,
-  formatMoney,
-  formatNumber,
-  formatSignedMoney,
-} from '@/lib/format';
+import type { Route } from 'next';
+import { HandCoins, Phone, Receipt, ShoppingBasket, TriangleAlert, Undo2, Wallet } from 'lucide-react';
+import { errorMessage, fieldErrors } from '@/lib/api';
+import { t, tf, tPayeeKind, tPayeeLedgerKind } from '@/lib/i18n/bn';
+import { formatDate, formatMoney, formatNumber, formatSignedMoney } from '@/lib/format';
 import { checkMoney, moneyError } from '@/lib/money';
 import { cn } from '@/lib/utils';
-import type { Paged, Payee, PayeeDetail, PayeeLedgerEntry } from '@/lib/types';
+import type { Payee } from '@/lib/types';
+import {
+  useGetPayeeLedgerInfiniteQuery,
+  useGetPayeeQuery,
+  usePostPayeeLedgerEntryMutation,
+  useRestorePayeeMutation,
+  useReversePayeeEntryMutation,
+  type PayeeLedgerRow,
+} from '@/lib/store/endpoints/cost';
 import {
   Alert,
   Badge,
@@ -61,119 +56,64 @@ import {
   PageHeader,
   Stat,
 } from '@/components/ui/layout';
-import { Button } from '@/components/ui/button';
-import { Field, MoneyInput, Select, Textarea } from '@/components/ui/form';
+import { BackLink } from '@/components/ui/back-link';
+import { Button, buttonVariants } from '@/components/ui/button';
+import { Field, FormErrorSummary, MoneyInput, Select, Textarea, focusFirstInvalid } from '@/components/ui/form';
 import { Segmented } from '@/components/ui/toolbar';
-import { Modal } from '@/components/ui/modal';
+import { Modal, ModalCancel } from '@/components/ui/modal';
+import { ConfirmSheet } from '@/components/ui/confirm-sheet';
 import { LoadMore } from '@/components/ui/load-more';
 import { ListSkeleton, StatSkeleton } from '@/components/ui/skeleton';
+import { useToast } from '@/components/ui/toast';
 import { ExplainedStat } from '@/components/why';
-
-const PAGE_SIZE = 20;
-
-const PAID_FROM = ['cash', 'bkash', 'nagad', 'rocket', 'bank'] as const;
+import { PaySheet } from '../pay-sheet';
+import { payeeState, runningText } from '../payee-money';
+import { MarkPaidSheet, type MarkPaidTarget } from '../../expenses/mark-paid-sheet';
 
 /** The only three a person has any business typing. The rest are posted by
  * whatever happened: a purchase, an expense, a payment. */
 const MANUAL_KINDS = ['OPENING', 'ADJUSTMENT', 'DISCOUNT'] as const;
 type ManualKind = (typeof MANUAL_KINDS)[number];
 
-/**
- * Where an account stands, in words rather than in a sign.
- *
- * Zero and a due both read as "দিতে হবে"; a negative due is not that sentence
- * with a minus in it, so it gets the advance wording and a different tone.
- */
-function stateOf(due: number): {
-  label: string;
-  value: string;
-  hint: string;
-  tone: 'warning' | 'primary' | 'neutral';
-} {
-  if (due < 0) {
-    return {
-      label: t('payee.advance'),
-      value: formatMoney(-due),
-      hint: t('payee.advanceHint'),
-      tone: 'primary',
-    };
-  }
-  return {
-    label: t('payee.due'),
-    value: formatMoney(due),
-    hint: t('payee.dueHint'),
-    tone: due > 0 ? 'warning' : 'neutral',
-  };
-}
-
-/** The ink a due or an advance is written in. Never the same colour as the other. */
-function inkOf(tone: 'warning' | 'primary' | 'neutral'): string {
-  if (tone === 'primary') return 'text-primary-ink';
-  if (tone === 'warning') return 'text-warning-ink';
-  return 'text-muted-foreground';
-}
-
-/** A running figure on a ledger row, which may have crossed into advance. */
-function runningText(dueAfter: number): string {
-  return dueAfter < 0
-    ? `${t('payee.advance')} ${formatMoney(-dueAfter)}`
-    : `${t('payee.dueAfter')} ${formatMoney(dueAfter)}`;
-}
+/** Kinds a person may take back here; a purchase is cancelled and an expense voided instead. */
+const REVERSIBLE_KINDS = ['PAYMENT', 'OPENING', 'ADJUSTMENT', 'DISCOUNT'];
 
 /**
- * Where a ledger row came from, so no row is a dead end.
- *
- * A payment and a hand entry were made on this screen and have nowhere else to
- * go; a purchase and an unpaid খরচ were written somewhere else, and that is where
- * somebody who disputes the row needs to look.
+ * Whether a row can still be taken back. The API says so on every row it
+ * enriches; an older answer without the flag falls back to the same rule.
  */
-function refHref(entry: PayeeLedgerEntry): '/owner/purchases' | '/owner/expenses' | null {
-  if (entry.refType === 'purchase') return '/owner/purchases';
-  if (entry.refType === 'expense') return '/owner/expenses';
-  return null;
+function canReverse(entry: PayeeLedgerRow): boolean {
+  if (entry.reversible !== undefined) return entry.reversible;
+  return REVERSIBLE_KINDS.includes(entry.kind) && !entry.reversalOf && !entry.reversedBy;
 }
+
+/** The day a row belongs to: the business date, or for an old row the day it was written. */
+const dayOf = (entry: PayeeLedgerRow) => formatDate(entry.businessDate ?? entry.createdAt);
 
 export default function PayeeDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const toast = useToast();
   const [paying, setPaying] = useState(false);
   const [manual, setManual] = useState(false);
   const [whyDue, setWhyDue] = useState(false);
+  const [reversing, setReversing] = useState<PayeeLedgerRow | null>(null);
+  const [markingPaid, setMarkingPaid] = useState<MarkPaidTarget | null>(null);
 
-  const query = useQuery({
-    queryKey: ['owner', 'payee', id],
-    queryFn: () => api.get<PayeeDetail>(`/owner/payees/${id}`),
-  });
+  const query = useGetPayeeQuery({ id });
 
   /*
    * The ledger is paged, and it is read twice: once as the খাতা itself and once
    * as the working behind the due. One query, so the two can never disagree and
    * a "load more" fills both.
    */
-  const ledger = useInfiniteQuery({
-    queryKey: ['owner', 'payee', id, 'ledger'],
-    queryFn: ({ pageParam }) =>
-      api.get<Paged<'ledger', PayeeLedgerEntry>>(
-        `/owner/payees/${id}/ledger?limit=${PAGE_SIZE}&page=${pageParam}`
-      ),
-    initialPageParam: 1,
-    getNextPageParam: (last, pages) => {
-      const loaded = pages.reduce((count, page) => count + page.ledger.length, 0);
-      return loaded < last.total ? pages.length + 1 : undefined;
-    },
-  });
+  const ledger = useGetPayeeLedgerInfiniteQuery({ id });
+  const [reverse] = useReversePayeeEntryMutation();
+  const [restore, restoreState] = useRestorePayeeMutation();
 
   const entries = ledger.data?.pages.flatMap((page) => page.ledger) ?? [];
   const entryTotal = ledger.data?.pages[0]?.total ?? 0;
 
-  const back = (
-    <Link
-      href="/owner/payees"
-      className="mb-3 inline-flex items-center gap-1.5 text-sm font-semibold text-muted-foreground hover:text-foreground"
-    >
-      <ArrowLeft className="h-4 w-4" />
-      {t('payee.title')}
-    </Link>
-  );
+  const back = <BackLink fallback="/owner/payees" label={t('payee.title')} />;
 
   if (query.isLoading) {
     return (
@@ -185,7 +125,7 @@ export default function PayeeDetailPage({ params }: { params: Promise<{ id: stri
     );
   }
 
-  if (query.isError) {
+  if (!query.data) {
     return (
       <>
         {back}
@@ -198,8 +138,13 @@ export default function PayeeDetailPage({ params }: { params: Promise<{ id: stri
     );
   }
 
-  const { payee, purchases, expenses, health } = query.data!;
-  const state = stateOf(payee.due);
+  const { payee, purchases, expenses, health } = query.data;
+  const purchaseCount = query.data.purchaseCount ?? purchases.length;
+  const expenseCount = query.data.expenseCount ?? expenses.length;
+  const state = payeeState(payee.due);
+  const archived = payee.isArchived;
+  const purchasesHref = `/owner/purchases?payeeId=${payee.id}&range=all` as Route;
+  const expensesHref = `/owner/expenses?payeeId=${payee.id}&range=all` as Route;
 
   /*
    * Nothing has ever been written against this পার্টি. Not an error — it is the
@@ -207,7 +152,16 @@ export default function PayeeDetailPage({ params }: { params: Promise<{ id: stri
    * instructions rather than as a warning.
    */
   const inert =
-    Boolean(ledger.data) && entryTotal === 0 && purchases.length === 0 && expenses.length === 0;
+    Boolean(ledger.data) && entryTotal === 0 && purchaseCount === 0 && expenses.length === 0;
+
+  const doRestore = async () => {
+    try {
+      await restore({ id: payee.id }).unwrap();
+      toast(tf('payee.restoredToast', { name: payee.nameBn }));
+    } catch (error) {
+      toast(errorMessage(error), 'danger');
+    }
+  };
 
   return (
     <>
@@ -218,20 +172,24 @@ export default function PayeeDetailPage({ params }: { params: Promise<{ id: stri
         subtitle={tPayeeKind(payee.kind)}
         action={
           <div className="flex flex-wrap items-center gap-2">
-            <Button onClick={() => setPaying(true)}>
-              <HandCoins className="h-4 w-4" />
-              {t('payee.pay')}
-            </Button>
-            <Button variant="outline" onClick={() => setManual(true)}>
-              {t('payee.manualEntry')}
-            </Button>
+            {/* An archived পার্টি is paid only after it is back on the list, so
+              * nothing is paid to a name the owner thought was closed. */}
+            {!archived && (
+              <>
+                <Button onClick={() => setPaying(true)}>
+                  <HandCoins className="h-4 w-4" />
+                  {t('payee.pay')}
+                </Button>
+                <Button variant="outline" onClick={() => setManual(true)}>
+                  {t('payee.manualEntry')}
+                </Button>
+              </>
+            )}
             {/* On a phone a number is for calling, not for reading. */}
             {payee.phone && (
-              <a href={`tel:${payee.phone}`}>
-                <Button variant="outline">
-                  <Phone className="h-4 w-4" />
-                  <span className="tabular">{payee.phone}</span>
-                </Button>
+              <a href={`tel:${payee.phone}`} className={buttonVariants({ variant: 'outline' })}>
+                <Phone className="h-4 w-4" />
+                <span className="tabular">{payee.phone}</span>
               </a>
             )}
           </div>
@@ -244,16 +202,21 @@ export default function PayeeDetailPage({ params }: { params: Promise<{ id: stri
 
       {/*
        * The append-only ledger disagrees with the cached due. That is a bug in
-       * our software, not a number to reconcile by hand, so it is said in full
-       * and in red.
+       * our software, not a number to reconcile by hand, so it says so plainly.
+       * The server's own diagnostics are English and for us, not the owner.
        */}
       {!health.ok && (
         <Alert tone="danger" icon={TriangleAlert} title={t('payee.healthBad')}>
-          <ul className="mt-1 list-inside list-disc space-y-0.5 text-xs">
-            {health.problems.map((problem) => (
-              <li key={problem}>{problem}</li>
-            ))}
-          </ul>
+          <p className="mt-1 text-xs">{t('payee.healthBadHelp')}</p>
+        </Alert>
+      )}
+
+      {archived && (
+        <Alert tone="neutral" title={t('payee.archivedBadge')}>
+          <p className="mb-2">{t('payee.archivedNotice')}</p>
+          <Button size="sm" variant="outline" loading={restoreState.isLoading} onClick={doRestore}>
+            {t('app.restore')}
+          </Button>
         </Alert>
       )}
 
@@ -268,31 +231,29 @@ export default function PayeeDetailPage({ params }: { params: Promise<{ id: stri
         </Alert>
       )}
 
-      {payee.isArchived && <Alert tone="neutral">{t('supply.archived')}</Alert>}
-
       {/* --- what to do next, when nothing has been written against this পার্টি --- */}
 
-      {inert && (
+      {inert && !archived && (
         <Alert tone="primary" title={t('costSetup.next')}>
-          <ul className="mt-1 space-y-2 text-sm">
-            <li className="flex flex-wrap items-center gap-2">
+          <ul className="mt-1 space-y-1 text-sm">
+            <li className="flex flex-wrap items-center gap-x-2">
               <span>{t('costSetup.thenPurchase')}</span>
-              <Link href="/owner/purchases" className="font-semibold underline">
+              <Link href="/owner/purchases" className="tap inline-flex items-center font-semibold underline">
                 {t('costSetup.recordPurchase')}
               </Link>
             </li>
-            <li className="flex flex-wrap items-center gap-2">
+            <li className="flex flex-wrap items-center gap-x-2">
               <span>{t('expense.unpaidHint')}</span>
-              <Link href="/owner/expenses" className="font-semibold underline">
+              <Link href="/owner/expenses" className="tap inline-flex items-center font-semibold underline">
                 {t('expense.new')}
               </Link>
             </li>
-            <li className="flex flex-wrap items-center gap-2">
+            <li className="flex flex-wrap items-center gap-x-2">
               <span>{t('payee.manualHelp')}</span>
               <button
                 type="button"
                 onClick={() => setManual(true)}
-                className="font-semibold underline"
+                className="tap inline-flex items-center font-semibold underline"
               >
                 {t('payee.manualEntry')}
               </button>
@@ -303,7 +264,7 @@ export default function PayeeDetailPage({ params }: { params: Promise<{ id: stri
 
       {/* --- the numbers. The one the system worked out explains itself. --- */}
 
-      <div className="mb-5 grid gap-4 sm:grid-cols-3">
+      <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4">
         {/*
          * A due is not typed by anybody: it is every entry in the খাতা added up.
          * So it is the one figure here that carries its working, the way
@@ -312,28 +273,31 @@ export default function PayeeDetailPage({ params }: { params: Promise<{ id: stri
          * No `delta`: there is no prior-period due in the API, and inventing one
          * would be a number somebody pays money against.
          */}
-        <ExplainedStat
-          label={state.label}
-          value={<span className={inkOf(state.tone)}>{state.value}</span>}
-          hint={state.hint}
-          onWhy={() => setWhyDue(true)}
-        />
+        <div className="col-span-2 sm:col-span-1">
+          <ExplainedStat
+            label={state.label}
+            value={<span className={state.ink}>{state.value}</span>}
+            hint={state.hint}
+            onWhy={() => setWhyDue(true)}
+          />
+        </div>
         <Stat
           icon={ShoppingBasket}
           label={t('payee.purchases')}
-          value={formatNumber(purchases.length)}
-          href="/owner/purchases"
+          value={formatNumber(purchaseCount)}
+          hint={t('payee.purchaseCountHint')}
+          href={purchasesHref}
         />
         <Stat
           icon={Receipt}
           label={t('payee.ledger')}
           value={formatNumber(entryTotal)}
-          hint={t('payee.dueHint')}
+          hint={t('payee.ledgerCountHint')}
         />
       </div>
 
       <div className="grid gap-5 lg:grid-cols-2">
-        <Card>
+        <Card className="p-4 sm:p-6">
           <CardHeader title={t('payee.ledger')} />
 
           {ledger.isLoading && <ListSkeleton rows={4} />}
@@ -349,12 +313,9 @@ export default function PayeeDetailPage({ params }: { params: Promise<{ id: stri
           {/* Empty, and the way out of empty. Nothing here says "কিছু নেই". */}
           {ledger.data && entries.length === 0 && (
             <div className="text-sm">
-              <p className="mb-2 text-muted-foreground">{t('payee.ledgerEmpty')}</p>
-              <p className="mb-2 text-muted-foreground">{t('costSetup.thenPurchase')}</p>
-              <Link
-                href="/owner/purchases"
-                className="font-semibold text-primary-ink underline"
-              >
+              <p className="mb-1 text-muted-foreground">{t('payee.ledgerEmpty')}</p>
+              <p className="text-muted-foreground">{t('costSetup.thenPurchase')}</p>
+              <Link href="/owner/purchases" className="tap inline-flex items-center font-semibold text-primary-ink underline">
                 {t('costSetup.recordPurchase')}
               </Link>
             </div>
@@ -363,61 +324,15 @@ export default function PayeeDetailPage({ params }: { params: Promise<{ id: stri
           {entries.length > 0 && (
             <>
               <ul className="-my-1 divide-y divide-border">
-                {entries.map((entry) => {
-                  const href = refHref(entry);
-                  return (
-                    <li
-                      key={entry.id}
-                      /* A reversal is muted: the original row is never edited, so
-                       * both stay, and the one that cancels should not shout as
-                       * loudly. */
-                      className={cn(
-                        'flex items-start justify-between gap-3 py-2.5',
-                        entry.reversalOf && 'opacity-60'
-                      )}
-                    >
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          {href ? (
-                            <Link
-                              href={href}
-                              className="truncate text-sm font-semibold text-primary-ink hover:underline"
-                            >
-                              {tPayeeLedgerKind(entry.kind)}
-                            </Link>
-                          ) : (
-                            <span className="truncate text-sm font-semibold">
-                              {tPayeeLedgerKind(entry.kind)}
-                            </span>
-                          )}
-                          {entry.reversalOf && <Badge>{tPayeeLedgerKind('REVERSAL')}</Badge>}
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                          {formatDateTime(entry.createdAt)}
-                        </p>
-                        {entry.note && (
-                          <p className="mt-0.5 break-words text-xs text-muted-foreground">
-                            {entry.note}
-                          </p>
-                        )}
-                      </div>
-                      <div className="shrink-0 text-right">
-                        {/* Positive increased what we owe. */}
-                        <p
-                          className={cn(
-                            'tabular font-semibold',
-                            entry.amount < 0 ? 'text-success-ink' : 'text-warning-ink'
-                          )}
-                        >
-                          {formatSignedMoney(entry.amount)}
-                        </p>
-                        <p className="tabular text-xs text-muted-foreground">
-                          {runningText(entry.dueAfter)}
-                        </p>
-                      </div>
-                    </li>
-                  );
-                })}
+                {entries.map((entry) => (
+                  <LedgerRow
+                    key={entry.id}
+                    entry={entry}
+                    purchasesHref={purchasesHref}
+                    expensesHref={expensesHref}
+                    onReverse={!archived && canReverse(entry) ? () => setReversing(entry) : undefined}
+                  />
+                ))}
               </ul>
 
               <LoadMore
@@ -433,106 +348,282 @@ export default function PayeeDetailPage({ params }: { params: Promise<{ id: stri
           )}
         </Card>
 
-        <div className="grid gap-5">
-          <Card>
+        <div className="grid content-start gap-5">
+          <Card className="p-4 sm:p-6">
             <CardHeader
-              title={t('payee.purchases')}
+              title={t('payee.recentPurchases')}
               subtitle={t('purchase.landedHint')}
-              href="/owner/purchases"
-              hrefLabel={t('nav.purchases')}
+              href={purchasesHref}
+              hrefLabel={t('app.viewAll')}
             />
             {purchases.length === 0 ? (
               <div className="text-sm">
-                <p className="mb-2 text-muted-foreground">{t('costSetup.noPurchaseYet')}</p>
-                <Link href="/owner/purchases" className="font-semibold text-primary-ink underline">
+                <p className="text-muted-foreground">{t('costSetup.noPurchaseYet')}</p>
+                <Link href="/owner/purchases" className="tap inline-flex items-center font-semibold text-primary-ink underline">
                   {t('costSetup.recordPurchase')}
                 </Link>
               </div>
             ) : (
-              <ul className="-my-1 divide-y divide-border">
-                {purchases.map((purchase) => (
-                  <li key={purchase.id} className="flex items-start justify-between gap-3 py-2.5">
-                    <div className="min-w-0">
+              <>
+                <ul className="-my-1 divide-y divide-border">
+                  {purchases.map((purchase) => (
+                    <li key={purchase.id}>
                       <Link
-                        href="/owner/purchases"
-                        className="tabular block truncate font-semibold text-primary-ink hover:underline"
+                        href={purchasesHref}
+                        className="flex items-start justify-between gap-3 py-2.5 hover:bg-muted/40"
                       >
-                        {purchase.purchaseCode}
+                        <span className="min-w-0">
+                          <span
+                            className={cn(
+                              'tabular block truncate font-semibold text-primary-ink',
+                              purchase.status === 'cancelled' && 'line-through'
+                            )}
+                          >
+                            {purchase.purchaseCode}
+                          </span>
+                          <span className="block text-xs text-muted-foreground">
+                            {formatDate(purchase.businessDate)}
+                          </span>
+                          {/* Only the exception is labelled: a received purchase is
+                            * the normal state and a badge on every row is noise. */}
+                          {purchase.status === 'cancelled' && (
+                            <Badge tone="danger" className="mt-1">
+                              {t('purchase.cancelled')}
+                            </Badge>
+                          )}
+                        </span>
+                        <span className="shrink-0 text-right">
+                          <span className="tabular block font-semibold">{formatMoney(purchase.payeeTotal)}</span>
+                          <span className="block text-xs text-muted-foreground">{t('purchase.payeeTotal')}</span>
+                        </span>
                       </Link>
-                      <p className="text-xs text-muted-foreground">
-                        {formatDate(purchase.businessDate)}
-                      </p>
-                      {/* Only the exception is labelled: a received purchase is
-                        * the normal state and a badge on every row is noise. */}
-                      {purchase.status === 'cancelled' && (
-                        <Badge tone="danger" className="mt-1">
-                          {t('purchase.cancelled')}
-                        </Badge>
-                      )}
-                    </div>
-                    <div className="shrink-0 text-right">
-                      <p className="tabular font-semibold">{formatMoney(purchase.payeeTotal)}</p>
-                      <p className="text-xs text-muted-foreground">{t('purchase.payeeTotal')}</p>
-                    </div>
-                  </li>
-                ))}
-              </ul>
+                    </li>
+                  ))}
+                </ul>
+                {purchaseCount > purchases.length && (
+                  <Link href={purchasesHref} className="tap mt-2 inline-flex items-center text-sm font-semibold text-primary-ink underline">
+                    {t('app.viewAll')} ({formatNumber(purchaseCount)})
+                  </Link>
+                )}
+              </>
             )}
           </Card>
 
-          <Card>
+          <Card className="p-4 sm:p-6">
             <CardHeader
-              title={t('payee.expenses')}
+              title={t('payee.recentExpenses')}
               subtitle={t('expense.unpaidHint')}
-              href="/owner/expenses"
-              hrefLabel={t('nav.expenses')}
+              href={expensesHref}
+              hrefLabel={t('app.viewAll')}
             />
             {expenses.length === 0 ? (
               <div className="text-sm">
-                <p className="mb-2 text-muted-foreground">{t('expense.help')}</p>
-                <Link href="/owner/expenses" className="font-semibold text-primary-ink underline">
+                <p className="text-muted-foreground">{t('expense.help')}</p>
+                <Link href="/owner/expenses" className="tap inline-flex items-center font-semibold text-primary-ink underline">
                   {t('expense.new')}
                 </Link>
               </div>
             ) : (
-              <ul className="-my-1 divide-y divide-border">
-                {expenses.map((expense) => (
-                  <li key={expense.id} className="flex items-start justify-between gap-3 py-2.5">
-                    <div className="min-w-0">
-                      <Link
-                        href="/owner/expenses"
-                        className="block truncate font-semibold text-primary-ink hover:underline"
-                      >
-                        {expense.categoryNameBn}
-                      </Link>
-                      <p className="text-xs text-muted-foreground">
-                        {formatDate(expense.businessDate)}
-                      </p>
-                    </div>
-                    <div className="shrink-0 text-right">
-                      <p className="tabular font-semibold">{formatMoney(expense.amount)}</p>
-                      <Badge tone={expense.paymentStatus === 'paid' ? 'success' : 'warning'}>
-                        {expense.paymentStatus === 'paid' ? t('expense.paid') : t('expense.unpaid')}
-                      </Badge>
-                    </div>
-                  </li>
-                ))}
-              </ul>
+              <>
+                <ul className="-my-1 divide-y divide-border">
+                  {expenses.map((expense) => (
+                    <li key={expense.id} className="flex items-start justify-between gap-3 py-2.5">
+                      <div className="min-w-0">
+                        <Link
+                          href={expensesHref}
+                          className="block truncate font-semibold text-primary-ink hover:underline"
+                        >
+                          {expense.categoryNameBn}
+                        </Link>
+                        <p className="text-xs text-muted-foreground">{formatDate(expense.businessDate)}</p>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <p className="tabular font-semibold">{formatMoney(expense.amount)}</p>
+                        <Badge tone={expense.paymentStatus === 'paid' ? 'success' : 'warning'}>
+                          {expense.paymentStatus === 'paid' ? t('expense.paid') : t('expense.unpaid')}
+                        </Badge>
+                        {/* Settled from here too: this is where the owner sees what is still owed. */}
+                        {expense.paymentStatus === 'unpaid' && !archived && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="mt-1.5 flex"
+                            onClick={() =>
+                              setMarkingPaid({
+                                id: expense.id,
+                                categoryNameBn: expense.categoryNameBn,
+                                amount: expense.amount,
+                                payeeNameBn: payee.nameBn,
+                              })
+                            }
+                          >
+                            {t('expense.paid')}
+                          </Button>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+                {expenseCount > expenses.length && (
+                  <Link href={expensesHref} className="tap mt-2 inline-flex items-center text-sm font-semibold text-primary-ink underline">
+                    {t('app.viewAll')} ({formatNumber(expenseCount)})
+                  </Link>
+                )}
+              </>
             )}
           </Card>
         </div>
       </div>
 
-      <DueWhyModal
-        open={whyDue}
-        onClose={() => setWhyDue(false)}
-        entries={entries}
-        total={entryTotal}
-        due={payee.due}
-      />
-      {paying && <PayModal payee={payee} onClose={() => setPaying(false)} />}
+      {whyDue && (
+        <DueWhyModal
+          onClose={() => setWhyDue(false)}
+          entries={entries}
+          total={entryTotal}
+          due={payee.due}
+        />
+      )}
+      {paying && <PaySheet payee={payee} onClose={() => setPaying(false)} />}
       {manual && <ManualEntryModal payee={payee} onClose={() => setManual(false)} />}
+      {markingPaid && <MarkPaidSheet expense={markingPaid} onClose={() => setMarkingPaid(null)} />}
+
+      {reversing && (
+        <ConfirmSheet
+          title={t('payee.reverseTitle')}
+          confirmLabel={t('payee.reverseVerb')}
+          tone="danger"
+          onClose={() => setReversing(null)}
+          onConfirm={async (reason) => {
+            await reverse({ id: payee.id, entryId: reversing.id, reason }).unwrap();
+            toast(t('payee.reversedToast'));
+          }}
+          summary={
+            <>
+              <p className="font-semibold">
+                {tPayeeLedgerKind(reversing.kind)} · {dayOf(reversing)}
+              </p>
+              {reversing.note && <p className="text-xs text-muted-foreground">{reversing.note}</p>}
+            </>
+          }
+          rows={[
+            { label: t('expense.amount'), value: formatSignedMoney(reversing.amount), strong: true },
+            { label: t('app.before'), value: state.value },
+            { label: t('app.after'), value: runningText(payee.due - reversing.amount) },
+          ]}
+          consequences={[
+            t('payee.reverseKeep'),
+            // Only a payment can have settled an expense; the API reopens it.
+            ...(reversing.kind === 'PAYMENT' && reversing.refType === 'payment' && reversing.refId
+              ? [t('payee.reverseExpense')]
+              : []),
+          ]}
+          reason={{
+            required: true,
+            minLength: 3,
+            presets: [
+              t('payee.reversePresetAmount'),
+              t('payee.reversePresetPayee'),
+              t('payee.reversePresetTwice'),
+            ],
+          }}
+        />
+      )}
     </>
+  );
+}
+
+/**
+ * One line of the খাতা: what happened, on which day, what it points at, and
+ * where the balance stood after it.
+ */
+function LedgerRow({
+  entry,
+  purchasesHref,
+  expensesHref,
+  onReverse,
+}: {
+  entry: PayeeLedgerRow;
+  purchasesHref: Route;
+  expensesHref: Route;
+  onReverse?: () => void;
+}) {
+  const reference = entry.reference;
+  const href = reference
+    ? reference.type === 'purchase'
+      ? purchasesHref
+      : expensesHref
+    : entry.refType === 'purchase'
+      ? purchasesHref
+      : entry.refType === 'expense'
+        ? expensesHref
+        : null;
+  // Both halves of a reversal stay in the book; neither should shout.
+  const quiet = Boolean(entry.reversalOf || entry.reversedBy);
+
+  return (
+    <li className={cn('flex items-start justify-between gap-3 py-2.5', quiet && 'opacity-70')}>
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-sm font-semibold">{tPayeeLedgerKind(entry.kind)}</span>
+          {entry.reversedBy && <Badge>{t('payee.reversedBadge')}</Badge>}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {dayOf(entry)}
+          {reference && (
+            <>
+              {' · '}
+              {href ? (
+                <Link
+                  href={href}
+                  className={cn(
+                    'font-semibold text-primary-ink underline',
+                    reference.cancelled && 'line-through'
+                  )}
+                >
+                  {reference.label}
+                </Link>
+              ) : (
+                reference.label
+              )}
+              {reference.cancelled && ` · ${t('purchase.cancelled')}`}
+            </>
+          )}
+          {!reference && href && (
+            <>
+              {' · '}
+              <Link href={href} className="font-semibold text-primary-ink underline">
+                {t('app.details')}
+              </Link>
+            </>
+          )}
+        </p>
+        {entry.note && (
+          <p className="mt-0.5 break-words text-xs text-muted-foreground">{entry.note}</p>
+        )}
+        {onReverse && (
+          <button
+            type="button"
+            onClick={onReverse}
+            className="tap -ml-1 mt-0.5 inline-flex items-center gap-1 rounded-md px-1 text-xs font-semibold text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <Undo2 aria-hidden className="h-3.5 w-3.5" />
+            {t('payee.reverse')}
+          </button>
+        )}
+      </div>
+      <div className="shrink-0 text-right">
+        {/* Positive increased what we owe. */}
+        <p
+          className={cn(
+            'tabular font-semibold',
+            entry.amount < 0 ? 'text-success-ink' : 'text-warning-ink'
+          )}
+        >
+          {formatSignedMoney(entry.amount)}
+        </p>
+        <p className="tabular text-xs text-muted-foreground">{runningText(entry.dueAfter)}</p>
+      </div>
+    </li>
   );
 }
 
@@ -586,30 +677,30 @@ function WhyLine({
  *
  * A due is the only figure on this screen nobody typed: it is every entry in the
  * খাতা added up, and the owner checking it is usually holding a paper slip that
- * says something else. So the working is laid out oldest first, each entry with
- * what it did to the balance and where the balance stood afterwards, ending on
- * the figure printed on the screen behind this sheet.
+ * says something else. So the working starts from where the balance stood before
+ * the oldest loaded entry, then lists each entry with what it did and where the
+ * balance stood afterwards, ending on the figure printed on the screen behind.
+ * Without that first line, a খাতা with more pages than are loaded added up to
+ * a different number and read as a mistake.
  *
  * Not a tooltip. This is arithmetic somebody wants to sit and follow on a phone.
  */
 function DueWhyModal({
-  open,
   onClose,
   entries,
   total,
   due,
 }: {
-  open: boolean;
   onClose: () => void;
-  entries: PayeeLedgerEntry[];
+  entries: PayeeLedgerRow[];
   total: number;
   due: number;
 }) {
-  if (!open) return null;
-
-  const state = stateOf(due);
+  const state = payeeState(due);
   // The API sends the খাতা newest first; the working reads the other way.
   const oldestFirst = [...entries].reverse();
+  const oldest = oldestFirst[0];
+  const opening = oldest ? oldest.dueAfter - oldest.amount : 0;
 
   return (
     <Modal
@@ -635,16 +726,18 @@ function DueWhyModal({
             </p>
           )}
 
+          <WhyLine label={t('payee.openingLine')} value={runningText(opening)} muted />
+
           {oldestFirst.map((entry) => (
             <WhyLine
               key={entry.id}
               label={tPayeeLedgerKind(entry.kind)}
-              note={formatDateTime(entry.createdAt)}
+              note={[dayOf(entry), entry.reference?.label].filter(Boolean).join(' · ')}
               value={formatSignedMoney(entry.amount)}
               running={runningText(entry.dueAfter)}
-              // A cancelled row is still in the book and still in this sum, but
+              // A taken-back row is still in the book and still in this sum, but
               // it is greyed so the pair reads as one another's opposite.
-              muted={Boolean(entry.reversalOf)}
+              muted={Boolean(entry.reversalOf || entry.reversedBy)}
             />
           ))}
 
@@ -655,133 +748,19 @@ function DueWhyModal({
   );
 }
 
-/* ----------------------------------------------------------------- paying -- */
-
-/**
- * After a payment or a hand entry, both the list and this record are stale.
- * Keyed by prefix, so the paged ledger under `['owner','payee',id,'ledger']`
- * goes with it.
- */
-function useAfterEntry(payeeId: string, onDone: () => void) {
-  const queryClient = useQueryClient();
-  return async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['owner', 'payees'] }),
-      queryClient.invalidateQueries({ queryKey: ['owner', 'payee', payeeId] }),
-    ]);
-    onDone();
-  };
-}
-
-function PayModal({ payee, onClose }: { payee: Payee; onClose: () => void }) {
-  const [amount, setAmount] = useState('');
-  const [paidFrom, setPaidFrom] = useState<string>('cash');
-  const [note, setNote] = useState('');
-
-  /*
-   * One key per opening of this sheet, not per click. A double tap, or a retry
-   * after a timeout that actually went through, reuses it and the API refuses
-   * the second write rather than paying the man twice. Reopening the sheet is
-   * how a deliberate second payment is made.
-   */
-  const [nonce] = useState(() => crypto.randomUUID());
-
-  const done = useAfterEntry(payee.id, onClose);
-
-  const pay = useMutation({
-    mutationFn: (value: number) =>
-      api.post(`/owner/payees/${payee.id}/payments`, {
-        amount: value,
-        nonce,
-        paidFrom,
-        ...(note.trim() ? { note: note.trim() } : {}),
-      }),
-    onSuccess: done,
-  });
-
-  const check = checkMoney(amount);
-  const errors = fieldErrors(pay.error);
-
-  /*
-   * No ceiling on the amount. Overpaying is legitimate in this trade — it
-   * becomes an advance (বায়না) — and the API never refuses it, so the form must
-   * not either. See docs/adr/0025.
-   */
-  const preview = check.ok ? payee.due - check.value : payee.due;
-  const state = stateOf(payee.due);
-
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      title={t('payee.pay')}
-      dirty={amount.trim().length > 0 || note.trim().length > 0}
-      footerLead={
-        check.ok ? (
-          <p className="tabular text-sm text-muted-foreground">{runningText(preview)}</p>
-        ) : undefined
-      }
-      footer={
-        <>
-          <Button variant="outline" onClick={onClose}>
-            {t('app.cancel')}
-          </Button>
-          <Button
-            loading={pay.isPending}
-            disabled={!check.ok}
-            onClick={() => check.ok && pay.mutate(check.value)}
-          >
-            {t('payee.pay')}
-          </Button>
-        </>
-      }
-    >
-      {pay.error && !Object.keys(errors).length && (
-        <Alert tone="danger">{errorMessage(pay.error)}</Alert>
-      )}
-
-      <p className="mb-4 text-sm text-muted-foreground">
-        {payee.nameBn} · {state.label}{' '}
-        <span className={cn('tabular font-semibold', inkOf(state.tone))}>{state.value}</span>
-      </p>
-
-      <Field
-        label={t('payee.payAmount')}
-        htmlFor="amount"
-        error={errors.amount ?? moneyError(amount)}
-        required
-      >
-        <MoneyInput id="amount" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus />
-      </Field>
-
-      {/* A label, not an account: there is no cash book. See PLAN-3 decision 20. */}
-      <Field label={t('payee.paidFrom')} htmlFor="paidFrom" error={errors.paidFrom}>
-        <Select id="paidFrom" value={paidFrom} onChange={(e) => setPaidFrom(e.target.value)}>
-          {PAID_FROM.map((method) => (
-            <option key={method} value={method}>
-              {tPaidFrom(method)}
-            </option>
-          ))}
-        </Select>
-      </Field>
-
-      <Field label={t('app.notes')} htmlFor="note" hint={t('app.optional')} error={errors.note}>
-        <Textarea id="note" rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
-      </Field>
-    </Modal>
-  );
-}
-
 /* ----------------------------------------------------------- manual entry -- */
 
 function ManualEntryModal({ payee, onClose }: { payee: Payee; onClose: () => void }) {
+  const toast = useToast();
   const [kind, setKind] = useState<ManualKind>('OPENING');
   const [direction, setDirection] = useState<'more' | 'less'>('more');
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
+  const [tried, setTried] = useState(false);
   const [nonce] = useState(() => crypto.randomUUID());
 
-  const done = useAfterEntry(payee.id, onClose);
+  const [post, postState] = usePostPayeeLedgerEntryMutation();
+  const errors = fieldErrors(postState.error);
 
   const check = checkMoney(amount);
 
@@ -796,19 +775,30 @@ function ManualEntryModal({ payee, onClose }: { payee: Payee; onClose: () => voi
       ? -check.value
       : check.value;
 
-  const post = useMutation({
-    mutationFn: () =>
-      api.post(`/owner/payees/${payee.id}/ledger`, {
+  const preview = payee.due + signed;
+
+  const save = async () => {
+    setTried(true);
+    if (!check.ok) {
+      requestAnimationFrame(() => focusFirstInvalid(document.getElementById('manual-form')));
+      return;
+    }
+    try {
+      await post({
+        id: payee.id,
         kind,
         amount: signed,
         nonce,
         ...(note.trim() ? { note: note.trim() } : {}),
-      }),
-    onSuccess: done,
-  });
+      }).unwrap();
+      toast(t('payee.entryToast'));
+      onClose();
+    } catch {
+      // Shown inline.
+    }
+  };
 
-  const errors = fieldErrors(post.error);
-  const preview = payee.due + signed;
+  const amountError = errors.amount ?? (tried || amount ? moneyError(amount) : undefined);
 
   return (
     <Modal
@@ -817,81 +807,73 @@ function ManualEntryModal({ payee, onClose }: { payee: Payee; onClose: () => voi
       title={t('payee.manualEntry')}
       dirty={amount.trim().length > 0 || note.trim().length > 0}
       footerLead={
-        check.ok ? (
-          <p className="tabular text-sm text-muted-foreground">
-            {formatSignedMoney(signed)} · {runningText(preview)}
-          </p>
-        ) : undefined
+        <>
+          <FormErrorSummary
+            message={postState.error && !Object.keys(errors).length ? errorMessage(postState.error) : null}
+          />
+          {check.ok && (
+            <p className="tabular text-sm text-muted-foreground">
+              {formatSignedMoney(signed)} · {runningText(preview)}
+            </p>
+          )}
+        </>
       }
       footer={
         <>
-          <Button variant="outline" onClick={onClose}>
-            {t('app.cancel')}
-          </Button>
-          <Button loading={post.isPending} disabled={!check.ok} onClick={() => post.mutate()}>
+          <ModalCancel />
+          <Button loading={postState.isLoading} onClick={save}>
             {t('app.save')}
           </Button>
         </>
       }
     >
-      {post.error && !Object.keys(errors).length && (
-        <Alert tone="danger">{errorMessage(post.error)}</Alert>
-      )}
+      <div id="manual-form">
+        <p className="mb-4 text-sm text-muted-foreground">{t('payee.manualHelp')}</p>
 
-      <p className="mb-4 text-sm text-muted-foreground">{t('payee.manualHelp')}</p>
+        <Field label={t('supply.adjustKind')} htmlFor="manual-kind" error={errors.kind}>
+          <Select id="manual-kind" value={kind} onChange={(e) => setKind(e.target.value as ManualKind)}>
+            {MANUAL_KINDS.map((option) => (
+              <option key={option} value={option}>
+                {tPayeeLedgerKind(option)}
+              </option>
+            ))}
+          </Select>
+        </Field>
 
-      <Field label={t('supply.adjustKind')} htmlFor="kind" error={errors.kind}>
-        <Select id="kind" value={kind} onChange={(e) => setKind(e.target.value as ManualKind)}>
-          {MANUAL_KINDS.map((option) => (
-            <option key={option} value={option}>
-              {tPayeeLedgerKind(option)}
-            </option>
-          ))}
-        </Select>
-      </Field>
-
-      <Field
-        label={t('payee.payAmount')}
-        htmlFor="manual-amount"
-        error={errors.amount ?? moneyError(amount)}
-        required
-      >
-        <MoneyInput
-          id="manual-amount"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-          autoFocus
-        />
-      </Field>
-
-      {/*
-       * Which way it moves, in the payee's own words, with the resulting figure
-       * spelled out under the footer. Not `ledger.manualCredit`/`manualDebit`:
-       * those say "ব্যালেন্স" — a reseller wallet, which runs the other way and is
-       * exactly the confusion docs/adr/0025 exists to prevent.
-       */}
-      {kind !== 'DISCOUNT' && (
-        <Field label={t('ledger.direction')} error={errors.amount}>
-          <Segmented
-            label={t('ledger.direction')}
-            value={direction}
-            onChange={setDirection}
-            options={[
-              { value: 'more', label: t('payee.dueUp') },
-              { value: 'less', label: t('payee.dueDown') },
-            ]}
+        <Field label={t('payee.payAmount')} htmlFor="manual-amount" error={amountError} required>
+          <MoneyInput
+            id="manual-amount"
+            value={amount}
+            invalid={Boolean(amountError)}
+            onChange={(e) => setAmount(e.target.value)}
+            autoFocus
           />
         </Field>
-      )}
 
-      <Field label={t('app.notes')} htmlFor="manual-note" hint={t('app.optional')} error={errors.note}>
-        <Textarea
-          id="manual-note"
-          rows={2}
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-        />
-      </Field>
+        {/*
+         * Which way it moves, in the payee's own words, with the resulting figure
+         * spelled out under the footer. Not `ledger.manualCredit`/`manualDebit`:
+         * those say "ব্যালেন্স" — a reseller wallet, which runs the other way and is
+         * exactly the confusion docs/adr/0025 exists to prevent.
+         */}
+        {kind !== 'DISCOUNT' && (
+          <Field label={t('payee.directionQuestion')}>
+            <Segmented
+              label={t('payee.directionQuestion')}
+              value={direction}
+              onChange={setDirection}
+              options={[
+                { value: 'more', label: t('payee.dueUp') },
+                { value: 'less', label: t('payee.dueDown') },
+              ]}
+            />
+          </Field>
+        )}
+
+        <Field label={t('app.notes')} htmlFor="manual-note" hint={t('app.optional')} error={errors.note}>
+          <Textarea id="manual-note" rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
+        </Field>
+      </div>
     </Modal>
   );
 }

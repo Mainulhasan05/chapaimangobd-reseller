@@ -15,7 +15,13 @@ const ResellerProfile = require('../src/models/ResellerProfile');
 const smsService = require('../src/services/sms');
 const { drainOnce } = require('../src/services/outbox');
 const { updateSettings } = require('../src/services/settings');
-const { EVENT_TYPE, NOTIFICATION_CHANNEL, SMS_STATUS } = require('../src/domain/constants');
+const {
+  EVENT_TYPE,
+  NOTIFICATION_CHANNEL,
+  SMS_STATUS,
+  SMS_PURPOSE,
+  SMS_PAYER,
+} = require('../src/domain/constants');
 
 /**
  * The rules that cost money, and the record that proves they were followed.
@@ -380,4 +386,86 @@ test('an attempt with nothing to send still leaves a row saying so', async () =>
   assert.ok(await SmsLog.findOne({ blockedReason: 'empty_text' }), 'the empty attempt is recorded');
 
   assert.equal(gatewayCalls.length, 0);
+});
+
+/* ------------------------------------------------------ resend and spend -- */
+
+test('a sign-in code and a test are never resent, and the log row says so', async () => {
+  const owner = await f.makeOwner();
+  const agent = await signIn(owner);
+  const { user } = await f.makeReseller();
+
+  await smsService.send({
+    phoneE164: user.phoneE164,
+    text: 'Your code is 482913',
+    logText: 'Your code is ******',
+    purpose: SMS_PURPOSE.OTP,
+    payer: SMS_PAYER.OWNER,
+  });
+  await smsService.send({
+    phoneE164: user.phoneE164,
+    text: 'Gateway check',
+    purpose: SMS_PURPOSE.TEST,
+    ignoreFeatureFlag: true,
+  });
+  await smsService.send({ phoneE164: user.phoneE164, text: 'Order shipped' });
+  const sentBefore = gatewayCalls.length;
+
+  const logs = (await agent.get('/api/owner/sms/logs')).body.data.logs;
+  const byPurpose = Object.fromEntries(logs.map((l) => [l.purpose, l]));
+  assert.equal(byPurpose.otp.resendable, false);
+  assert.equal(byPurpose.test.resendable, false);
+  assert.equal(byPurpose.notification.resendable, true);
+
+  for (const purpose of ['otp', 'test']) {
+    // eslint-disable-next-line no-await-in-loop
+    const res = await agent.post(`/api/owner/sms/logs/${byPurpose[purpose].id}/resend`);
+    assert.equal(res.status, 409, `${purpose} answered ${res.status}`);
+    assert.equal(res.body.error.code, 'SMS_NOT_RESENDABLE');
+  }
+  // Six asterisks never went to anybody's phone.
+  assert.equal(gatewayCalls.length, sentBefore);
+  assert.equal(await SmsLog.countDocuments({}), 3);
+
+  // An ordinary message still resends, as its own new row.
+  const again = await agent.post(`/api/owner/sms/logs/${byPurpose.notification.id}/resend`);
+  assert.equal(again.status, 200);
+  assert.equal(gatewayCalls.length, sentBefore + 1);
+  assert.equal(await SmsLog.countDocuments({}), 4);
+});
+
+test('the overview gives the gateway balance its unit, and spend in taka only when priced', async () => {
+  const owner = await f.makeOwner();
+  const agent = await signIn(owner);
+  const { user } = await f.makeReseller();
+
+  // One single-segment message and one three-segment one, both delivered.
+  await smsService.send({ phoneE164: user.phoneE164, text: 'Short' });
+  await smsService.send({ phoneE164: user.phoneE164, text: 'x'.repeat(400) });
+
+  // Automas answers the balance as a count of messages.
+  gatewayReply = { status: 200, body: JSON.stringify({ response: '104' }) };
+  const saved = env.SMS_COST_PER_SEGMENT_POISHA;
+  try {
+    env.SMS_COST_PER_SEGMENT_POISHA = undefined;
+    const unpriced = (await agent.get('/api/owner/sms/overview')).body.data;
+    assert.equal(unpriced.balance, 104);
+    assert.equal(unpriced.balanceUnit, 'sms');
+    assert.equal(unpriced.balanceLow, 104 < env.SMS_LOW_BALANCE);
+    assert.equal(unpriced.lowBalanceAt, env.SMS_LOW_BALANCE);
+    // No rate configured: no figure, rather than the reseller credit price passed
+    // off as what the owner paid.
+    assert.equal(unpriced.spent30d, null);
+    assert.equal(unpriced.costPerSegment, null);
+    const segments = unpriced.stats.segments;
+    assert.ok(segments >= 4, `expected at least 4 segments, got ${segments}`);
+
+    env.SMS_COST_PER_SEGMENT_POISHA = 35;
+    const priced = (await agent.get('/api/owner/sms/overview')).body.data;
+    assert.equal(priced.costPerSegment, 0.35);
+    assert.equal(priced.spent30d, (segments * 35) / 100);
+    assert.equal(priced.stats.sentToday, 2, "today is Dhaka's today");
+  } finally {
+    env.SMS_COST_PER_SEGMENT_POISHA = saved;
+  }
 });

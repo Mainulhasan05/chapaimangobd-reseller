@@ -5,7 +5,7 @@ import { Copy, ExternalLink, Share2 } from 'lucide-react';
 import { shareLink, copyText } from '@/lib/share';
 import { t } from '@/lib/i18n/bn';
 import { useToast } from '@/components/ui/toast';
-import { Button } from '@/components/ui/button';
+import { Button, ButtonLink } from '@/components/ui/button';
 import { Card, CardHeader } from '@/components/ui/layout';
 
 /**
@@ -93,12 +93,17 @@ export function ShareShopCard({ url, shopName }: { url: string; shopName?: strin
           {t('app.copy')}
         </Button>
 
-        <a href={url} target="_blank" rel="noreferrer" className="sm:shrink-0">
-          <Button variant="ghost" full>
-            <ExternalLink className="h-4 w-4" />
-            {t('shop.orderNow')}
-          </Button>
-        </a>
+        <ButtonLink
+          href={url}
+          target="_blank"
+          rel="noreferrer"
+          variant="ghost"
+          full
+          className="sm:w-auto sm:shrink-0"
+        >
+          <ExternalLink className="h-4 w-4" />
+          {t('shop.orderNow')}
+        </ButtonLink>
       </div>
     </Card>
   );

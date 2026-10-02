@@ -1,7 +1,6 @@
 'use client';
 
 import Link from 'next/link';
-import { useQuery } from '@tanstack/react-query';
 import {
   ChevronRight,
   ClipboardList,
@@ -10,12 +9,16 @@ import {
   ShoppingBag,
   TrendingUp,
 } from 'lucide-react';
-import { api } from '@/lib/api';
 import { useReadOnlyAccount, useSession } from '@/lib/session';
 import { t } from '@/lib/i18n/bn';
 import { kycBlocks } from '@/lib/kyc';
 import { formatMoney, formatNumber, formatAge } from '@/lib/format';
-import type { Order, Wallet, Paged } from '@/lib/types';
+import { LIVE } from '@/lib/store/api';
+import {
+  useGetResellerDailyStatsQuery,
+  useGetResellerOrdersInfiniteQuery,
+  useGetWalletQuery,
+} from '@/lib/store/endpoints/reseller';
 import {
   Badge,
   Card,
@@ -27,15 +30,13 @@ import {
   Stat,
   statusTone,
 } from '@/components/ui/layout';
-import { Button } from '@/components/ui/button';
+import { ButtonLink } from '@/components/ui/button';
 import { ListSkeleton, Skeleton } from '@/components/ui/skeleton';
 import { CountUp, Greeting, HeroCard, Meter } from '@/components/dashboard/metrics';
 import { TrendChart, type TrendPoint } from '@/components/dashboard/trend-chart';
 import { KycBanner } from '@/components/kyc-banner';
 import { ResellerOnboarding, UnpricedAlert } from '@/components/reseller-onboarding';
 import { ShareShopButton, useShopUrl } from '@/components/share-shop';
-
-type DailyStats = { days: { date: string; orders: number; margin: number }[] };
 
 /**
  * The reseller's morning screen.
@@ -56,30 +57,20 @@ export default function ResellerDashboard() {
   const profile = session?.profile;
   const shopUrl = useShopUrl(profile?.slug);
 
-  const wallet = useQuery({
-    queryKey: ['wallet'],
-    queryFn: () => api.get<{ wallet: Wallet }>('/reseller/wallet'),
-  });
+  const wallet = useGetWalletQuery();
 
-  const pending = useQuery({
-    queryKey: ['orders', 'pending'],
-    queryFn: () => api.get<Paged<'orders', Order>>('/reseller/orders?status=pending&limit=5'),
-    // New orders arrive without a page reload; push may never be delivered, so
-    // polling is what the badge actually relies on.
-    refetchInterval: 60_000,
-  });
+  // New orders arrive without a page reload; push may never be delivered, so
+  // polling is what the badge actually relies on. Same entry as the tab badge.
+  const pending = useGetResellerOrdersInfiniteQuery({ status: 'pending', limit: 5 }, LIVE);
+  const pendingOrders = pending.data?.pages[0]?.orders ?? [];
 
-  const stats = useQuery({
-    queryKey: ['stats', 'daily'],
-    queryFn: () => api.get<DailyStats>('/reseller/orders/stats/daily?days=7'),
-    // A week's shape does not change minute to minute.
-    staleTime: 5 * 60_000,
-  });
+  // A week's shape does not change minute to minute.
+  const stats = useGetResellerDailyStatsQuery({ days: 7 }, { refetchOnMountOrArgChange: 300 });
 
   const balance = wallet.data?.wallet.balance ?? 0;
   const owes = balance < 0;
   const creditLimit = wallet.data?.wallet.creditLimit ?? 0;
-  const pendingCount = pending.data?.total ?? 0;
+  const pendingCount = pending.data?.pages[0]?.total ?? 0;
 
   const points: TrendPoint[] =
     stats.data?.days.map((day) => ({ date: day.date, value: day.margin })) ?? [];
@@ -195,11 +186,9 @@ export default function ResellerDashboard() {
             <CardHeader
               title={t('order.pending')}
               action={
-                <Link href="/reseller/orders">
-                  <Button variant="outline" size="sm">
-                    {t('nav.orders')}
-                  </Button>
-                </Link>
+                <ButtonLink href="/reseller/orders" variant="outline" size="sm">
+                  {t('nav.orders')}
+                </ButtonLink>
               }
             />
 
@@ -213,22 +202,22 @@ export default function ResellerDashboard() {
               />
             )}
 
-            {pending.isSuccess && pending.data.orders.length === 0 && (
+            {pending.isSuccess && pendingOrders.length === 0 && (
               <EmptyState
                 icon={ClipboardList}
                 title={t('order.noOrders')}
                 description={t('shop.shareHelp')}
                 action={
-                  <Link href="/reseller/shop">
-                    <Button size="sm">{t('shop.yourLink')}</Button>
-                  </Link>
+                  <ButtonLink href="/reseller/shop" size="sm">
+                    {t('shop.yourLink')}
+                  </ButtonLink>
                 }
               />
             )}
 
-            {pending.isSuccess && pending.data.orders.length > 0 && (
+            {pending.isSuccess && pendingOrders.length > 0 && (
               <ul className="-my-1 divide-y divide-border">
-                {pending.data.orders.map((order) => (
+                {pendingOrders.map((order) => (
                   <li key={order.id}>
                     <Link
                       href={`/reseller/orders?open=${order.id}`}
@@ -296,17 +285,13 @@ export default function ResellerDashboard() {
           {!readOnly && (
             <Card>
               <div className="grid gap-2">
-                <Link href="/reseller/orders/new">
-                  <Button full>
-                    <Plus className="h-4 w-4" />
-                    {t('order.manualOrder')}
-                  </Button>
-                </Link>
-                <Link href="/reseller/wallet">
-                  <Button variant="outline" full>
-                    {t('wallet.depositRequest')}
-                  </Button>
-                </Link>
+                <ButtonLink href="/reseller/orders/new" full>
+                  <Plus className="h-4 w-4" />
+                  {t('order.manualOrder')}
+                </ButtonLink>
+                <ButtonLink href="/reseller/wallet" variant="outline" full>
+                  {t('wallet.depositRequest')}
+                </ButtonLink>
               </div>
             </Card>
           )}

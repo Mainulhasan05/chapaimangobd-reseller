@@ -1,7 +1,7 @@
 'use strict';
 
 const Order = require('../../models/Order');
-const { buildOrderFilter } = require('../../utils/orderFilter');
+const { buildOwnerOrderFilter } = require('../../utils/orderFilter');
 const orderService = require('../../services/orderService');
 const customerSms = require('../../services/customerSms');
 const { getSettings } = require('../../services/settings');
@@ -14,7 +14,10 @@ const present = require('../../utils/present');
 const packagingConsumption = require('../../services/packagingConsumption');
 const costing = require('../../services/costing');
 const { fromMilli } = require('../../utils/quantity');
-const { availableActions, assertDeliveryChargeEditable } = require('../../domain/orderStateMachine');
+const {
+  assertDeliveryChargeEditable,
+  assertCourierEditable,
+} = require('../../domain/orderStateMachine');
 const { ROLES, ORDER_STATUS } = require('../../domain/constants');
 
 /**
@@ -23,27 +26,54 @@ const { ROLES, ORDER_STATUS } = require('../../domain/constants');
  */
 async function filterFor(query) {
   const agingHours = query.aging ? (await getSettings()).orderAgingHours : undefined;
-  return buildOrderFilter(query, { agingHours });
+  return buildOwnerOrderFilter(query, { agingHours });
+}
+
+/**
+ * One page of orders, oldest first.
+ *
+ * "Oldest" means the longest the owner has had it: confirmed first, because
+ * that is when an order lands on the owner's desk, and created for an order
+ * nobody has confirmed yet. Mongo cannot sort a find by an expression, so the
+ * page is chosen by an aggregation and the documents are then read the normal
+ * way, which keeps the populate and the presentation identical to the default
+ * sort. The filter is cast first: an aggregation, unlike a find, does not turn
+ * a reseller id string into an ObjectId.
+ */
+async function oldestFirstPage(filter, { skip, limit }) {
+  const ids = await Order.aggregate([
+    { $match: Order.where().cast(Order, filter) },
+    { $addFields: { sortAt: { $ifNull: ['$confirmedAt', '$createdAt'] } } },
+    { $sort: { sortAt: 1, _id: 1 } },
+    { $skip: skip },
+    { $limit: limit },
+    { $project: { _id: 1 } },
+  ]);
+  const position = new Map(ids.map((row, i) => [String(row._id), i]));
+  const docs = await Order.find({ _id: { $in: ids.map((row) => row._id) } }).populate(
+    present.ownerResellerPopulate()
+  );
+  return docs.sort((a, b) => position.get(String(a._id)) - position.get(String(b._id)));
 }
 
 async function listOrders(req, res) {
-  const { page, limit } = req.query;
+  const { page, limit, sort } = req.query;
   const filter = await filterFor(req.query);
+  const skip = (page - 1) * limit;
 
   const [orders, total] = await Promise.all([
-    Order.find(filter)
-      .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(limit)
-      .populate('reseller', 'shopName slug'),
+    sort === 'oldest'
+      ? oldestFirstPage(filter, { skip, limit })
+      : Order.find(filter)
+          .sort({ createdAt: -1, _id: -1 })
+          .skip(skip)
+          .limit(limit)
+          .populate(present.ownerResellerPopulate()),
     Order.countDocuments(filter),
   ]);
 
   return ok(res, {
-    orders: orders.map((o) => ({
-      ...present.order(o),
-      actions: availableActions(o, ROLES.OWNER),
-    })),
+    orders: orders.map((o) => present.ownerOrder(o)),
     page,
     limit,
     total,
@@ -61,20 +91,26 @@ async function listOrders(req, res) {
  *
  * Cancelled and returned orders are counted but kept out of the money, because
  * the owner never billed for them; `byStatus` is where they are accounted for.
+ *
+ * `status` narrows the money and nothing else. The tabs are a status filter, and
+ * a money strip above the shipped tab that adds up every tab is a figure about
+ * orders the owner is not looking at; but the counts on the tabs themselves
+ * must still span every status, or each tab would show only its own number.
  */
 async function ordersSummary(req, res) {
-  // Status is what the tabs choose between, so the counts must span all of them.
   const { status, aging, ...rest } = req.query;
   const filter = await filterFor(rest);
+
+  const unbilled = [ORDER_STATUS.PENDING, ORDER_STATUS.CANCELLED, ORDER_STATUS.RETURNED];
+  const moneyStatus = status
+    ? { $in: String(status).split(',').filter((s) => !unbilled.includes(s)) }
+    : { $nin: unbilled };
 
   const [counts, money, agingCount] = await Promise.all([
     Order.aggregate([{ $match: filter }, { $group: { _id: '$status', count: { $sum: 1 } } }]),
     Order.aggregate([
       {
-        $match: {
-          ...filter,
-          status: { $nin: [ORDER_STATUS.PENDING, ORDER_STATUS.CANCELLED, ORDER_STATUS.RETURNED] },
-        },
+        $match: { ...filter, status: moneyStatus },
       },
       {
         $group: {
@@ -118,7 +154,7 @@ async function ordersSummary(req, res) {
 }
 
 async function getOrder(req, res) {
-  const order = await Order.findById(req.params.id).populate('reseller', 'shopName slug');
+  const order = await Order.findById(req.params.id).populate(present.ownerResellerPopulate());
   if (!order) throw notFound('Order not found');
 
   /*
@@ -131,7 +167,7 @@ async function getOrder(req, res) {
   const cost = await costing.costForOrder(order);
 
   return ok(res, {
-    order: present.orderFor(order, ROLES.OWNER),
+    order: present.ownerOrder(order),
     cost: {
       goods: toTaka(cost.goodsPoisha),
       packaging: toTaka(cost.packagingPoisha),
@@ -242,8 +278,8 @@ function transition(action) {
 
     // The same shape as GET /orders/:id, reseller and actions included, so the
     // order screen can take the response as its new copy without a refetch.
-    await order.populate('reseller', 'shopName slug');
-    return ok(res, { order: present.orderFor(order, ROLES.OWNER) });
+    await order.populate(present.ownerResellerPopulate());
+    return ok(res, { order: present.ownerOrder(order) });
   };
 }
 
@@ -319,15 +355,79 @@ async function overrideDeliveryCharge(req, res) {
     });
   }
 
-  await order.populate('reseller', 'shopName slug');
+  await order.populate(present.ownerResellerPopulate());
 
   return ok(res, {
-    order: present.orderFor(order, ROLES.OWNER),
+    order: present.ownerOrder(order),
     adjustment: entry ? present.ledgerEntry(entry) : null,
   });
 }
 
+/**
+ * Corrects the courier or the tracking number while the parcel is on its way.
+ * Answers with the order exactly as GET /orders/:id does.
+ */
+async function editCourier(req, res) {
+  const { courierName, trackingNumber } = req.body;
+  const { order, changed, before, after } = await orderService.editCourier({
+    orderId: req.params.id,
+    actorUser: req.user,
+    courierName,
+    trackingNumber,
+  });
+
+  if (changed.length > 0) {
+    await audit.record({
+      actor: req.user._id,
+      action: 'order.courier',
+      targetType: 'Order',
+      targetId: order._id,
+      before: { ...before, status: order.status },
+      after,
+      ip: req.ip,
+    });
+  }
+
+  await order.populate(present.ownerResellerPopulate());
+  return ok(res, {
+    order: present.ownerOrder(order),
+    changed: changed.map((field) => (field === 'name' ? 'courierName' : field)),
+  });
+}
+
+/** How many recently shipped parcels the courier list is read from. */
+const RECENT_SHIPMENTS = 200;
+
+/**
+ * The couriers the owner has actually used lately, most recent first, for the
+ * ship sheet to offer instead of a blank box. Read from what was written on the
+ * last parcels rather than kept as a list, because a list is one more thing to
+ * maintain and this one maintains itself. Spellings that differ only in case or
+ * spacing are one courier, shown as it was written most recently.
+ */
+async function recentCouriers(_req, res) {
+  const rows = await Order.find({ shippedAt: { $ne: null }, 'courier.name': { $nin: [null, ''] } })
+    .sort({ shippedAt: -1, _id: -1 })
+    .limit(RECENT_SHIPMENTS)
+    .select('courier.name')
+    .lean();
+
+  const seen = new Set();
+  const couriers = [];
+  rows.forEach((row) => {
+    const name = String(row.courier.name).trim().replace(/\s+/g, ' ');
+    const key = name.toLowerCase();
+    if (!name || seen.has(key)) return;
+    seen.add(key);
+    couriers.push(name);
+  });
+
+  return ok(res, { couriers });
+}
+
 module.exports = {
+  editCourier,
+  recentCouriers,
   packagingEstimate,
   listOrders,
   ordersSummary,

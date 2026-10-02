@@ -29,7 +29,7 @@ export default function ResellerOrderPage({ params }: { params: Promise<{ id: st
         {canConfirm && <Button onClick={() => setConfirming(order)}>{t('app.confirm')}</Button>}
         {canCancel && (
           <Button variant="outline" onClick={() => setCancelling(order)}>
-            {t('app.cancel')}
+            {t('order.cancelOrder')}
           </Button>
         )}
       </>
@@ -40,8 +40,18 @@ export default function ResellerOrderPage({ params }: { params: Promise<{ id: st
     <>
       <OrderPage scope="reseller" id={id} backHref="/reseller/orders" actions={actionsFor} />
 
-      <ConfirmOrderModal order={confirming} onClose={() => setConfirming(null)} />
-      <CancelOrderModal order={cancelling} scope="reseller" onClose={() => setCancelling(null)} />
+      {/* Mounted only while open, so a sheet never opens holding a previous attempt. */}
+      {confirming && (
+        <ConfirmOrderModal key={confirming.id} order={confirming} onClose={() => setConfirming(null)} />
+      )}
+      {cancelling && (
+        <CancelOrderModal
+          key={cancelling.id}
+          order={cancelling}
+          scope="reseller"
+          onClose={() => setCancelling(null)}
+        />
+      )}
     </>
   );
 }

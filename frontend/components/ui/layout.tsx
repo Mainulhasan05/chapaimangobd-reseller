@@ -1,6 +1,9 @@
+'use client';
+
 import Link from 'next/link';
 import type { Route } from 'next';
-import { ArrowDown, ArrowUp, ArrowUpRight } from 'lucide-react';
+import { useState } from 'react';
+import { ArrowDown, ArrowUp, ArrowUpRight, Check, Copy, Phone, SearchX } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n/bn';
 import { errorMessage, errorHint } from '@/lib/api';
@@ -72,7 +75,7 @@ export function CardHeader({
           <Link
             href={href}
             aria-label={hrefLabel ?? String(title)}
-            className="flex h-8 w-8 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            className="flex h-11 w-11 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground sm:h-9 sm:w-9"
           >
             <ArrowUpRight className="h-4 w-4" />
           </Link>
@@ -507,12 +510,26 @@ export function EmptyState({
   description,
   action,
   icon: Icon,
+  compact,
 }: {
   title: string;
   description?: string;
   action?: React.ReactNode;
   icon?: React.ComponentType<{ className?: string }>;
+  /**
+   * One quiet line instead of a boxed card, for an empty section inside a card
+   * that already has its own frame. A card in a card read as a broken layout.
+   */
+  compact?: boolean;
 }) {
+  if (compact) {
+    return (
+      <div className="flex flex-col items-start gap-2 py-3 text-sm text-muted-foreground">
+        <p>{title}</p>
+        {action}
+      </div>
+    );
+  }
   return (
     <div className="card flex flex-col items-center gap-2 px-6 py-14 text-center">
       {Icon && (
@@ -527,6 +544,43 @@ export function EmptyState({
       {description && <p className="max-w-sm text-sm text-muted-foreground">{description}</p>}
       {action && <div className="mt-2">{action}</div>}
     </div>
+  );
+}
+
+/**
+ * The empty state for a list a filter emptied.
+ *
+ * Distinct from a first-time empty state on purpose: "no orders yet" under an
+ * aging filter, or "record your first purchase" under an empty date range, told
+ * an owner with a full history that they had none. This says the filter is the
+ * reason and offers the one tap that undoes it.
+ */
+export function FilteredEmpty({
+  onClear,
+  title,
+  description,
+}: {
+  onClear?: () => void;
+  title?: string;
+  description?: string;
+}) {
+  return (
+    <EmptyState
+      icon={SearchX}
+      title={title ?? t('app.filteredEmpty')}
+      description={description ?? t('app.filteredEmptyHelp')}
+      action={
+        onClear ? (
+          <button
+            type="button"
+            onClick={onClear}
+            className="tap rounded-lg border border-input px-4 text-sm font-semibold hover:bg-muted"
+          >
+            {t('app.clearFilters')}
+          </button>
+        ) : undefined
+      }
+    />
   );
 }
 
@@ -565,7 +619,7 @@ export function Alert({
           type="button"
           onClick={onDismiss}
           aria-label={t('app.close')}
-          className="-m-1 shrink-0 rounded-md p-1 opacity-60 transition-opacity hover:opacity-100"
+          className="-my-2.5 -mr-2.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-md opacity-60 transition-opacity hover:opacity-100"
         >
           <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M3 3l10 10M13 3L3 13" strokeLinecap="round" />
@@ -639,10 +693,106 @@ export function ErrorState({
  * sheet, both put their totals and their submit button at the end of a long
  * scroll. On a phone that means committing to a number you cannot see.
  */
-export function StickyBar({ children }: { children: React.ReactNode }) {
+export function StickyBar({
+  children,
+  aboveNav,
+}: {
+  children: React.ReactNode;
+  /**
+   * Sits on top of the dashboard's bottom navigation instead of over it. Inside
+   * the app shell the bar used to cover the nav, so the only way off a half
+   * filled form was the browser's Back. The public shop page has no nav and
+   * leaves this off.
+   */
+  aboveNav?: boolean;
+}) {
   return (
-    <div className="elev-2 fixed inset-x-0 bottom-0 z-40 border-t border-border bg-surface/95 px-4 pt-3 pb-safe-3 backdrop-blur sm:static sm:border-0 sm:bg-transparent sm:px-0 sm:shadow-none sm:backdrop-blur-none">
+    <div
+      className={cn(
+        'elev-2 fixed inset-x-0 z-40 border-t border-border bg-surface/95 px-4 pt-3 backdrop-blur sm:static sm:border-0 sm:bg-transparent sm:px-0 sm:shadow-none sm:backdrop-blur-none',
+        // Above the nav, the nav already clears the home indicator.
+        aboveNav ? 'bottom-[calc(4rem+env(safe-area-inset-bottom))] pb-3' : 'bottom-0 pb-safe-3'
+      )}
+    >
       <div className="mx-auto max-w-2xl">{children}</div>
     </div>
+  );
+}
+
+/* ---------------------------------------------------------- small parts -- */
+
+/**
+ * A Bangladeshi phone number as something to tap.
+ *
+ * Numbers were plain text across the owner's screens, so calling a customer back
+ * meant retyping eleven digits from one app into another. Shown in the local
+ * `01…` form whatever the stored format, dialled with the country code.
+ */
+export function PhoneLink({
+  phone,
+  className,
+  showIcon = true,
+}: {
+  phone: string | null | undefined;
+  className?: string;
+  showIcon?: boolean;
+}) {
+  if (!phone) return null;
+  const digits = phone.replace(/\D/g, '');
+  const local = digits.startsWith('880') ? `0${digits.slice(3)}` : digits;
+  return (
+    <a
+      href={`tel:+88${local}`}
+      onClick={(event) => event.stopPropagation()}
+      className={cn(
+        'tabular inline-flex min-h-11 items-center gap-1.5 font-medium underline-offset-2 hover:underline sm:min-h-0',
+        className
+      )}
+    >
+      {showIcon && <Phone aria-hidden className="h-3.5 w-3.5 shrink-0" />}
+      {local}
+    </a>
+  );
+}
+
+/**
+ * Copies a value, for the numbers an owner pastes elsewhere: a bKash number to
+ * send money to, a tracking number for the courier's site.
+ */
+export function CopyButton({
+  value,
+  label,
+  onCopied,
+  className,
+}: {
+  value: string;
+  /** Names the button for a screen reader; the glyph alone says nothing. */
+  label?: string;
+  onCopied?: () => void;
+  className?: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      aria-label={label ?? t('app.copy')}
+      onClick={async (event) => {
+        event.stopPropagation();
+        try {
+          await navigator.clipboard.writeText(value);
+          setCopied(true);
+          onCopied?.();
+          setTimeout(() => setCopied(false), 1500);
+        } catch {
+          // A browser that refuses the clipboard leaves the value on screen to copy by hand.
+        }
+      }}
+      className={cn(
+        'inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground sm:h-8 sm:w-8',
+        className
+      )}
+    >
+      {copied ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4" />}
+    </button>
   );
 }

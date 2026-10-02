@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown, Search, X } from 'lucide-react';
 import { t } from '@/lib/i18n/bn';
+import { formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import {
   DISTRICTS,
@@ -219,19 +220,25 @@ export function DistrictMultiSelect({
   id,
   value,
   onChange,
+  taken,
+  invalid,
 }: {
   id: string;
   value: string[];
   onChange: (value: string[]) => void;
+  /**
+   * Districts another active zone already covers, keyed by lower-cased value,
+   * with that zone's name. They are listed, marked and cannot be ticked: the API
+   * refuses a district in two active zones, and finding that out only after
+   * Save, from a message that did not say which district, was the old way.
+   */
+  taken?: ReadonlyMap<string, string>;
+  invalid?: boolean;
 }) {
   const [term, setTerm] = useState('');
 
   const chosen = useMemo(() => new Set(value.map((d) => d.trim().toLowerCase())), [value]);
   const matches = useMemo(() => DISTRICTS.filter((d) => districtMatches(d, term)), [term]);
-
-  // Names on this zone that this list does not know. Written before the list
-  // existed, or typed by hand, and they still route real orders.
-  const unknown = value.filter((d) => !findDistrict(d));
 
   const toggle = (district: District) => {
     onChange(
@@ -241,8 +248,47 @@ export function DistrictMultiSelect({
     );
   };
 
+  const remove = (name: string) => onChange(value.filter((d) => d !== name));
+
   return (
     <div>
+      {/*
+       * What is chosen, as chips that each take a tap to drop. The list below
+       * scrolls, so a tick on row forty was invisible from the top of it, and
+       * the only summary was a count.
+       */}
+      <p className="mb-1.5 text-xs text-muted-foreground">
+        {t('district.selectedCount').replace('{n}', formatNumber(value.length))}
+      </p>
+      {value.length > 0 && (
+        <ul className="mb-2 flex flex-wrap gap-1.5">
+          {value.map((name) => {
+            // Names this list does not know were written before it existed, or
+            // typed by hand, and they still route real orders: kept and marked.
+            const known = Boolean(findDistrict(name));
+            return (
+              <li
+                key={name}
+                className={cn(
+                  'flex items-center rounded-full pl-3 text-sm font-medium',
+                  known ? 'bg-primary-softer text-primary-ink' : 'bg-warning-soft text-warning-ink'
+                )}
+              >
+                {districtLabel(name)}
+                <button
+                  type="button"
+                  aria-label={t('zones.removeDistrict').replace('{name}', districtLabel(name))}
+                  onClick={() => remove(name)}
+                  className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-foreground/10 sm:h-8 sm:w-8"
+                >
+                  <X aria-hidden className="h-3.5 w-3.5" />
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
       <Input
         id={id}
         value={term}
@@ -251,33 +297,10 @@ export function DistrictMultiSelect({
         icon={Search}
         autoComplete="off"
         className="mb-2"
+        invalid={invalid}
       />
 
-      <p className="mb-2 text-xs text-muted-foreground">
-        {t('district.selectedCount').replace('{n}', String(value.length))}
-      </p>
-
-      {unknown.length > 0 && (
-        <ul className="mb-2 flex flex-wrap gap-1.5">
-          {unknown.map((name) => (
-            <li
-              key={name}
-              className="flex items-center gap-1 rounded-full bg-warning-soft px-2.5 py-1 text-xs font-medium text-warning-ink"
-            >
-              {name}
-              <button
-                type="button"
-                aria-label={`${t('app.clear')} ${name}`}
-                onClick={() => onChange(value.filter((d) => d !== name))}
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <ul className="max-h-64 overflow-y-auto rounded-xl border-2 border-border">
+      <ul className="max-h-64 overflow-y-auto overscroll-contain rounded-xl border border-border">
         {matches.length === 0 && (
           <li className="px-3 py-6 text-center text-sm text-muted-foreground">
             {t('district.noMatch')}
@@ -286,19 +309,36 @@ export function DistrictMultiSelect({
 
         {matches.map((district) => {
           const isChosen = chosen.has(district.value.toLowerCase());
+          const takenBy = taken?.get(district.value.toLowerCase());
+          // A ticked district can always be unticked, even a taken one, so a
+          // clash the server reported can be undone right here.
+          const blocked = Boolean(takenBy) && !isChosen;
           return (
             <li key={district.value} className="border-b border-border last:border-0">
-              <label className="flex cursor-pointer items-center gap-3 px-3 py-2.5 hover:bg-muted">
+              <label
+                className={cn(
+                  'flex min-h-11 items-center gap-3 px-3 py-2',
+                  blocked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:bg-muted'
+                )}
+              >
                 <input
                   type="checkbox"
-                  className="h-4 w-4 shrink-0 accent-[var(--primary)]"
+                  className="h-5 w-5 shrink-0 accent-[var(--primary)]"
                   checked={isChosen}
+                  disabled={blocked}
                   onChange={() => toggle(district)}
                 />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium">{district.bn}</span>
-                  <span className="block truncate text-xs text-muted-foreground">
-                    {district.divisionBn}
+                  <span
+                    className={cn(
+                      'block truncate text-xs',
+                      takenBy ? 'font-medium text-warning-ink' : 'text-muted-foreground'
+                    )}
+                  >
+                    {takenBy
+                      ? t('zones.takenBy').replace('{zone}', takenBy)
+                      : district.divisionBn}
                   </span>
                 </span>
               </label>

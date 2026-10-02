@@ -6,6 +6,7 @@ const orders = require('./orders.controller');
 const wallet = require('./wallet.controller');
 const customers = require('./customers.controller');
 const messaging = require('../shared/messaging.controller');
+const notifications = require('../shared/notifications.controller');
 const prefsSchema = require('../shared/notificationPrefs.schema');
 const schema = require('./schema');
 const validate = require('../../middleware/validate');
@@ -37,6 +38,8 @@ router.use(
   readOnlyWhenInactive([
     'POST /withdrawals',
     'POST /notifications/read',
+    // One row at a time, the same housekeeping.
+    /^POST \/notifications\/[0-9a-fA-F]{24}\/read$/,
     // Stopping messages is housekeeping too: nobody should be unable to unlink.
     'DELETE /telegram/link',
   ])
@@ -174,6 +177,7 @@ router.post('/sms/purchase', validate({ body: schema.purchaseSms }), asyncHandle
 /* notifications */
 router.get('/notifications', asyncHandler(controller.listNotifications));
 router.post('/notifications/read', asyncHandler(controller.markNotificationsRead));
+router.post('/notifications/:id/read', asyncHandler(notifications.markOneRead));
 router.get('/push/key', asyncHandler(controller.pushKey));
 router.post(
   '/push/subscribe',

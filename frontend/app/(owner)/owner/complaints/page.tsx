@@ -7,135 +7,157 @@
  * tab away. Filtering by kind is what turns it into evidence — "show me every
  * complaint about the fruit" is the question asked before deciding which
  * orchard to stop buying from, and the orchard report is one tap from here.
+ *
+ * Every filter lives in the URL, so opening an order from here and coming back
+ * lands on the same list, and the dashboard's "open complaints" link opens it
+ * already filtered.
  */
 
-import { Suspense, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
-import { useInfiniteQuery } from '@tanstack/react-query';
-import { MessageSquareWarning, Store } from 'lucide-react';
-import { api } from '@/lib/api';
-import { t } from '@/lib/i18n/bn';
+import { skipToken } from '@reduxjs/toolkit/query/react';
+import type { Route } from 'next';
+import { MessageSquarePlus, MessageSquareWarning, Store } from 'lucide-react';
+import { t, type DictKey } from '@/lib/i18n/bn';
 import { formatNumber } from '@/lib/format';
-import type { Complaint, ComplaintKind } from '@/lib/types';
-import {
-  EmptyState,
-  ErrorState,
-  PageHeader,
-} from '@/components/ui/layout';
-import { Segmented, Toolbar, ToolbarSpacer } from '@/components/ui/toolbar';
-import { Button } from '@/components/ui/button';
+import { useUrlRange, useUrlSearch, useUrlState } from '@/lib/use-url-state';
+import { useGetComplaintsInfiniteQuery, type ComplaintsArgs } from '@/lib/store/endpoints/complaints';
+import { useGetSourceQuery } from '@/lib/store/endpoints/catalog';
+import type { ComplaintKind } from '@/lib/types';
+import { Alert, EmptyState, ErrorState, FilteredEmpty, PageHeader } from '@/components/ui/layout';
+import { SearchInput, Segmented, Toolbar } from '@/components/ui/toolbar';
+import { Button, ButtonLink } from '@/components/ui/button';
+import { LoadMore } from '@/components/ui/load-more';
 import { ListSkeleton } from '@/components/ui/skeleton';
+import { DateRangeFilter } from '@/components/ui/date-range';
 import { ComplaintList } from '@/components/complaints-panel';
-import {
-  DateRangeFilter,
-  rangeQuery,
-  type DateRange,
-  type PresetKey,
-} from '@/components/ui/date-range';
+import { ComplaintModal } from '@/components/complaint-modal';
+import { cn } from '@/lib/utils';
 
-const PAGE_SIZE = 20;
-
-const KIND_FILTERS: { value: '' | ComplaintKind; labelKey: string }[] = [
+const KIND_FILTERS: { value: '' | ComplaintKind; labelKey: DictKey }[] = [
   { value: '', labelKey: 'complaint.all' },
   { value: 'quality', labelKey: 'complaint.kind.quality' },
   { value: 'damaged', labelKey: 'complaint.kind.damaged' },
   { value: 'short_weight', labelKey: 'complaint.kind.short_weight' },
   { value: 'wrong_item', labelKey: 'complaint.kind.wrong_item' },
   { value: 'late', labelKey: 'complaint.kind.late' },
+  { value: 'other', labelKey: 'complaint.kind.other' },
 ];
 
-type Page = { complaints: Complaint[]; total: number; open: number };
+const STATES = ['open', 'done', 'all'] as const;
+type ComplaintState = (typeof STATES)[number];
 
 export default function ComplaintsPage() {
-  return (
-    <Suspense fallback={<ListSkeleton />}>
-      <ComplaintsView />
-    </Suspense>
-  );
-}
+  const [filters, setFilters, { reset }] = useUrlState({ state: 'open', kind: '', source: '' });
+  const { input, setInput, term } = useUrlSearch('q');
+  const { preset, range, setRange, isDefault } = useUrlRange('all');
+  const [writing, setWriting] = useState(false);
 
-function ComplaintsView() {
-  const params = useSearchParams();
-  // An orchard's page links here to show only what was said about it.
-  const source = params.get('source') ?? '';
+  const state: ComplaintState = STATES.includes(filters.state as ComplaintState)
+    ? (filters.state as ComplaintState)
+    : 'open';
 
-  const [openOnly, setOpenOnly] = useState('open');
-  const [kind, setKind] = useState<string>('');
-  const [preset, setPreset] = useState<PresetKey | 'custom'>('all');
-  const [range, setRange] = useState<DateRange>(null);
+  const args: ComplaintsArgs = {
+    resolved: state === 'open' ? 'false' : state === 'done' ? 'true' : undefined,
+    kind: filters.kind || undefined,
+    source: filters.source || undefined,
+    q: term || undefined,
+    from: range?.from,
+    to: range?.to,
+  };
 
-  const filters =
-    `${openOnly === 'open' ? '&resolved=false' : openOnly === 'done' ? '&resolved=true' : ''}` +
-    `${kind ? `&kind=${kind}` : ''}` +
-    `${source ? `&source=${source}` : ''}` +
-    rangeQuery(range);
-
-  const complaints = useInfiniteQuery({
-    queryKey: ['complaints', 'list', openOnly, kind, range, source],
-    queryFn: ({ pageParam }) =>
-      api.get<Page>(`/owner/complaints?limit=${PAGE_SIZE}&page=${pageParam}${filters}`),
-    initialPageParam: 1,
-    getNextPageParam: (last, pages) => {
-      const loaded = pages.reduce((count, page) => count + page.complaints.length, 0);
-      return loaded < last.total ? pages.length + 1 : undefined;
-    },
-  });
+  const complaints = useGetComplaintsInfiniteQuery(args);
+  // An orchard's page links here; the list has to say whose complaints these are.
+  const sourceDetail = useGetSourceQuery(filters.source ? { id: filters.source } : skipToken);
 
   const rows = complaints.data?.pages.flatMap((page) => page.complaints) ?? [];
   const total = complaints.data?.pages[0]?.total ?? 0;
+  const filtered =
+    Boolean(term) || Boolean(filters.kind) || Boolean(filters.source) || !isDefault || state !== 'open';
+
+  const clearAll = () => {
+    reset();
+    setInput('');
+    setRange('all', null);
+  };
 
   return (
     <>
       <PageHeader
         title={t('complaint.title')}
-        subtitle={`${formatNumber(total)} ${t('complaint.plural')}`}
+        subtitle={complaints.data ? `${formatNumber(total)} ${t('complaint.plural')}` : undefined}
         action={
-          <Link href="/owner/reports/print/sources">
-            <Button variant="outline" size="sm">
-              <Store className="h-4 w-4" />
+          <div className="flex flex-wrap gap-2">
+            <ButtonLink href="/owner/reports/print/sources" variant="outline" size="sm">
+              <Store aria-hidden className="h-4 w-4" />
               {t('report.sources')}
+            </ButtonLink>
+            <Button size="sm" onClick={() => setWriting(true)}>
+              <MessageSquarePlus aria-hidden className="h-4 w-4" />
+              {t('complaint.add')}
             </Button>
-          </Link>
+          </div>
         }
       />
 
-      <DateRangeFilter
-        className="mb-4"
-        preset={preset}
-        range={range}
-        onChange={(nextPreset, nextRange) => {
-          setPreset(nextPreset);
-          setRange(nextRange);
-        }}
-      />
+      {filters.source && (
+        <Alert tone="primary" title={sourceDetail.data?.source.name}>
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span>{t('orders.complaintsForSource')}</span>
+            <Link
+              href={`/owner/sources/${filters.source}` as Route}
+              className="tap inline-flex items-center font-semibold text-primary-ink hover:underline"
+            >
+              {t('source.record')}
+            </Link>
+            <button
+              type="button"
+              onClick={() => setFilters({ source: '' })}
+              className="tap font-semibold hover:underline"
+            >
+              {t('app.clear')}
+            </button>
+          </span>
+        </Alert>
+      )}
 
       <Toolbar>
+        <SearchInput
+          value={input}
+          onChange={setInput}
+          placeholder={t('orders.complaintSearch')}
+          className="w-full sm:w-auto"
+        />
         <Segmented
           label={t('app.status')}
-          value={openOnly}
-          onChange={setOpenOnly}
+          value={state}
+          onChange={(next) => setFilters({ state: next })}
           options={[
-            { value: 'open', label: t('complaint.open') },
+            {
+              value: 'open',
+              label: t('complaint.open'),
+              count: complaints.data?.pages[0]?.open,
+            },
             { value: 'done', label: t('complaint.resolved') },
             { value: 'all', label: t('complaint.all') },
           ]}
         />
-        <ToolbarSpacer />
+      </Toolbar>
+
+      <Toolbar>
         <Segmented
           label={t('complaint.kind')}
-          value={kind}
-          onChange={setKind}
-          options={KIND_FILTERS.map((one) => ({
-            value: one.value,
-            label: t(one.labelKey as Parameters<typeof t>[0]),
-          }))}
+          value={filters.kind}
+          onChange={(next) => setFilters({ kind: next })}
+          options={KIND_FILTERS.map((one) => ({ value: one.value, label: t(one.labelKey) }))}
         />
       </Toolbar>
 
+      <DateRangeFilter className="mb-4" preset={preset} range={range} onChange={setRange} />
+
       {complaints.isLoading && <ListSkeleton />}
 
-      {complaints.isError && (
+      {complaints.isError && !complaints.data && (
         <ErrorState
           onRetry={() => complaints.refetch()}
           isRetrying={complaints.isFetching}
@@ -143,38 +165,34 @@ function ComplaintsView() {
         />
       )}
 
-      {complaints.isSuccess && rows.length === 0 && (
-        <EmptyState
-          icon={MessageSquareWarning}
-          title={t('complaint.noneAll')}
-          description={openOnly === 'open' ? t('complaint.resolved') : undefined}
-        />
-      )}
+      {complaints.data && rows.length === 0 &&
+        (filtered ? (
+          <FilteredEmpty onClear={clearAll} />
+        ) : (
+          <EmptyState
+            icon={MessageSquareWarning}
+            title={t('orders.complaintsAllClear')}
+            description={t('orders.complaintsAllClearHelp')}
+          />
+        ))}
 
       {rows.length > 0 && (
-        <>
+        // Dimmed, not blanked, while a new filter loads: the old rows stay readable.
+        <div className={cn('transition-opacity', complaints.isFetching && !complaints.isFetchingNextPage && 'opacity-60')}>
           <ComplaintList complaints={rows} showOrder />
 
-          <div className="mt-4 flex flex-col items-center gap-2">
-            {complaints.hasNextPage ? (
-              <Button
-                variant="outline"
-                full
-                loading={complaints.isFetchingNextPage}
-                onClick={() => complaints.fetchNextPage()}
-                className="sm:w-auto"
-              >
-                {t('app.loadMore')}
-              </Button>
-            ) : (
-              <p className="text-xs text-muted-foreground">{t('app.allLoaded')}</p>
-            )}
-            <p className="tabular text-xs text-muted-foreground">
-              {rows.length} / {total}
-            </p>
-          </div>
-        </>
+          <LoadMore
+            hasMore={Boolean(complaints.hasNextPage)}
+            loading={complaints.isFetchingNextPage}
+            onLoadMore={() => complaints.fetchNextPage()}
+            error={complaints.isFetchNextPageError ? complaints.error : undefined}
+            shown={rows.length}
+            total={total}
+          />
+        </div>
       )}
+
+      {writing && <ComplaintModal onClose={() => setWriting(false)} />}
     </>
   );
 }

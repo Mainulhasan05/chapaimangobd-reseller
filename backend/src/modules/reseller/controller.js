@@ -13,10 +13,11 @@ const present = require('../../utils/present');
 const { ok } = require('../../middleware/error');
 const { AppError, badRequest, notFound, forbidden, conflict } = require('../../utils/errors');
 const audit = require('../../services/audit');
+const { notifyOwners } = require('../../services/notify');
 const { assertValidSlug } = require('../../utils/slug');
 const { toPoisha, toTaka } = require('../../utils/money');
 const { fromMilli } = require('../../utils/quantity');
-const { KYC_STATUS, REVIEW_STATUS, KYC_DOC_TYPE } = require('../../domain/constants');
+const { KYC_STATUS, REVIEW_STATUS, KYC_DOC_TYPE, EVENT_TYPE } = require('../../domain/constants');
 const { kycBlocks, kycRequired, kycVisible, kycCanSubmit } = require('../../domain/kyc');
 const { findVariant, variantLabel } = require('../../domain/variants');
 
@@ -214,6 +215,11 @@ async function submitKyc(req, res) {
 
   profile.kycStatus = KYC_STATUS.PENDING;
   await profile.save();
+
+  await notifyOwners({
+    eventType: EVENT_TYPE.KYC_SUBMITTED,
+    data: { submissionId: submission._id, shopName: profile.shopName },
+  });
 
   return ok(res, { submission: { id: submission._id, status: submission.status } }, 201);
 }

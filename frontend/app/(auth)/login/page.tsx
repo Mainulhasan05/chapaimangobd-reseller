@@ -3,11 +3,14 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { api, ApiError, errorMessage, fieldErrors } from '@/lib/api';
-import { sessionKey, homeFor, useSession } from '@/lib/session';
+import { ApiError, errorMessage, fieldErrors } from '@/lib/api';
+import { homeFor, useSession } from '@/lib/session';
 import { safeNext } from '@/lib/safe-next';
-import type { LoginChallenge, LoginResult } from '@/lib/types';
+import { useAppDispatch } from '@/lib/store/hooks';
+import { sessionApi } from '@/lib/store/endpoints/session';
+import { useLoginMutation, useVerifyLoginMutation } from '@/lib/store/endpoints/public';
+import type { LoginChallenge } from '@/lib/types';
+import { useToast } from '@/components/ui/toast';
 import { t } from '@/lib/i18n/bn';
 import { Button } from '@/components/ui/button';
 import { PhoneField } from '@/components/ui/phone-field';
@@ -30,7 +33,8 @@ function loginErrorText(error: unknown): string | null {
 export default function LoginPage() {
   const router = useRouter();
   const params = useSearchParams();
-  const queryClient = useQueryClient();
+  const dispatch = useAppDispatch();
+  const toast = useToast();
 
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
@@ -57,35 +61,44 @@ export default function LoginPage() {
    * session is refetched rather than seeded with half of itself.
    */
   const enter = async () => {
-    const fresh = await queryClient.fetchQuery({
-      queryKey: sessionKey,
-      queryFn: () => api.get<NonNullable<typeof session>>('/auth/me'),
-      // The cache still holds the signed-out answer from a moment ago.
-      staleTime: 0,
-    });
-    // Only follow a same-origin path, so the parameter cannot become an open redirect.
-    const target = safeNext(params.get('next')) ?? homeFor(fresh);
-    router.replace(target as never);
+    // Forced: the cache still holds the signed-out answer from a moment ago.
+    const request = dispatch(
+      sessionApi.endpoints.getSession.initiate(undefined, { forceRefetch: true })
+    );
+    try {
+      const fresh = await request.unwrap();
+      // Only follow a same-origin path, so the parameter cannot become an open redirect.
+      const target = safeNext(params.get('next')) ?? homeFor(fresh);
+      router.replace(target as never);
+    } catch (error) {
+      // Signed in, but the session would not load: nothing on the form says so.
+      toast(errorMessage(error), 'danger');
+    } finally {
+      request.unsubscribe();
+    }
   };
 
-  const login = useMutation({
-    mutationFn: () => api.post<LoginResult>('/auth/login', { phone, password }),
-    onSuccess: async (result) => {
-      if (result.requiresOtp) {
-        setChallenge(result);
-        setCode('');
-        setSentAt(Date.now());
-        return;
-      }
-      await enter();
-    },
-  });
+  // A refused sign-in is read from each mutation's state and shown on the form.
+  const [loginTrigger, login] = useLoginMutation();
+  const [verifyTrigger, verify] = useVerifyLoginMutation();
 
-  const verify = useMutation({
-    mutationFn: () =>
-      api.post<LoginResult>('/auth/login/verify', { challengeId: challenge?.challengeId, otp: code }),
-    onSuccess: enter,
-  });
+  const submitLogin = async () => {
+    const answer = await loginTrigger({ phone, password });
+    if (!('data' in answer) || !answer.data) return;
+    const result = answer.data;
+    if (result.requiresOtp) {
+      setChallenge(result);
+      setCode('');
+      setSentAt(Date.now());
+      return;
+    }
+    await enter();
+  };
+
+  const submitVerify = async () => {
+    const answer = await verifyTrigger({ challengeId: challenge?.challengeId ?? '', otp: code });
+    if ('data' in answer) await enter();
+  };
 
   if (challenge) {
     const errors = fieldErrors(verify.error);
@@ -98,7 +111,7 @@ export default function LoginPage() {
         className="w-full"
         onSubmit={(event) => {
           event.preventDefault();
-          verify.mutate();
+          void submitVerify();
         }}
       >
         <h1 className="mb-1 text-xl font-bold">{t('auth.deviceTitle')}</h1>
@@ -113,14 +126,14 @@ export default function LoginPage() {
         {/* A new code is a new password check, which issues a new challenge. */}
         <ResendCode
           secondsLeft={secondsLeft}
-          pending={login.isPending}
+          pending={login.isLoading}
           onResend={() => {
             verify.reset();
-            login.mutate();
+            void submitLogin();
           }}
         />
 
-        <Button type="submit" full size="lg" loading={verify.isPending}>
+        <Button type="submit" full size="lg" loading={verify.isLoading}>
           {t('auth.verify')}
         </Button>
 
@@ -149,7 +162,7 @@ export default function LoginPage() {
       className="w-full"
       onSubmit={(event) => {
         event.preventDefault();
-        login.mutate();
+        void submitLogin();
       }}
     >
       <h1 className="mb-1 text-xl font-bold">{t('auth.loginTitle')}</h1>
@@ -182,7 +195,7 @@ export default function LoginPage() {
         </Link>
       </p>
 
-      <Button type="submit" full size="lg" loading={login.isPending}>
+      <Button type="submit" full size="lg" loading={login.isLoading}>
         {t('auth.login')}
       </Button>
 

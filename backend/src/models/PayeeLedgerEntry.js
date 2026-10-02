@@ -62,9 +62,23 @@ const payeeLedgerEntrySchema = new mongoose.Schema(
       enum: ['purchase', 'expense', 'payment', 'manual'],
       required: true,
     },
+    /*
+     * On a `payment` entry, the expense it settled, when it settled one; absent
+     * on a payment made straight to the payee. Never `expense`: that refType is
+     * the obligation, and voiding an expense reverses every entry under it, which
+     * must not include money that really did leave.
+     */
     refId: { type: mongoose.Schema.Types.ObjectId },
 
     reversalOf: { type: mongoose.Schema.Types.ObjectId, ref: 'PayeeLedgerEntry', default: null },
+
+    /*
+     * The Dhaka calendar date the movement belongs to: the day the goods came in,
+     * the day the money was handed over. Not always the day it was typed, which
+     * is what `createdAt` records. Absent on entries written before this existed;
+     * those are presented with the date of their `createdAt`.
+     */
+    businessDate: { type: String },
 
     note: { type: String, maxlength: 500 },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
@@ -76,6 +90,8 @@ payeeLedgerEntrySchema.index({ payee: 1, seq: 1 }, { unique: true });
 payeeLedgerEntrySchema.index({ payee: 1, createdAt: -1 });
 payeeLedgerEntrySchema.index({ idempotencyKey: 1 }, { unique: true });
 payeeLedgerEntrySchema.index({ refType: 1, refId: 1 });
+// "Has this entry already been reversed?", asked of every ledger row presented.
+payeeLedgerEntrySchema.index({ reversalOf: 1 });
 
 const MUTATIONS = [
   'updateOne',

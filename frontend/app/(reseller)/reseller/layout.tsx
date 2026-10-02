@@ -1,6 +1,6 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { skipToken } from '@reduxjs/toolkit/query/react';
 import {
   BadgeCheck,
   ClipboardList,
@@ -11,11 +11,12 @@ import {
   UserCog,
   Wallet,
 } from 'lucide-react';
-import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { kycVisible } from '@/lib/kyc';
+import { LIVE } from '@/lib/store/api';
+import { useGetResellerOrdersInfiniteQuery } from '@/lib/store/endpoints/reseller';
+import { useGetNotificationsInfiniteQuery } from '@/lib/store/endpoints/notifications';
 import { AppShell, type NavItem } from '@/components/app-shell';
-import type { Order, Paged } from '@/lib/types';
 
 /**
  * Order matters: the first four reach the bottom bar and the rest go behind
@@ -64,25 +65,20 @@ export default function ResellerLayout({ children }: { children: React.ReactNode
    * the session because the layout renders before the redirect to /login, and an
    * ungated query would fire a guaranteed 401 on the way out.
    */
-  const pending = useQuery({
-    queryKey: ['orders', 'pending'],
-    queryFn: () => api.get<Paged<'orders', Order>>('/reseller/orders?status=pending&limit=5'),
-    enabled: ready,
-    refetchInterval: 60_000,
-  });
+  const pending = useGetResellerOrdersInfiniteQuery(
+    ready ? { status: 'pending', limit: 5 } : skipToken,
+    LIVE
+  );
 
   /*
    * The bell shows a dot rather than a number, so this only needs to know
-   * whether anything is unread. It shares a cache key with the notifications
-   * page, which means opening that page and marking things read updates the bell
-   * without a second request.
+   * whether anything is unread. Marking things read on the notifications page
+   * updates this entry optimistically, so the bell clears without a second request.
    */
-  const notifications = useQuery({
-    queryKey: ['notifications'],
-    queryFn: () => api.get<{ unread: number }>('/reseller/notifications?limit=1'),
-    enabled: ready,
-    refetchInterval: 60_000,
-  });
+  const notifications = useGetNotificationsInfiniteQuery(
+    ready ? { role: 'reseller', limit: 1 } : skipToken,
+    LIVE
+  );
 
   /*
    * KYC is not on the tab list unless it is this reseller's business: the owner
@@ -93,7 +89,7 @@ export default function ResellerLayout({ children }: { children: React.ReactNode
   const nav = NAV.filter(
     (item) => item.href !== '/reseller/kyc' || kycVisible(session?.profile)
   ).map((item) =>
-    item.href === '/reseller/orders' ? { ...item, badge: pending.data?.total ?? 0 } : item
+    item.href === '/reseller/orders' ? { ...item, badge: pending.data?.pages[0]?.total ?? 0 } : item
   );
 
   return (
@@ -101,7 +97,7 @@ export default function ResellerLayout({ children }: { children: React.ReactNode
       role="reseller"
       nav={nav}
       notificationsHref="/reseller/notifications"
-      notificationCount={notifications.data?.unread ?? 0}
+      notificationCount={notifications.data?.pages[0]?.unread ?? 0}
     >
       {children}
     </AppShell>

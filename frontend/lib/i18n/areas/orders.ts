@@ -1,0 +1,142 @@
+/** Strings added for the orders area. Add keys only; never redefine one from bn.ts. */
+export const orders = {
+  // One name per status on the owner's screens: what the order is waiting for.
+  'orders.status.pending': 'রিসেলারের অপেক্ষায়',
+  'orders.status.accepted': 'প্যাকের অপেক্ষায়',
+  'orders.status.packed': 'পাঠানোর অপেক্ষায়',
+  'orders.status.shipped': 'কুরিয়ারে আছে',
+  'orders.pendingExplained':
+    'রিসেলার এখনো এগুলো নিশ্চিত করেননি। নিশ্চিত করলে "গ্রহণের অপেক্ষায়" তালিকায় আসবে।',
+
+  // The list.
+  'orders.box': 'বক্স',
+  'orders.toCollect': 'আদায়',
+  'orders.courierCollectsShort': 'কুরিয়ার আদায়:',
+  'orders.prepaidShort': 'প্রিপেইড — টাকা নেবে না',
+  'orders.resellerBilled': 'রিসেলারের বিল',
+  'orders.resellerOrders': 'এই রিসেলারের অর্ডার দেখানো হচ্ছে।',
+  'orders.resellerPage': 'রিসেলারের পাতা',
+  'orders.sortOldest': 'পুরনো আগে',
+  'orders.sortNewest': 'নতুন আগে',
+  'orders.agingNotice': '{count}টি অর্ডার অনেকক্ষণ ধরে গ্রহণের অপেক্ষায় — দেখুন',
+  'orders.agingOn': 'শুধু অনেকক্ষণ অপেক্ষার অর্ডার',
+  'orders.moneyCaption': 'এই ট্যাবের {count}টি অর্ডারের হিসাব (বাতিল ও ফেরত বাদে)',
+  'orders.newArrived': 'নতুন {count}টি অর্ডার — দেখুন',
+  'orders.notInThisTab': 'এই ট্যাবে নেই, অন্য ট্যাবে পাওয়া গেছে',
+  'orders.allAccepted': 'সব অর্ডার গ্রহণ করা হয়েছে',
+  'orders.allAcceptedHelp': 'নতুন অর্ডার নিশ্চিত হলে এখানে আসবে।',
+  'orders.tabEmpty': 'এই ধাপে এখন কোনো অর্ডার নেই',
+  'orders.labels': 'লেবেল',
+  'orders.labelsAll': 'সবগুলোর লেবেল',
+  'orders.deliverShort': 'ডেলিভারি হয়েছে',
+  'orders.markDelivered': 'ডেলিভারি হয়েছে চিহ্নিত করুন',
+  'orders.markReturned': 'ফেরত এসেছে চিহ্নিত করুন',
+  'orders.movedTo': '{code} → {status}',
+  'orders.bulkDone': '{count}টি অর্ডার: {action} হয়েছে',
+  'orders.bulkPartial': '{done}/{total} হয়েছে, {code}-এ আটকেছে: {reason}',
+  'orders.retryRest': 'বাকি {count}টি আবার',
+
+  // Deliver.
+  'orders.deliverCodCredit': 'কুরিয়ারের আদায় {amount} রিসেলারের ওয়ালেটে জমা হবে',
+  'orders.deliverPrepaid': 'অগ্রিম পরিশোধিত, তাই কোনো টাকা নড়বে না',
+  'orders.deliverPackaging': 'এই পার্সেলের প্যাকেজিং স্টক থেকে কমবে',
+  'orders.deliverFinal': 'এটা আর ফেরানো যাবে না',
+  'orders.bulkDeliverTitle': '{count}টি অর্ডার ডেলিভারি হয়েছে?',
+  'orders.bulkDeliverConfirm': '{count}টি ডেলিভারি হয়েছে চিহ্নিত করুন',
+  'orders.bulkDeliverCredit': 'ক্যাশ অন ডেলিভারির আদায় যার যার রিসেলারের ওয়ালেটে জমা হবে',
+  'orders.codOrders': 'ক্যাশ অন ডেলিভারি',
+  'orders.countOf': '{count}টি',
+
+  // Accept.
+  'orders.sourcesMissing': '{count}টি পণ্যের উৎস বাছা বাকি',
+  'orders.sourcesLoading': 'উৎসের তালিকা আসছে…',
+  'orders.sourceRemembered': 'গতবার এই পণ্য এখান থেকে এসেছিল',
+  'orders.smsPreparing': 'SMS-এর লেখা তৈরি হচ্ছে…',
+  'orders.bulkAcceptTitle': '{count}টি অর্ডার গ্রহণ করুন',
+  'orders.bulkAcceptConfirm': '{count}টি গ্রহণ করুন',
+  'orders.bulkAcceptHint': 'সব অর্ডারের সব পণ্য এই উৎস থেকে যাবে। আলাদা উৎস লাগলে একটা একটা করে গ্রহণ করুন।',
+
+  // Ship and the courier.
+  'orders.recentCouriers': 'সম্প্রতি ব্যবহৃত কুরিয়ার',
+  'orders.courierRequired': 'কুরিয়ারের নাম লিখুন',
+  'orders.courierEdit': 'কুরিয়ার বদলান',
+  'orders.courierEditedRow': 'কুরিয়ার বা ট্র্যাকিং নম্বর বদলানো হয়েছে',
+  'orders.trackingClearHint': 'খালি রাখলে ট্র্যাকিং নম্বর মুছে যাবে',
+  'orders.copyTracking': 'ট্র্যাকিং নম্বর কপি করুন',
+  'orders.trackingCopied': 'ট্র্যাকিং নম্বর কপি হয়েছে',
+  'orders.bulkShipTitle': '{count}টি অর্ডার পাঠান',
+  'orders.bulkShipConfirm': '{count}টি পাঠান',
+  'orders.bulkShipHint': 'ট্র্যাকিং নম্বর প্রতিটি অর্ডারের পাতায় পরে লেখা যাবে।',
+
+  // Delivery charge.
+  'orders.deliveryChargeHint': 'রিসেলারের কাছ থেকে যা নেবেন। এখন {amount}।',
+  'orders.courierCostHint':
+    'কুরিয়ারকে যা দেবেন সেটা এখানে নয় — অর্ডারের পাতায় "খরচ যোগ করুন" দিয়ে লিখুন।',
+  'orders.chargeUnchanged': 'চার্জ বদলায়নি',
+
+  // Cancel and return.
+  'orders.cancelPreset.customer': 'ক্রেতা আর নিতে চান না',
+  'orders.cancelPreset.noAnswer': 'ক্রেতা ফোন ধরছেন না',
+  'orders.cancelPreset.stock': 'আম শেষ',
+  'orders.cancelPreset.address': 'ঠিকানা ভুল',
+  'orders.cancelPreset.duplicate': 'একই অর্ডার দুবার',
+  'orders.cancelStockBack': 'পণ্য আবার স্টকে ফিরবে',
+  'orders.cancelWalletBack': 'রিসেলারের ওয়ালেটে {amount} ফেরত যাবে',
+  'orders.cancelWalletBackMine': 'আপনার ওয়ালেটে {amount} ফেরত আসবে',
+  'orders.cancelNothingMoved': 'এই অর্ডারে এখনো কোনো টাকা বা স্টক নড়েনি',
+  'orders.returnPreset.refused': 'ক্রেতা নেননি',
+  'orders.returnPreset.unreachable': 'ক্রেতাকে পাওয়া যায়নি',
+  'orders.returnPreset.damaged': 'পথে নষ্ট হয়েছে',
+  'orders.returnPreset.late': 'দেরিতে পৌঁছেছে',
+  'orders.reasonPick': 'একটা কারণ বাছুন বা লিখুন',
+  'orders.reasonDetail': 'আরও কিছু বলার থাকলে লিখুন (ঐচ্ছিক)',
+
+  // Detail.
+  'orders.reseller': 'রিসেলার',
+  'orders.goodsSubtotal': 'পণ্যের দাম',
+  'orders.customerPays': 'ক্রেতা দেবেন',
+  'orders.courierCollects': 'কুরিয়ার আদায় করবে',
+  'orders.prepaidNothing': 'অগ্রিম পরিশোধিত — কুরিয়ার কিছু আদায় করবে না',
+  'orders.resellerBilledHint': 'পণ্যের কেনা দাম + ডেলিভারি চার্জ',
+  'orders.resellerProfit': 'রিসেলারের লাভ',
+  'orders.ownerMargin': 'আপনার মার্জিন',
+  'orders.ownerMarginHint': 'রিসেলারের বিল থেকে এই অর্ডারের সব খরচ বাদে',
+  'orders.nextOrder': 'পরের অর্ডার',
+  'orders.openComplaintsHere': 'এই অর্ডারে {count}টি খোলা অভিযোগ আছে — দেখুন',
+
+  // Order expense.
+  'orders.expenseSaved': 'খরচ লেখা হয়েছে',
+  'orders.noOrderCategory': 'অর্ডারের খরচের কোনো খাত নেই',
+  'orders.noOrderCategoryHelp': 'খরচের পাতায় "অর্ডারের খরচ" ধরনের একটা খাত (যেমন কুরিয়ার) যোগ করুন।',
+  'orders.openExpenses': 'খরচের পাতা খুলুন',
+  'orders.pickCategory': 'খাত বাছুন',
+  'orders.payeeNeeded': 'বাকি রাখলে কাকে দিতে হবে সেটা বাছুন',
+  'orders.noPayee': 'কাউকে না',
+
+  // Confirm (reseller).
+  'orders.boxesWhole': 'কমপক্ষে ১টি পুরো বক্স লিখুন',
+  'orders.priceRequired': 'দাম লিখুন',
+  'orders.negativeProfit': 'এই দামে আপনার লাভ শূন্যের নিচে। দামগুলো আবার দেখুন।',
+
+  // Complaints.
+  'orders.complaintSearch': 'অর্ডার কোড, ক্রেতার নাম বা মোবাইল',
+  'orders.complaintsForSource': 'এই বাগানের পণ্য নিয়ে অভিযোগ দেখানো হচ্ছে।',
+  'orders.complaintsAllClear': 'কোনো খোলা অভিযোগ নেই',
+  'orders.complaintsAllClearHelp': 'ক্রেতা কোনো সমস্যার কথা বললে "অভিযোগ লিখুন" দিয়ে লিখে রাখুন।',
+  'orders.complaintReopen': 'আবার খুলুন',
+  'orders.complaintReopened': 'অভিযোগ আবার খোলা হয়েছে',
+  'orders.noResolutionNote': 'কিছু লেখা হয়নি',
+  'orders.complaintLookupHelp': 'কোন অর্ডার নিয়ে অভিযোগ? কোড বা ক্রেতার মোবাইল নম্বর দিয়ে খুঁজুন।',
+  'orders.complaintOtherOrder': 'অন্য অর্ডার',
+  'orders.searching': 'খোঁজা হচ্ছে…',
+  'orders.noteRequired': 'কী সমস্যা হয়েছে লিখুন (কমপক্ষে ৩ অক্ষর)',
+
+  // Parcel labels.
+  'orders.labelsTitle': 'পার্সেলের লেবেল',
+  'orders.labelsCount': '{count}টি লেবেল।',
+  'orders.labelsHint': 'A4 কাগজে চারটি করে ছাপা হবে; কেটে পার্সেলে লাগান।',
+  'orders.labelsNone': 'পাঠানোর অপেক্ষায় কোনো অর্ডার নেই',
+  'orders.labelFailed': 'এই অর্ডারটি আনা যায়নি',
+  'orders.labelTo': 'প্রাপক',
+  'orders.labelNoCash': 'টাকা নেবেন না',
+} as const;

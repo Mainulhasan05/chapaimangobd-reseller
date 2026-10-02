@@ -37,17 +37,27 @@ import {
  * empty heading where the owner has not written that part yet.
  */
 
-type Props = { slug: string; shop: PublicShop; zones: DeliveryZone[] };
+type Props = {
+  slug: string;
+  shop: PublicShop;
+  zones: DeliveryZone[];
+  /**
+   * The owner's live preview in the landing editor: the order form becomes a
+   * placeholder, because there is no shop to order from, and the floating call
+   * buttons, which are pinned to the viewport, stay out of the preview pane.
+   */
+  preview?: boolean;
+};
 
 export function LandingPage({ template, ...props }: Props & { template: LandingTemplate }) {
   const Design = template === 'krishok' ? Krishok : template === 'offer' ? Offer : Bagan;
   return (
     <div
       style={themeStyle(template)}
-      className={cn('min-h-screen', serifBengali.variable, roundedBengali.variable)}
+      className={cn(props.preview ? 'min-h-full' : 'min-h-screen', serifBengali.variable, roundedBengali.variable)}
     >
       <Design {...props} />
-      <FloatingContact shop={props.shop.shop} />
+      {!props.preview && <FloatingContact shop={props.shop.shop} />}
     </div>
   );
 }
@@ -77,7 +87,7 @@ function HeaderCall({ shop }: { shop: PublicShop['shop'] }) {
  * Premium orchard. A dark green hero with the headline in a serif, the
  * photographs swiped underneath, then trust, reasons and the packages.
  */
-function Bagan({ slug, shop, zones }: Props) {
+function Bagan({ slug, shop, zones, preview }: Props) {
   const { landing } = shop;
   const info = shop.shop;
   const images = heroImagesFor(shop);
@@ -169,6 +179,7 @@ function Bagan({ slug, shop, zones }: Props) {
         slug={slug}
         shop={shop}
         zones={zones}
+        preview={preview}
         title={t('landing.packages')}
         className="bg-(--lp-soft)/60"
       />
@@ -206,7 +217,7 @@ function Bagan({ slug, shop, zones }: Props) {
  * The farmer's guide. Plain and explanatory: what the fruit is like, why buy
  * here, how to ripen and keep it, what other buyers said, then the form.
  */
-function Krishok({ slug, shop, zones }: Props) {
+function Krishok({ slug, shop, zones, preview }: Props) {
   const { landing } = shop;
   const info = shop.shop;
   const images = heroImagesFor(shop);
@@ -331,7 +342,7 @@ function Krishok({ slug, shop, zones }: Props) {
         </Section>
       )}
 
-      <OrderSection slug={slug} shop={shop} zones={zones} />
+      <OrderSection slug={slug} shop={shop} zones={zones} preview={preview} />
 
       {landing.faqs.length > 0 && (
         <Section className="pt-0 sm:pt-0">
@@ -359,7 +370,7 @@ function Krishok({ slug, shop, zones }: Props) {
  * The offer page. Loud colour, the video first, and every product as its own
  * offer block with the saving spelled out, before the form that takes them all.
  */
-function Offer({ slug, shop, zones }: Props) {
+function Offer({ slug, shop, zones, preview }: Props) {
   const { landing } = shop;
   const info = shop.shop;
   const images = heroImagesFor(shop);
@@ -496,7 +507,7 @@ function Offer({ slug, shop, zones }: Props) {
         </Section>
       )}
 
-      <OrderSection slug={slug} shop={shop} zones={zones} />
+      <OrderSection slug={slug} shop={shop} zones={zones} preview={preview} />
 
       {landing.guaranteeNote && (
         <p className="mx-4 -mt-4 mb-6 text-center text-sm font-semibold text-(--lp-ink)">

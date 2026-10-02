@@ -126,6 +126,10 @@ const schema = z.object({
   // The digest warns the owner when the gateway's remaining balance falls below
   // this. Automas reports a count of messages, not taka, so this is a count.
   SMS_LOW_BALANCE: z.coerce.number().int().min(0).default(200),
+  // What the gateway charges the owner per SMS segment, in poisha, from the
+  // Automas contract. Unset, the SMS panel shows no taka figure for what was
+  // spent rather than inventing one.
+  SMS_COST_PER_SEGMENT_POISHA: z.coerce.number().int().min(0).optional(),
 });
 
 /**

@@ -2,12 +2,12 @@
 
 import { useState } from 'react';
 import { Package } from 'lucide-react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, errorMessage, fieldErrors } from '@/lib/api';
+import { errorMessage, fieldErrors } from '@/lib/api';
 import { useReadOnlyAccount } from '@/lib/session';
 import { t } from '@/lib/i18n/bn';
 import { formatMoney, formatMoneyPlain, formatNumber } from '@/lib/format';
 import type { CatalogItem } from '@/lib/types';
+import { useGetCatalogQuery, useUpdateCatalogItemMutation } from '@/lib/store/endpoints/reseller';
 import { Badge, Card, EmptyState, ErrorState, PageHeader } from '@/components/ui/layout';
 import { Button } from '@/components/ui/button';
 import { CardGridSkeleton } from '@/components/ui/skeleton';
@@ -17,10 +17,7 @@ import { Field, MoneyInput } from '@/components/ui/form';
 import { ProductThumb } from '@/components/ui/product-image';
 
 export default function CatalogPage() {
-  const catalog = useQuery({
-    queryKey: ['catalog'],
-    queryFn: () => api.get<{ products: CatalogItem[] }>('/reseller/catalog'),
-  });
+  const catalog = useGetCatalogQuery();
 
   return (
     <>
@@ -53,7 +50,6 @@ export default function CatalogPage() {
 type BoxDraft = { price: string; regularPrice: string; isListed: boolean };
 
 function CatalogRow({ product }: { product: CatalogItem }) {
-  const queryClient = useQueryClient();
   const toast = useToast();
   // Prices and listings are writes a deactivated account no longer makes.
   const readOnly = useReadOnlyAccount();
@@ -95,9 +91,12 @@ function CatalogRow({ product }: { product: CatalogItem }) {
    */
   const carried = product.variants.filter((variant) => boxes[variant.id]?.isListed);
 
-  const save = useMutation({
-    mutationFn: () =>
-      api.put(`/reseller/catalog/${product.id}`, {
+  const [updateItem, save] = useUpdateCatalogItemMutation();
+
+  const submit = async () => {
+    try {
+      await updateItem({
+        productId: product.id,
         variants: carried.map((variant) => ({
           variant: variant.id,
           sellPrice: Number(boxes[variant.id].price),
@@ -108,17 +107,17 @@ function CatalogRow({ product }: { product: CatalogItem }) {
         })),
         hidePrice,
         isListed,
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['catalog'] });
+      }).unwrap();
       /*
        * This save previously produced no visible change at all. Nothing moved,
        * nothing was said, and a button that appears to do nothing gets pressed
        * again, which is how a price ends up saved twice.
        */
       toast(product.activated ? t('catalog.savedToast') : t('catalog.activatedToast'));
-    },
-  });
+    } catch {
+      // Shown beside the button and the fields it names.
+    }
+  };
 
   const errors = fieldErrors(save.error);
   /** The field key the API reports an error under, for this box's position. */
@@ -265,11 +264,11 @@ function CatalogRow({ product }: { product: CatalogItem }) {
       {!readOnly && (
         <Button
           full
-          loading={save.isPending}
+          loading={save.isLoading}
           // Nothing to save when no box is carried: the API refuses an empty
           // list, and the button would be a dead end rather than a choice.
           disabled={carried.length === 0}
-          onClick={() => save.mutate()}
+          onClick={() => void submit()}
         >
           {product.activated ? t('app.save') : t('catalog.activate')}
         </Button>

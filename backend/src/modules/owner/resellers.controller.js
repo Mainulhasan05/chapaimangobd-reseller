@@ -19,36 +19,88 @@ const present = require('../../utils/present');
 const ledger = require('../../services/ledger');
 const resellerLifecycle = require('../../services/resellerLifecycle');
 const tokens = require('../../services/tokens');
-const { KYC_STATUS, REVIEW_STATUS, EVENT_TYPE, ORDER_STATUS } = require('../../domain/constants');
+const { escapeRegex, toLatinDigits } = require('../../utils/orderSearch');
+const { SYSTEM_CANCELLABLE } = require('../../domain/orderStateMachine');
+const {
+  KYC_STATUS,
+  REVIEW_STATUS,
+  EVENT_TYPE,
+  ORDER_STATUS,
+  ROLES,
+} = require('../../domain/constants');
+
+/** Statuses that count as trade: billed, not cancelled, not returned. */
+const TRADED = { $nin: [ORDER_STATUS.PENDING, ORDER_STATUS.CANCELLED, ORDER_STATUS.RETURNED] };
+
+const presentRow = (p) => ({
+  id: p._id,
+  user: p.user,
+  shopName: p.shopName,
+  slug: p.slug,
+  kycRequired: Boolean(p.kycRequired),
+  kycStatus: p.kycStatus,
+  formActive: p.formActive,
+  ...present.wallet(p),
+  createdAt: p.createdAt,
+});
 
 /**
- * Newest first. Pass `limit` (and then `cursor`) for a page at a time; without
- * either the whole list comes back, as it always has.
+ * The resellers a search term names: the shop, the person, or their login phone.
+ *
+ * The name and the phone live on the User, so those are found first and joined
+ * by id. Digits are matched on the tail, as every phone search here is, and a
+ * Bangla keyboard's ০১৭ is read as 017 before anything is matched.
+ */
+async function searchClause(term) {
+  const trimmed = toLatinDigits(term || '').trim();
+  if (!trimmed) return null;
+
+  const pattern = new RegExp(escapeRegex(trimmed), 'i');
+  const or = [{ name: pattern }];
+  const digits = trimmed.replace(/\D/g, '');
+  if (digits.length >= 4) or.push({ phoneE164: new RegExp(`${escapeRegex(digits)}$`) });
+
+  const users = await User.find({ role: ROLES.RESELLER, $or: or }, { _id: 1 }).lean();
+  return { $or: [{ shopName: pattern }, { user: { $in: users.map((u) => u._id) } }] };
+}
+
+/** The order each non-default sort asks for, ties broken by id for a stable list. */
+const SORTS = {
+  name: { shopName: 1, _id: 1 },
+  balance_desc: { balancePoisha: -1, _id: 1 },
+  balance_asc: { balancePoisha: 1, _id: 1 },
+};
+
+/**
+ * Newest first, by default. Pass `limit` (and then `cursor`) for a page at a
+ * time; without either the whole list comes back, as it always has.
+ *
+ * Any other `sort` answers the whole matching list with `nextCursor: null`. The
+ * cursor names a creation time and cannot resume a list ordered by balance, and
+ * a page-numbered balance list would skip and repeat rows as balances moved
+ * under it. A reseller list is dozens of rows; whole is the honest answer.
  */
 async function listResellers(req, res) {
   const filter = {};
   if (req.query.kycStatus) filter.kycStatus = req.query.kycStatus;
+  const search = await searchClause(req.query.q);
+  if (search) Object.assign(filter, search);
+
+  const populate = { path: 'user', select: 'name phoneE164 isActive deactivatedAt lastLoginAt' };
+  const sort = req.query.sort || 'newest';
+
+  if (sort !== 'newest') {
+    const profiles = await ResellerProfile.find(filter).sort(SORTS[sort]).populate(populate);
+    return ok(res, { nextCursor: null, resellers: profiles.map(presentRow) });
+  }
 
   const { rows: profiles, nextCursor } = await findPage(ResellerProfile, filter, {
     direction: -1,
     paging: readPaging(req.query),
-    populate: { path: 'user', select: 'name phoneE164 isActive deactivatedAt lastLoginAt' },
+    populate,
   });
 
-  return ok(res, {
-    nextCursor,
-    resellers: profiles.map((p) => ({
-      id: p._id,
-      user: p.user,
-      shopName: p.shopName,
-      slug: p.slug,
-      kycRequired: Boolean(p.kycRequired),
-      kycStatus: p.kycStatus,
-      formActive: p.formActive,
-      ...present.wallet(p),
-      createdAt: p.createdAt,
-    })),
-  });
+  return ok(res, { nextCursor, resellers: profiles.map(presentRow) });
 }
 
 async function getReseller(req, res) {
@@ -58,13 +110,32 @@ async function getReseller(req, res) {
   );
   if (!profile) throw notFound('Reseller not found');
 
-  const [orderCounts, latestKyc] = await Promise.all([
+  const [orderCounts, [sales], [latest], latestKyc] = await Promise.all([
     Order.aggregate([
       { $match: { reseller: profile._id } },
       { $group: { _id: '$status', count: { $sum: 1 } } },
     ]),
+    /*
+     * What this reseller has traded: billed, not cancelled, not returned, the
+     * same rule the reseller report uses. In owner revenue — the wallet debit —
+     * because that is the owner's money; the customer total beside it carries
+     * the reseller's margin and is labelled as what it is.
+     */
+    Order.aggregate([
+      { $match: { reseller: profile._id, status: TRADED } },
+      {
+        $group: {
+          _id: null,
+          ownerRevenuePoisha: { $sum: '$totals.walletDebitPoisha' },
+          customerPoisha: { $sum: '$totals.customerTotalPoisha' },
+        },
+      },
+    ]),
+    Order.find({ reseller: profile._id }, { createdAt: 1 }).sort({ createdAt: -1 }).limit(1).lean(),
     KycSubmission.findOne({ reseller: profile._id }).sort({ createdAt: -1 }),
   ]);
+
+  const counts = Object.fromEntries(orderCounts.map((c) => [c._id, c.count]));
 
   return ok(res, {
     reseller: {
@@ -80,7 +151,15 @@ async function getReseller(req, res) {
       ...present.wallet(profile),
       createdAt: profile.createdAt,
     },
-    orderCounts: Object.fromEntries(orderCounts.map((c) => [c._id, c.count])),
+    orderCounts: counts,
+    stats: {
+      // Every order, whatever became of it, pending and cancelled included.
+      orderCount: orderCounts.reduce((sum, c) => sum + c.count, 0),
+      deliveredCount: counts[ORDER_STATUS.DELIVERED] || 0,
+      salesTotal: toTaka((sales && sales.ownerRevenuePoisha) || 0),
+      customerTotal: toTaka((sales && sales.customerPoisha) || 0),
+      lastOrderAt: latest ? latest.createdAt : null,
+    },
     kyc: latestKyc
       ? {
           id: latestKyc._id,
@@ -91,6 +170,24 @@ async function getReseller(req, res) {
         }
       : null,
   });
+}
+
+/**
+ * What deactivating this reseller would do, before it is done: how many pending
+ * orders the system would cancel. Read from the same status list the
+ * deactivation itself sweeps (SYSTEM_CANCELLABLE), so the warning cannot promise
+ * a different number from the one that happens. Orders from confirm onwards are
+ * fulfilled as normal and are not counted. See docs/adr/0011.
+ */
+async function deactivationPreview(req, res) {
+  const profile = await ResellerProfile.findById(req.params.id, { _id: 1 });
+  if (!profile) throw notFound('Reseller not found');
+
+  const pendingOrders = await Order.countDocuments({
+    reseller: profile._id,
+    status: { $in: SYSTEM_CANCELLABLE },
+  });
+  return ok(res, { pendingOrders });
 }
 
 /**
@@ -438,6 +535,7 @@ module.exports = {
   resetPassword,
   listResellers,
   getReseller,
+  deactivationPreview,
   updateReseller,
   listKyc,
   getKycDocuments,

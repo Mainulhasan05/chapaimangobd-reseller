@@ -3,16 +3,19 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import type { Route } from 'next';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { MapPin, MessageSquareWarning } from 'lucide-react';
-import { api, errorMessage } from '@/lib/api';
+import { MapPin, MessageSquareWarning, RotateCcw } from 'lucide-react';
+import { errorMessage } from '@/lib/api';
 import { t, tComplaintKind } from '@/lib/i18n/bn';
 import { formatDate, formatDateTime } from '@/lib/format';
+import {
+  useReopenComplaintMutation,
+  useResolveComplaintMutation,
+} from '@/lib/store/endpoints/complaints';
 import type { Complaint } from '@/lib/types';
-import { Modal } from '@/components/ui/modal';
+import { Modal, ModalCancel } from '@/components/ui/modal';
 import { Button } from '@/components/ui/button';
-import { Field, Textarea } from '@/components/ui/form';
-import { Alert, Badge, EmptyState } from '@/components/ui/layout';
+import { Field, FormErrorSummary, Textarea } from '@/components/ui/form';
+import { Badge, EmptyState, PhoneLink } from '@/components/ui/layout';
 import { useToast } from '@/components/ui/toast';
 
 /**
@@ -28,26 +31,41 @@ export function ComplaintList({
   complaints,
   showOrder,
   showSource = true,
+  compactEmpty,
 }: {
   complaints: Complaint[];
   /** On the orchard screen and the complaints page, where the order is not implied. */
   showOrder?: boolean;
   showSource?: boolean;
+  /** One quiet line instead of a boxed empty state, inside a card that has its own frame. */
+  compactEmpty?: boolean;
 }) {
+  const toast = useToast();
   const [resolving, setResolving] = useState<Complaint | null>(null);
+  const [reopen, reopenState] = useReopenComplaintMutation();
+
+  const reopenOne = async (complaint: Complaint) => {
+    try {
+      await reopen({ id: complaint.id }).unwrap();
+      toast(`${complaint.orderCode} · ${t('orders.complaintReopened')}`);
+    } catch (failure) {
+      toast(errorMessage(failure), 'danger');
+    }
+  };
 
   if (complaints.length === 0) {
-    return <EmptyState icon={MessageSquareWarning} title={t('complaint.none')} />;
+    return compactEmpty ? (
+      <EmptyState compact title={t('complaint.none')} />
+    ) : (
+      <EmptyState icon={MessageSquareWarning} title={t('complaint.none')} />
+    );
   }
 
   return (
     <>
       <ul className="space-y-2">
         {complaints.map((complaint) => (
-          <li
-            key={complaint.id}
-            className="rounded-lg border border-border p-3 text-sm"
-          >
+          <li key={complaint.id} className="rounded-lg border border-border p-3 text-sm">
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-1.5">
@@ -62,12 +80,21 @@ export function ComplaintList({
                   {showOrder && (
                     <Link
                       href={`/owner/orders/${complaint.order}` as Route}
-                      className="tabular rounded-md bg-subtle px-1.5 py-0.5 text-xs font-semibold text-primary-ink hover:bg-primary-softer"
+                      className="tabular inline-flex min-h-11 items-center rounded-md px-1.5 text-xs font-semibold text-primary-ink hover:bg-primary-softer sm:min-h-0 sm:bg-subtle sm:py-0.5"
                     >
                       {complaint.orderCode}
                     </Link>
                   )}
                 </div>
+                {/* Who rang, and the number to ring them back on. */}
+                {showOrder && (complaint.customerName || complaint.customerPhone) && (
+                  <p className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                    {complaint.customerName && (
+                      <span className="font-medium text-foreground">{complaint.customerName}</span>
+                    )}
+                    <PhoneLink phone={complaint.customerPhone} className="text-xs" />
+                  </p>
+                )}
                 <p className="mt-1.5 whitespace-pre-wrap">{complaint.note}</p>
               </div>
 
@@ -88,18 +115,19 @@ export function ComplaintList({
                     {item.source ? (
                       <Link
                         href={`/owner/sources/${item.source}` as Route}
-                        className="inline-flex items-center gap-1 rounded-md bg-subtle px-2 py-1 text-xs font-medium text-primary-ink transition-colors hover:bg-primary-softer"
+                        className="inline-flex min-h-11 items-center gap-1 rounded-md bg-subtle px-2 py-1 text-xs font-medium text-primary-ink transition-colors hover:bg-primary-softer sm:min-h-0"
                       >
                         <MapPin aria-hidden className="h-3 w-3 shrink-0" />
                         {item.sourceName}
                         <span className="text-muted-foreground">· {item.productName}</span>
                       </Link>
                     ) : (
-                      <span
-                        className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground"
-                        title={t('complaint.noSourceHint')}
-                      >
-                        {item.productName} · {t('complaint.noSource')}
+                      <span className="inline-flex flex-col rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
+                        <span>
+                          {item.productName} · {t('complaint.noSource')}
+                        </span>
+                        {/* Said, not hidden in a tooltip a phone cannot show. */}
+                        <span className="text-[0.6875rem]">{t('complaint.noSourceHint')}</span>
                       </span>
                     )}
                   </li>
@@ -107,12 +135,23 @@ export function ComplaintList({
               </ul>
             )}
 
-            {complaint.resolved && complaint.resolution && (
-              <p className="mt-2 border-t border-border pt-2 text-xs text-muted-foreground">
-                <span className="font-medium">{t('complaint.resolvedOn')}:</span>{' '}
-                {complaint.resolution}
-                {complaint.resolvedAt && ` · ${formatDateTime(complaint.resolvedAt)}`}
-              </p>
+            {complaint.resolved && (
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-2">
+                <p className="min-w-0 text-xs text-muted-foreground">
+                  <span className="font-medium">{t('complaint.resolvedOn')}:</span>{' '}
+                  {complaint.resolution || t('orders.noResolutionNote')}
+                  {complaint.resolvedAt && ` · ${formatDateTime(complaint.resolvedAt)}`}
+                </p>
+                <Button
+                  variant="quiet"
+                  size="sm"
+                  loading={reopenState.isLoading && reopenState.originalArgs?.id === complaint.id}
+                  onClick={() => reopenOne(complaint)}
+                >
+                  <RotateCcw aria-hidden className="h-4 w-4" />
+                  {t('orders.complaintReopen')}
+                </Button>
+              </div>
             )}
 
             {!complaint.resolved && (
@@ -126,62 +165,74 @@ export function ComplaintList({
         ))}
       </ul>
 
-      <ResolveModal complaint={resolving} onClose={() => setResolving(null)} />
+      {resolving && (
+        <ResolveModal
+          key={resolving.id}
+          complaint={resolving}
+          onClose={() => setResolving(null)}
+          onResolved={(complaint) =>
+            toast(`${complaint.orderCode} · ${t('complaint.resolved')}`, 'success', {
+              action: { label: t('app.undo'), onClick: () => void reopenOne(complaint) },
+            })
+          }
+        />
+      )}
     </>
   );
 }
 
 /**
  * Closing one out. The note is optional but offered, because "what did we do
- * about it" is the part that is forgotten first and asked about later.
+ * about it" is the part that is forgotten first and asked about later. Mounted
+ * only while open, so a note written for one complaint never lands on the next.
  */
 function ResolveModal({
   complaint,
   onClose,
+  onResolved,
 }: {
-  complaint: Complaint | null;
+  complaint: Complaint;
   onClose: () => void;
+  onResolved: (complaint: Complaint) => void;
 }) {
-  const queryClient = useQueryClient();
-  const toast = useToast();
+  const [resolve] = useResolveComplaintMutation();
   const [resolution, setResolution] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const resolve = useMutation({
-    mutationFn: () =>
-      api.post(`/owner/complaints/${complaint!.id}/resolve`, { resolution }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['complaints'] });
-      await queryClient.invalidateQueries({ queryKey: ['owner'] });
-      setResolution('');
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await resolve({ id: complaint.id, resolution: resolution.trim() }).unwrap();
       onClose();
-      toast(t('complaint.resolved'));
-    },
-  });
-
-  if (!complaint) return null;
+      onResolved(complaint);
+    } catch (failure) {
+      setError(errorMessage(failure));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <Modal
       open
-      onClose={onClose}
-      title={t('complaint.resolve')}
+      onClose={busy ? () => {} : onClose}
+      title={`${t('complaint.resolve')} · ${complaint.orderCode}`}
       dirty={resolution.trim().length > 0}
+      footerLead={error ? <FormErrorSummary message={error} /> : undefined}
       footer={
         <>
-          <Button variant="outline" onClick={onClose}>
-            {t('app.close')}
-          </Button>
-          <Button loading={resolve.isPending} onClick={() => resolve.mutate()}>
+          <ModalCancel disabled={busy} />
+          <Button variant="success" loading={busy} onClick={submit}>
             {t('complaint.resolve')}
           </Button>
         </>
       }
     >
-      {resolve.error && <Alert tone="danger">{errorMessage(resolve.error)}</Alert>}
-
       <p className="mb-3 rounded-lg bg-muted p-3 text-sm">{complaint.note}</p>
 
-      <Field label={t('complaint.resolution')} htmlFor="resolution">
+      <Field label={t('complaint.resolution')} htmlFor="resolution" hint={t('app.optional')}>
         <Textarea
           id="resolution"
           rows={3}

@@ -17,11 +17,10 @@
 
 import { Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { useGetCustomersReportQuery } from '@/lib/store/endpoints/reports';
 import { t } from '@/lib/i18n/bn';
 import { formatDate, formatMoney, formatNumber } from '@/lib/format';
-import type { CustomerReportRow, CustomersReport } from '@/lib/types';
+import type { CustomerReportRow } from '@/lib/types';
 import {
   Figure,
   KeyFigures,
@@ -33,6 +32,7 @@ import {
   ReportTable,
   RTd,
   RTh,
+  SheetBody,
   useAutoPrint,
 } from '@/components/report/sheet';
 import { ErrorState } from '@/components/ui/layout';
@@ -49,14 +49,11 @@ export default function CustomersReportPage() {
 function CustomersReportView() {
   const params = useSearchParams();
 
-  const report = useQuery({
-    queryKey: ['owner', 'customers-report'],
-    queryFn: () => api.get<CustomersReport>('/owner/reports/customers'),
-  });
+  const report = useGetCustomersReportQuery();
 
-  useAutoPrint(report.isSuccess, params.get('auto') === '1');
+  useAutoPrint(report.isSuccess && !report.isFetching, params.get('auto') === '1');
 
-  if (report.isError) {
+  if (report.isError && !report.data) {
     return (
       <>
         <PrintBar back="/owner/customers" />
@@ -80,55 +77,57 @@ function CustomersReportView() {
       {report.isLoading && <ListSkeleton />}
 
       {data && totals && (
-        <ReportSheet
-          title={t('report.customers')}
-          subtitle={t('report.customersHint')}
-          meta={t('report.rowCount').replace('{n}', formatNumber(totals.customers))}
-        >
-          <KeyFigures>
-            <Figure label={t('nav.customers')} value={formatNumber(totals.customers)} />
-            <Figure label={t('nav.orders')} value={formatNumber(totals.orders)} />
-            <Figure
-              label={t('report.delivered')}
-              value={formatNumber(totals.delivered)}
-              tone="success"
-            />
-            {/*
-             * Refusals as one figure, because cancelled and returned cost the
-             * same thing on cash on delivery: a courier paid for nothing.
-             */}
-            <Figure
-              label={t('report.riskyCustomers')}
-              value={formatNumber(refused)}
-              tone={refused > 0 ? 'danger' : undefined}
-              hint={t('report.riskyHint')}
-            />
-          </KeyFigures>
+        <SheetBody busy={report.isFetching}>
+          <ReportSheet
+            title={t('report.customers')}
+            subtitle={t('report.customersHint')}
+            meta={t('report.rowCount').replace('{n}', formatNumber(totals.customers))}
+          >
+            <KeyFigures>
+              <Figure label={t('nav.customers')} value={formatNumber(totals.customers)} />
+              <Figure label={t('nav.orders')} value={formatNumber(totals.orders)} />
+              <Figure
+                label={t('report.delivered')}
+                value={formatNumber(totals.delivered)}
+                tone="success"
+              />
+              {/*
+               * Refusals as one figure, because cancelled and returned cost the
+               * same thing on cash on delivery: a courier paid for nothing.
+               */}
+              <Figure
+                label={t('report.riskyCustomers')}
+                value={formatNumber(refused)}
+                tone={refused > 0 ? 'danger' : undefined}
+                hint={t('report.riskyHint')}
+              />
+            </KeyFigures>
 
-          <ReportSection title={t('report.topCustomers')}>
-            {data.top.length === 0 ? (
-              <ReportEmpty />
-            ) : (
-              <ReportTable head={<Head />}>
-                {data.top.map((row) => (
-                  <Row key={row.id} row={row} />
-                ))}
-              </ReportTable>
-            )}
-          </ReportSection>
-
-          {data.risky.length > 0 && (
-            <ReportSection title={t('report.riskyCustomers')} hint={t('report.riskyHint')}>
-              <ReportTable head={<Head />}>
-                {data.risky.map((row) => (
-                  <Row key={row.id} row={row} risky />
-                ))}
-              </ReportTable>
+            <ReportSection title={t('report.topCustomers')}>
+              {data.top.length === 0 ? (
+                <ReportEmpty />
+              ) : (
+                <ReportTable head={<Head />}>
+                  {data.top.map((row) => (
+                    <Row key={row.id} row={row} />
+                  ))}
+                </ReportTable>
+              )}
             </ReportSection>
-          )}
 
-          <ReportFooter />
-        </ReportSheet>
+            {data.risky.length > 0 && (
+              <ReportSection title={t('report.riskyCustomers')} hint={t('report.riskyHint')}>
+                <ReportTable head={<Head />}>
+                  {data.risky.map((row) => (
+                    <Row key={row.id} row={row} risky />
+                  ))}
+                </ReportTable>
+              </ReportSection>
+            )}
+
+            <ReportFooter />
+          </ReportSheet>
+        </SheetBody>
       )}
     </>
   );

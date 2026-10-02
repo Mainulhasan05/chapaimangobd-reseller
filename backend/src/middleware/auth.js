@@ -134,17 +134,22 @@ const READ_ONLY_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
  * Everything else is a 403 RESELLER_INACTIVE the interface can recognise and
  * explain, rather than a generic refusal. See docs/adr/0011.
  *
- * @param {string[]} allowedWrites e.g. ['POST /withdrawals']
+ * A route with an id in it is listed as a RegExp over the same `METHOD /path`
+ * string, anchored, so it names one route and not a family.
+ *
+ * @param {(string|RegExp)[]} allowedWrites e.g. ['POST /withdrawals']
  */
 function readOnlyWhenInactive(allowedWrites = []) {
-  const allowed = new Set(allowedWrites);
+  const allowed = new Set(allowedWrites.filter((entry) => typeof entry === 'string'));
+  const patterns = allowedWrites.filter((entry) => entry instanceof RegExp);
   return (req, _res, next) => {
     if (!req.user) return next(unauthorized());
     if (req.user.isActive) return next();
     if (READ_ONLY_METHODS.has(req.method)) return next();
 
     const path = req.path.length > 1 ? req.path.replace(/\/+$/, '') : req.path;
-    if (allowed.has(`${req.method} ${path}`)) return next();
+    const route = `${req.method} ${path}`;
+    if (allowed.has(route) || patterns.some((pattern) => pattern.test(route))) return next();
 
     return next(
       new AppError(

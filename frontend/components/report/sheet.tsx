@@ -24,33 +24,26 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import type { Route } from 'next';
-import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, Printer } from 'lucide-react';
-import { api } from '@/lib/api';
+import { Printer } from 'lucide-react';
 import { t } from '@/lib/i18n/bn';
 import { formatDate, formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { useUrlRange } from '@/lib/use-url-state';
+import { useGetSettingsQuery } from '@/lib/store/endpoints/settings';
 import { Button } from '@/components/ui/button';
-
-type Brand = {
-  businessName: string;
-  supportPhone?: string | null;
-  brandLogoUrl?: string | null;
-};
+import { BackLink } from '@/components/ui/back-link';
+import { DateRangeFilter, type DateRange, type PresetKey } from '@/components/ui/date-range';
 
 /**
  * The letterhead. Read from settings rather than hard-coded, because a report
  * leaves the building: it is handed to a courier, shown to a reseller, kept as
- * a record of what was agreed.
+ * a record of what was agreed. The same cache entry as the settings screen,
+ * kept for ten minutes because a business name does not change mid-print.
  */
 export function useBrand() {
-  return useQuery({
-    queryKey: ['owner', 'settings', 'brand'],
-    queryFn: () => api.get<{ settings: Brand }>('/owner/settings'),
-    staleTime: 10 * 60_000,
-  });
+  return useGetSettingsQuery(undefined, { refetchOnMountOrArgChange: 600 });
 }
 
 /**
@@ -66,38 +59,76 @@ function useGeneratedAt() {
 }
 
 /**
- * The screen-only strip above a report: get out, and print.
+ * The days a sheet covers, read from and written to the URL.
+ *
+ * A sheet used to take whatever dates the link carried and offer no way to
+ * change them, so a profit sheet opened for this week had to be closed, the
+ * range changed on another screen, and the sheet opened again. The presets now
+ * sit above the paper and write the URL, so Back and a reload keep the choice
+ * and a shared link opens the same days.
+ *
+ * Links made before presets were in the URL carry bare `from`/`to`; those are
+ * read as a custom range rather than ignored.
+ */
+export function useSheetRange(fallback: PresetKey = 'all') {
+  const params = useSearchParams();
+  const url = useUrlRange(fallback);
+  const from = params.get('from');
+  const to = params.get('to');
+  const legacy = !params.get('range') && Boolean(from && to);
+
+  const preset: PresetKey | 'custom' = legacy ? 'custom' : url.preset;
+  const range: DateRange = legacy ? { from: from!, to: to! } : url.range;
+
+  return { preset, range, setRange: url.setRange, auto: params.get('auto') === '1' };
+}
+
+export type SheetRange = ReturnType<typeof useSheetRange>;
+
+/**
+ * The screen-only strip above a report: get out, choose the days, and print.
  *
  * `print-hide` rather than a media query on each button, so that the strip is
  * one thing to think about. The print button is the whole point of the page, so
  * it is a primary button, and the hint beside it says where the PDF is saved,
  * because "Save as PDF" lives inside the browser's own print sheet and a person
  * who has not met it before will not go looking.
+ *
+ * Back returns to wherever the sheet was opened from (a filtered list keeps its
+ * filters); opened from a link, it falls back to `back`.
  */
 export function PrintBar({
   back,
   backLabel,
+  range,
   children,
 }: {
   back: Route;
   backLabel?: string;
+  /** The sheet's date control. Left out for a snapshot sheet, which has no days. */
+  range?: SheetRange;
   children?: React.ReactNode;
 }) {
   return (
-    <div className="print-hide mx-auto mb-4 flex max-w-[210mm] flex-wrap items-center gap-2">
-      <Link href={back}>
-        <Button variant="ghost" size="sm">
-          <ArrowLeft className="h-4 w-4" />
-          {backLabel ?? t('app.back')}
+    <div className="print-hide mx-auto mb-4 max-w-[210mm]">
+      <div className="flex flex-wrap items-center gap-2">
+        <BackLink fallback={back} label={backLabel} className="mb-0" />
+        <div className="flex-1" />
+        <p className="hidden text-xs text-muted-foreground md:block">{t('report.downloadHint')}</p>
+        {children}
+        <Button size="sm" onClick={() => window.print()}>
+          <Printer className="h-4 w-4" />
+          {t('report.print')}
         </Button>
-      </Link>
-      <div className="flex-1" />
-      <p className="hidden text-xs text-muted-foreground md:block">{t('report.downloadHint')}</p>
-      {children}
-      <Button size="sm" onClick={() => window.print()}>
-        <Printer className="h-4 w-4" />
-        {t('report.print')}
-      </Button>
+      </div>
+      {range && (
+        <DateRangeFilter
+          className="mt-3"
+          preset={range.preset}
+          range={range.range}
+          onChange={range.setRange}
+        />
+      )}
     </div>
   );
 }
@@ -105,11 +136,12 @@ export function PrintBar({
 /**
  * Opens the browser's print dialog once, as soon as the report has its data.
  *
- * Only when the caller asks for it, which is how the download buttons elsewhere
- * in the panel behave: pressing "download today's orders" should land on the
- * print sheet, not on a page with another button to find. A report opened by
- * hand is left alone. Guarded by a ref because React may render twice and two
- * print dialogs cannot be dismissed in one gesture.
+ * Only when the caller asks for it (`auto=1`), which only the download buttons
+ * do: pressing "download" should land on the print sheet, not on a page with
+ * another button to find. A report opened to read is left alone. Guarded by a
+ * ref because React may render twice and two print dialogs cannot be dismissed
+ * in one gesture, and the flag is then taken out of the URL, so a reload or a
+ * change of dates does not print again.
  */
 export function useAutoPrint(ready: boolean, enabled: boolean) {
   const fired = useRef(false);
@@ -121,9 +153,26 @@ export function useAutoPrint(ready: boolean, enabled: boolean) {
      * One frame, so the browser has laid the sheet out before it is captured.
      * Printing inside the same tick prints a half-built page.
      */
-    const id = window.setTimeout(() => window.print(), 300);
+    const id = window.setTimeout(() => {
+      window.print();
+      const url = new URL(window.location.href);
+      url.searchParams.delete('auto');
+      window.history.replaceState(window.history.state, '', url);
+    }, 300);
     return () => window.clearTimeout(id);
   }, [ready, enabled]);
+}
+
+/**
+ * Dims a sheet while the next dates load, instead of blanking it to a skeleton
+ * on every preset tap. The figures on it are the previous range's until then.
+ */
+export function SheetBody({ busy, children }: { busy: boolean; children: React.ReactNode }) {
+  return (
+    <div aria-busy={busy || undefined} className={cn('transition-opacity', busy && 'opacity-50')}>
+      {children}
+    </div>
+  );
 }
 
 /** The business mark: the uploaded logo, or its initial on a mango tile. */
@@ -248,6 +297,7 @@ export function ReportSection({
   children,
   className,
   breakBefore,
+  landscape,
 }: {
   title?: string;
   hint?: string;
@@ -255,9 +305,19 @@ export function ReportSection({
   className?: string;
   /** Start this section on a fresh sheet of paper. */
   breakBefore?: boolean;
+  /**
+   * Print this section on landscape sheets, for a table too wide for portrait.
+   * A named page, so only this section turns; the rest of the report stays
+   * upright. Browsers without named pages print it portrait, as before.
+   */
+  landscape?: boolean;
 }) {
   return (
-    <section className={cn('mb-8 min-w-0', breakBefore && 'print-break', className)}>
+    <section
+      className={cn('mb-8 min-w-0', breakBefore && 'print-break', className)}
+      style={landscape ? { page: 'landscape-sheet' } : undefined}
+    >
+      {landscape && <style>{'@media print { @page landscape-sheet { size: A4 landscape; } }'}</style>}
       {title && (
         <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
           <h2 className="flex items-center gap-2 text-[0.9375rem] font-bold">

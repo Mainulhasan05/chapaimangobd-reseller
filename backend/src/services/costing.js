@@ -4,8 +4,13 @@ const Order = require('../models/Order');
 const Expense = require('../models/Expense');
 const Purchase = require('../models/Purchase');
 const Supply = require('../models/Supply');
-const { ORDER_STATUS, EXPENSE_SCOPE, PURCHASE_STATUS } = require('../domain/constants');
+const { ORDER_STATUS, EXPENSE_SCOPE } = require('../domain/constants');
 const { holdingValuePoisha, isLow } = require('../domain/supplyValue');
+const {
+  purchaseFilter,
+  countedPurchases,
+  countedExpenses,
+} = require('../utils/costFilter');
 
 /**
  * What it cost, and therefore what was made.
@@ -187,12 +192,22 @@ async function periodProfit({ from, to } = {}) {
   };
 }
 
-/** What was bought in a range, by payee and by supply. */
-async function purchaseSummary({ from, to } = {}) {
-  const range = rangeFilter(from, to);
-  const match = { ...range, status: PURCHASE_STATUS.RECEIVED };
+/**
+ * What was bought, by payee and by supply, and the purchases themselves.
+ *
+ * Takes the purchase list's own filters (`utils/costFilter.js`), so the printed
+ * sheet is the screen it was printed from. The breakdowns and totals count
+ * received purchases only; `rows` lists what the filter matches, cancelled ones
+ * included unless `status` excludes them, each carrying its status — listed,
+ * never counted, exactly as the list does. `max` caps the rows, and `truncated`
+ * says when it did, rather than handing back a short sheet that looks complete.
+ */
+async function purchaseSummary(query = {}) {
+  const { from, to, max = 500 } = query;
+  const match = countedPurchases(query);
+  const listed = purchaseFilter(query);
 
-  const [byPayee, bySupply, totals] = await Promise.all([
+  const [byPayee, bySupply, totals, rows, rowCount] = await Promise.all([
     Purchase.aggregate([
       { $match: match },
       {
@@ -237,6 +252,23 @@ async function purchaseSummary({ from, to } = {}) {
         },
       },
     ]),
+    Purchase.find(listed, {
+      purchaseCode: 1,
+      businessDate: 1,
+      invoiceNo: 1,
+      payee: 1,
+      payeeNameBn: 1,
+      status: 1,
+      lines: 1,
+      goodsCostPoisha: 1,
+      chargeTotalPoisha: 1,
+      totalPoisha: 1,
+      payeeTotalPoisha: 1,
+    })
+      .sort({ businessDate: 1, createdAt: 1 })
+      .limit(max)
+      .lean(),
+    Purchase.countDocuments(listed),
   ]);
 
   // Weighted average landed cost per unit, per supply: what it cost on average
@@ -259,6 +291,23 @@ async function purchaseSummary({ from, to } = {}) {
     },
     byPayee,
     bySupply: supplies,
+    rows: rows.map((p) => ({
+      purchaseId: p._id,
+      purchaseCode: p.purchaseCode,
+      businessDate: p.businessDate,
+      invoiceNo: p.invoiceNo || null,
+      payeeId: p.payee,
+      payeeNameBn: p.payeeNameBn,
+      status: p.status,
+      // What was bought, by name, for a sheet that has no room for the lines.
+      supplies: (p.lines || []).map((l) => l.supplyNameBn),
+      goodsCostPoisha: p.goodsCostPoisha,
+      chargeTotalPoisha: p.chargeTotalPoisha,
+      totalPoisha: p.totalPoisha,
+      payeeTotalPoisha: p.payeeTotalPoisha,
+    })),
+    rowCount,
+    truncated: rowCount > rows.length,
   };
 }
 
@@ -314,12 +363,19 @@ async function supplyReport({ from, to } = {}) {
   };
 }
 
-/** What was spent in a range, by category, split by scope. */
-async function expenseReport({ from, to } = {}) {
-  const range = rangeFilter(from, to);
-  const match = { ...range, voidedAt: null };
+/**
+ * What was spent, by category, split by scope, and the expenses themselves.
+ *
+ * Takes the expense list's filters (`utils/costFilter.js`), so the printed sheet
+ * is the screen it was printed from. Voided expenses are never on it: a report
+ * is a total, and a voided expense is kept for the audit trail, not for a total.
+ * `max` caps the rows and `truncated` says when it did.
+ */
+async function expenseReport(query = {}) {
+  const { from, to, max = 500 } = query;
+  const match = countedExpenses(query);
 
-  const [byCategory, totals] = await Promise.all([
+  const [byCategory, totals, rows, rowCount] = await Promise.all([
     Expense.aggregate([
       { $match: match },
       {
@@ -345,6 +401,8 @@ async function expenseReport({ from, to } = {}) {
         },
       },
     ]),
+    Expense.find(match).sort({ businessDate: 1, createdAt: 1 }).limit(max).lean(),
+    Expense.countDocuments(match),
   ]);
 
   const scope = (name) => totals.find((t) => t._id === name) || {
@@ -369,6 +427,23 @@ async function expenseReport({ from, to } = {}) {
       unpaidPoisha:
         scope(EXPENSE_SCOPE.ORDER).unpaidPoisha + scope(EXPENSE_SCOPE.PERIOD).unpaidPoisha,
     },
+    rows: rows.map((e) => ({
+      expenseId: e._id,
+      businessDate: e.businessDate,
+      categoryId: e.category,
+      categoryNameBn: e.categoryNameBn,
+      scope: e.scope,
+      orderId: e.order || null,
+      orderCode: e.orderCode || null,
+      payeeId: e.payee || null,
+      payeeNameBn: e.payeeNameBn || null,
+      paymentStatus: e.paymentStatus,
+      paidFrom: e.paidFrom || null,
+      amountPoisha: e.amountPoisha,
+      note: e.note || null,
+    })),
+    rowCount,
+    truncated: rowCount > rows.length,
   };
 }
 

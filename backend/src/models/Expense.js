@@ -84,6 +84,19 @@ const expenseSchema = new mongoose.Schema(
     // Set when this expense posted a due, so voiding it knows what to reverse.
     ledgerEntry: { type: mongoose.Schema.Types.ObjectId, ref: 'PayeeLedgerEntry', default: null },
 
+    /*
+     * The payment that settled an unpaid expense later ("দিয়ে দিয়েছি"), and when.
+     * Null on an expense recorded as paid, which never owed anybody anything.
+     *
+     * `paymentSeq` counts the times it has been settled. Reversing a wrong
+     * settlement puts the expense back to unpaid, and settling it again must post
+     * a new payment rather than resolve to the reversed one through the
+     * idempotency key, so the key carries this number. See expenseService.markPaid.
+     */
+    paidAt: { type: Date, default: null },
+    paymentEntry: { type: mongoose.Schema.Types.ObjectId, ref: 'PayeeLedgerEntry', default: null },
+    paymentSeq: { type: Number, default: 0 },
+
     // Voided rather than deleted, so a month's total cannot change behind a
     // report that was already printed.
     voidedAt: { type: Date, default: null },

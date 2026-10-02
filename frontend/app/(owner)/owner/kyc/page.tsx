@@ -1,177 +1,231 @@
 'use client';
 
 import { useState } from 'react';
-import { BadgeCheck } from 'lucide-react';
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, errorMessage } from '@/lib/api';
-import { t, type DictKey } from '@/lib/i18n/bn';
-import { formatDateTime } from '@/lib/format';
+import Link from 'next/link';
+import type { Route } from 'next';
+import { BadgeCheck, CircleCheckBig } from 'lucide-react';
+import { t, tf, type DictKey } from '@/lib/i18n/bn';
+import { formatDateTime, formatNumber } from '@/lib/format';
+import { cn } from '@/lib/utils';
+import { useUrlState } from '@/lib/use-url-state';
+import { LIVE } from '@/lib/store/api';
+import { useGetDashboardQuery } from '@/lib/store/endpoints/dashboard';
 import {
-  Alert,
-  Badge,
-  Card,
-  CardHeader,
-  EmptyState,
-  ErrorState,
-  PageHeader,
-  statusTone,
-} from '@/components/ui/layout';
-import { Button, Spinner } from '@/components/ui/button';
-import { Field, Select, Textarea } from '@/components/ui/form';
-import { Modal } from '@/components/ui/modal';
+  useApproveKycMutation,
+  useGetKycDocumentsQuery,
+  useGetKycSubmissionsInfiniteQuery,
+  useRejectKycMutation,
+  type KycSubmission,
+} from '@/lib/store/endpoints/people';
+import { Badge, Card, EmptyState, ErrorState, PageHeader, PhoneLink, statusTone } from '@/components/ui/layout';
+import { Button } from '@/components/ui/button';
+import { Modal, ModalCancel } from '@/components/ui/modal';
+import { ConfirmSheet } from '@/components/ui/confirm-sheet';
+import { Segmented, Toolbar } from '@/components/ui/toolbar';
+import { ListSkeleton, Skeleton } from '@/components/ui/skeleton';
 import { LoadMore } from '@/components/ui/load-more';
-import type { CursorPaged } from '@/lib/types';
+import { useToast } from '@/components/ui/toast';
+import { ZoomableImage } from '@/components/document-viewer';
+
+/**
+ * The KYC queue: documents a reseller was asked for, waiting to be read.
+ *
+ * Only resellers the owner asked to verify ever appear here (docs/adr/0017).
+ * Reading a submission opens its scans, which are national ID cards: they are
+ * fetched as short-lived signed links when the sheet opens, every fetch is
+ * audited, and nothing is kept once the sheet closes.
+ */
 
 /** Document types arrive as identifiers; the owner reads them in Bengali. */
 const DOC_LABEL: Record<string, DictKey> = {
   nid_front: 'kyc.nidFront',
   nid_back: 'kyc.nidBack',
-  selfie: 'kyc.selfie',
+  selfie: 'kycReview.selfie',
   trade_license: 'kyc.tradeLicense',
 };
 
-const DICT_STATUS: Record<string, DictKey> = {
+const docLabel = (type: string) => (DOC_LABEL[type] ? t(DOC_LABEL[type]) : type);
+
+type Status = 'pending' | 'approved' | 'rejected';
+const STATUSES: Status[] = ['pending', 'approved', 'rejected'];
+
+const STATUS_LABEL: Record<Status, DictKey> = {
   pending: 'kyc.pending',
   approved: 'kyc.approved',
   rejected: 'kyc.rejected',
 };
 
-type Submission = {
-  id: string;
-  reseller: {
-    _id: string;
-    shopName: string;
-    slug: string;
-    user?: { name: string; phoneE164: string };
-  };
-  status: string;
-  documentTypes: string[];
-  createdAt: string;
-};
-
-const PAGE_SIZE = 30;
+const MIN_REASON = 3;
 
 export default function OwnerKycPage() {
-  const [status, setStatus] = useState('pending');
-  const [reviewing, setReviewing] = useState<Submission | null>(null);
+  const [filters, setFilters] = useUrlState({ status: 'pending' });
+  const status: Status = STATUSES.includes(filters.status as Status) ? (filters.status as Status) : 'pending';
+  // One submission and what is being done with it. A new one starts clean.
+  const [open, setOpen] = useState<{ submission: KycSubmission; mode: 'review' | 'approve' | 'reject' } | null>(
+    null
+  );
+
+  // The pending count is the dashboard's, so it matches the nav badge.
+  const dashboard = useGetDashboardQuery(undefined, LIVE);
 
   /*
    * Oldest first, a page at a time. The pending queue is worked from the front;
    * the approved and rejected histories only grow, which is why this pages by
    * cursor rather than by number.
    */
-  const queue = useInfiniteQuery({
-    queryKey: ['owner', 'kyc', status],
-    queryFn: ({ pageParam }) =>
-      api.get<CursorPaged<'submissions', Submission>>(
-        `/owner/kyc?status=${status}&limit=${PAGE_SIZE}` +
-          `${pageParam ? `&cursor=${encodeURIComponent(pageParam)}` : ''}`
-      ),
-    initialPageParam: '',
-    getNextPageParam: (last) => last.nextCursor ?? undefined,
-  });
+  const queue = useGetKycSubmissionsInfiniteQuery({ status }, status === 'pending' ? LIVE : undefined);
   const submissions = queue.data?.pages.flatMap((page) => page.submissions) ?? [];
+  const switching = queue.isFetching && !queue.isFetchingNextPage && !queue.currentData;
 
   return (
     <>
-      <PageHeader
-        title={t('nav.kyc')}
-        action={
-          <Select value={status} onChange={(e) => setStatus(e.target.value)} className="w-40">
-            <option value="pending">{t('kyc.pending')}</option>
-            <option value="approved">{t('kyc.approved')}</option>
-            <option value="rejected">{t('kyc.rejected')}</option>
-          </Select>
-        }
-      />
+      <PageHeader title={t('nav.kyc')} subtitle={t('kycReview.subtitle')} />
 
-      {queue.isLoading && (
-        <Card className="flex justify-center py-10">
-          <Spinner />
-        </Card>
-      )}
+      <Toolbar>
+        <Segmented
+          label={t('app.status')}
+          value={status}
+          onChange={(value) => setFilters({ status: value })}
+          options={STATUSES.map((value) => ({
+            value,
+            label: t(STATUS_LABEL[value]),
+            count: value === 'pending' ? dashboard.data?.pendingKyc : undefined,
+          }))}
+        />
+      </Toolbar>
+
+      {queue.isLoading && <ListSkeleton rows={4} />}
 
       {queue.isError && submissions.length === 0 && (
         <ErrorState onRetry={() => queue.refetch()} isRetrying={queue.isFetching} error={queue.error} />
       )}
 
-      {queue.isSuccess && submissions.length === 0 && (
-        <EmptyState icon={BadgeCheck} title={t('app.none')} />
-      )}
-
-      <div className="grid gap-3 sm:grid-cols-2">
-        {submissions.map((submission) => (
-          <Card key={submission.id}>
-            <CardHeader
-              title={submission.reseller?.shopName ?? '—'}
-              subtitle={submission.reseller?.user?.phoneE164}
-              action={
-                <Badge tone={statusTone(submission.status)} dot>
-                  {DICT_STATUS[submission.status] ? t(DICT_STATUS[submission.status]) : submission.status}
-                </Badge>
-              }
-            />
-            <p className="mb-3 text-xs text-muted-foreground">
-              {submission.documentTypes.join(', ')} · {formatDateTime(submission.createdAt)}
-            </p>
-            <Button size="sm" variant="outline" full onClick={() => setReviewing(submission)}>
-              {t('kyc.viewDocuments')}
-            </Button>
-          </Card>
+      {queue.isSuccess && submissions.length === 0 &&
+        (status === 'pending' ? (
+          <EmptyState icon={CircleCheckBig} title={t('kycReview.allDone')} description={t('kycReview.allDoneHelp')} />
+        ) : (
+          <EmptyState icon={BadgeCheck} title={t('kycReview.none')} />
         ))}
-      </div>
 
       {submissions.length > 0 && (
-        <LoadMore
-          hasMore={Boolean(queue.hasNextPage)}
-          loading={queue.isFetchingNextPage}
-          onLoadMore={() => queue.fetchNextPage()}
-          error={queue.isFetchNextPageError ? queue.error : null}
-        />
+        <div className={cn('transition-opacity', switching && 'opacity-60')} aria-busy={switching || undefined}>
+          <ul className="grid gap-3 sm:grid-cols-2">
+            {submissions.map((submission) => (
+              <li key={submission.id}>
+                <Card className="p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <Link
+                        href={`/owner/resellers/${submission.reseller?._id}` as Route}
+                        className="block truncate font-semibold underline-offset-2 hover:underline"
+                      >
+                        {submission.reseller?.shopName ?? '—'}
+                      </Link>
+                      {submission.reseller?.user?.name && (
+                        <p className="truncate text-xs text-muted-foreground">{submission.reseller.user.name}</p>
+                      )}
+                      <PhoneLink
+                        phone={submission.reseller?.user?.phoneE164}
+                        className="text-xs text-muted-foreground"
+                      />
+                    </div>
+                    <Badge tone={statusTone(submission.status)} dot className="shrink-0">
+                      {STATUS_LABEL[submission.status as Status]
+                        ? t(STATUS_LABEL[submission.status as Status])
+                        : submission.status}
+                    </Badge>
+                  </div>
+                  <ul className="mt-3 flex flex-wrap gap-1.5">
+                    {submission.documentTypes.map((type) => (
+                      <li key={type} className="rounded-full bg-subtle px-2.5 py-1 text-xs font-medium">
+                        {docLabel(type)}
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {tf('kycReview.submittedAt', { at: formatDateTime(submission.createdAt) })}
+                  </p>
+                  <Button
+                    className="mt-3"
+                    variant={submission.status === 'pending' ? 'primary' : 'outline'}
+                    full
+                    onClick={() => setOpen({ submission, mode: 'review' })}
+                  >
+                    {submission.status === 'pending' ? t('kycReview.review') : t('kyc.viewDocuments')}
+                  </Button>
+                </Card>
+              </li>
+            ))}
+          </ul>
+
+          <LoadMore
+            hasMore={Boolean(queue.hasNextPage)}
+            loading={queue.isFetchingNextPage}
+            onLoadMore={() => queue.fetchNextPage()}
+            error={queue.isFetchNextPageError ? queue.error : null}
+          />
+        </div>
       )}
 
-      <ReviewModal submission={reviewing} onClose={() => setReviewing(null)} />
+      {open?.mode === 'review' && (
+        <ReviewSheet
+          key={open.submission.id}
+          submission={open.submission}
+          onClose={() => setOpen(null)}
+          onDecide={(mode) => setOpen({ submission: open.submission, mode })}
+        />
+      )}
+      {open?.mode === 'approve' && (
+        <ApproveSheet key={open.submission.id} submission={open.submission} onClose={() => setOpen(null)} />
+      )}
+      {open?.mode === 'reject' && (
+        <RejectSheet key={open.submission.id} submission={open.submission} onClose={() => setOpen(null)} />
+      )}
     </>
   );
 }
 
-function ReviewModal({
+/** The scans, one under another, each enlargeable and re-fetched when its link expires. */
+function Documents({ submission }: { submission: KycSubmission }) {
+  const documents = useGetKycDocumentsQuery({ id: submission.id });
+
+  if (documents.isLoading) {
+    return (
+      <div className="grid gap-4 sm:grid-cols-2">
+        {submission.documentTypes.map((type) => (
+          <Skeleton key={type} className="h-48 w-full rounded-lg" />
+        ))}
+      </div>
+    );
+  }
+
+  if (documents.isError || !documents.data) {
+    return (
+      <ErrorState onRetry={() => documents.refetch()} isRetrying={documents.isFetching} error={documents.error} />
+    );
+  }
+
+  return (
+    <div className="grid gap-5 sm:grid-cols-2">
+      {documents.data.documents.map((doc) => (
+        <div key={doc.type} className="min-w-0">
+          <p className="mb-1.5 text-sm font-semibold">{docLabel(doc.type)}</p>
+          <ZoomableImage src={doc.url} alt={docLabel(doc.type)} onBroken={() => documents.refetch()} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ReviewSheet({
   submission,
   onClose,
+  onDecide,
 }: {
-  submission: Submission | null;
+  submission: KycSubmission;
   onClose: () => void;
+  onDecide: (mode: 'approve' | 'reject') => void;
 }) {
-  const queryClient = useQueryClient();
-  const [reason, setReason] = useState('');
-
-  /**
-   * Documents are fetched on demand rather than listed with the queue. The URLs
-   * are signed and short lived, and every fetch is written to the audit log,
-   * because these are national ID scans.
-   */
-  const documents = useQuery({
-    queryKey: ['owner', 'kyc-docs', submission?.id],
-    queryFn: () =>
-      api.get<{ documents: { type: string; url: string }[] }>(
-        `/owner/kyc/${submission!.id}/documents`
-      ),
-    enabled: Boolean(submission),
-    staleTime: 0,
-  });
-
-  const decide = useMutation({
-    mutationFn: (decision: 'approve' | 'reject') =>
-      api.post(`/owner/kyc/${submission!.id}/${decision}`, reason ? { reason } : {}),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['owner'] });
-      setReason('');
-      onClose();
-    },
-  });
-
-  if (!submission) return null;
-
   const pending = submission.status === 'pending';
 
   return (
@@ -183,61 +237,93 @@ function ReviewModal({
       footer={
         pending ? (
           <>
-            <Button
-              variant="danger"
-              loading={decide.isPending && decide.variables === 'reject'}
-              disabled={reason.trim().length < 3}
-              onClick={() => decide.mutate('reject')}
-            >
-              {t('kyc.reject')}
+            <Button variant="outline" className="text-danger" onClick={() => onDecide('reject')}>
+              {t('owner.reject')}
             </Button>
-            <Button
-              variant="success"
-              loading={decide.isPending && decide.variables === 'approve'}
-              onClick={() => decide.mutate('approve')}
-            >
-              {t('kyc.approve')}
+            <Button variant="success" onClick={() => onDecide('approve')}>
+              {t('owner.approve')}
             </Button>
           </>
         ) : (
-          <Button variant="outline" onClick={onClose}>
-            {t('app.close')}
-          </Button>
+          <ModalCancel label={t('app.close')} />
         )
       }
     >
-      {decide.error && <Alert tone="danger">{errorMessage(decide.error)}</Alert>}
-
-      {documents.isLoading && (
-        <div className="flex justify-center py-6">
-          <Spinner />
-        </div>
-      )}
-
-      {documents.error && <Alert tone="warning">{errorMessage(documents.error)}</Alert>}
-
-      <div className="mb-5 grid gap-4 sm:grid-cols-2">
-        {documents.data?.documents.map((doc) => (
-          <figure key={doc.type}>
-            <figcaption className="mb-1 text-xs text-muted-foreground">
-              {DOC_LABEL[doc.type] ? t(DOC_LABEL[doc.type]) : doc.type}
-            </figcaption>
-            {/* Signed R2 URLs expire, so a plain img avoids Next caching them. */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={doc.url}
-              alt={doc.type}
-              className="w-full rounded-lg border border-border object-contain"
-            />
-          </figure>
-        ))}
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-sm">
+        <span className="text-muted-foreground">
+          {tf('kycReview.submittedAt', { at: formatDateTime(submission.createdAt) })}
+        </span>
+        <Link
+          href={`/owner/resellers/${submission.reseller?._id}` as Route}
+          className="tap inline-flex items-center font-semibold underline-offset-2 hover:underline"
+        >
+          {t('kycReview.openReseller')}
+        </Link>
       </div>
-
-      {pending && (
-        <Field label={t('kyc.rejectReason')} htmlFor="reason" hint={t('app.optional')}>
-          <Textarea id="reason" rows={2} value={reason} onChange={(e) => setReason(e.target.value)} />
-        </Field>
-      )}
+      {pending && <p className="mb-4 rounded-lg bg-muted px-3 py-2 text-sm">{t('kycReview.checkHint')}</p>}
+      <Documents submission={submission} />
     </Modal>
+  );
+}
+
+function ApproveSheet({ submission, onClose }: { submission: KycSubmission; onClose: () => void }) {
+  const toast = useToast();
+  const [approve] = useApproveKycMutation();
+  const shop = submission.reseller?.shopName ?? '—';
+  return (
+    <ConfirmSheet
+      title={t('kycReview.approveTitle')}
+      tone="success"
+      confirmLabel={t('owner.approve')}
+      onClose={onClose}
+      // No reason on approval: there is nothing for the reseller to act on.
+      onConfirm={async () => {
+        await approve({ id: submission.id }).unwrap();
+        toast(tf('kycReview.approved', { shop }));
+      }}
+      summary={
+        <>
+          <p className="font-semibold">{shop}</p>
+          <p className="mt-0.5 text-muted-foreground">
+            {submission.documentTypes.map(docLabel).join(', ')}
+          </p>
+        </>
+      }
+      consequences={[t('kycReview.approveConsequence')]}
+    />
+  );
+}
+
+function RejectSheet({ submission, onClose }: { submission: KycSubmission; onClose: () => void }) {
+  const toast = useToast();
+  const [reject] = useRejectKycMutation();
+  const shop = submission.reseller?.shopName ?? '—';
+  return (
+    <ConfirmSheet
+      title={t('kycReview.rejectTitle')}
+      tone="danger"
+      confirmLabel={t('owner.reject')}
+      onClose={onClose}
+      onConfirm={async (reason) => {
+        await reject({ id: submission.id, reason }).unwrap();
+        toast(tf('kycReview.rejected', { shop }));
+      }}
+      summary={
+        <>
+          <p className="font-semibold">{shop}</p>
+          <p className="mt-0.5 text-muted-foreground">
+            {tf('kycReview.submittedAt', { at: formatDateTime(submission.createdAt) })}
+          </p>
+        </>
+      }
+      consequences={[t('kycReview.rejectConsequence')]}
+      reason={{
+        required: true,
+        minLength: MIN_REASON,
+        label: t('kycReview.rejectReason'),
+        placeholder: tf('app.minChars', { count: formatNumber(MIN_REASON) }),
+        presets: [t('kycReview.presetBlurry'), t('kycReview.presetMissing'), t('kycReview.presetMismatch')],
+      }}
+    />
   );
 }

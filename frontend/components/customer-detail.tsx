@@ -2,11 +2,12 @@
 
 import Link from 'next/link';
 import type { Route } from 'next';
-import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, ClipboardList, Warehouse } from 'lucide-react';
-import { api } from '@/lib/api';
+import { UserX, Warehouse } from 'lucide-react';
+import { ApiError } from '@/lib/api';
 import { t, tStatus } from '@/lib/i18n/bn';
 import { formatMoney, formatDateTime } from '@/lib/format';
+import { useGetCustomerQuery } from '@/lib/store/endpoints/people';
+import { resellerIdOf } from '@/lib/store/endpoints/shared';
 import {
   Badge,
   Card,
@@ -16,9 +17,10 @@ import {
   PageHeader,
   statusTone,
 } from '@/components/ui/layout';
-import { ListSkeleton } from '@/components/ui/skeleton';
+import { BackLink } from '@/components/ui/back-link';
+import { ListSkeleton, Skeleton } from '@/components/ui/skeleton';
 import { CustomerProfile } from '@/components/customer-profile';
-import type { Customer, Order } from '@/lib/types';
+import type { Order } from '@/lib/types';
 
 /**
  * One buyer's whole history with whoever is looking.
@@ -29,8 +31,6 @@ import type { Customer, Order } from '@/lib/types';
  * this: the same number ordering under a different name each time is not an
  * anomaly here, it is the normal case.
  */
-
-type Response = { customer: Customer; orders: (Order & { shopName?: string | null })[] };
 
 /**
  * The distinct orchards one order was collected from.
@@ -57,34 +57,42 @@ export function CustomerDetail({
   backHref: Route;
   orderHref: (order: Order) => Route;
 }) {
-  const query = useQuery({
-    queryKey: ['customer', base, identifier],
-    queryFn: () =>
-      api.get<Response>(`${base}/customers/${encodeURIComponent(identifier)}`),
-  });
+  const role = base === '/owner' ? 'owner' : 'reseller';
+  const query = useGetCustomerQuery({ role, id: identifier });
 
-  if (query.isLoading) return <ListSkeleton rows={5} />;
+  // The way back is on screen in every state, not only once the data arrives.
+  const back = <BackLink fallback={backHref} />;
 
-  if (query.isError) {
+  if (query.isLoading) {
     return (
       <>
-        <PageHeader title={t('cust.title')} />
-        <ErrorState onRetry={() => query.refetch()} isRetrying={query.isFetching} />
+        {back}
+        <Skeleton className="mb-4 h-40 w-full rounded-2xl" />
+        <ListSkeleton rows={4} />
       </>
     );
   }
 
-  const { customer, orders } = query.data!;
+  if (query.isError || !query.data) {
+    const missing = query.error instanceof ApiError && query.error.status === 404;
+    return (
+      <>
+        {back}
+        <PageHeader title={t('cust.title')} />
+        {missing ? (
+          <EmptyState icon={UserX} title={t('customers.notFound')} description={t('customers.notFoundHelp')} />
+        ) : (
+          <ErrorState onRetry={() => query.refetch()} isRetrying={query.isFetching} error={query.error} />
+        )}
+      </>
+    );
+  }
+
+  const { customer, orders } = query.data;
 
   return (
     <>
-      <Link
-        href={backHref}
-        className="mb-3 inline-flex items-center gap-1.5 text-sm font-semibold text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        {t('app.back')}
-      </Link>
+      {back}
 
       <CustomerProfile customer={customer} />
 
@@ -92,15 +100,18 @@ export function CustomerDetail({
         <CardHeader title={t('cust.orderHistory')} />
 
         {orders.length === 0 ? (
-          <EmptyState icon={ClipboardList} title={t('app.none')} />
+          <EmptyState compact title={t('app.none')} />
         ) : (
           <ul className="-my-1 divide-y divide-border">
-            {orders.map((order, index) => (
-              <li key={order.id}>
-                <Link
-                  href={orderHref(order)}
-                  className="-mx-2 flex items-start gap-3 rounded-lg px-2 py-3 hover:bg-muted"
-                >
+            {orders.map((order, index) => {
+              const shopId = base === '/owner' ? resellerIdOf(order) : undefined;
+              return (
+                /*
+                 * The order link covers the row; the shop link sits above it, so
+                 * the two stay separate controls rather than one link inside
+                 * another.
+                 */
+                <li key={order.id} className="relative -mx-2 flex items-start gap-3 rounded-lg px-2 py-3 hover:bg-muted">
                   {/*
                    * Counted from the end of the list, so the oldest order is
                    * number one. "Their fourth order" is how anybody actually
@@ -112,13 +123,26 @@ export function CustomerDetail({
 
                   <span className="min-w-0 flex-1">
                     <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <span className="tabular text-sm font-semibold">{order.orderCode}</span>
+                      <Link
+                        href={orderHref(order)}
+                        className="tabular text-sm font-semibold after:absolute after:inset-0 after:content-['']"
+                      >
+                        {order.orderCode}
+                      </Link>
                       <Badge tone={statusTone(order.status)} dot>
                         {tStatus(order.status)}
                       </Badge>
-                      {order.shopName && (
-                        <span className="text-xs text-muted-foreground">{order.shopName}</span>
-                      )}
+                      {order.shopName &&
+                        (shopId ? (
+                          <Link
+                            href={`/owner/resellers/${shopId}` as Route}
+                            className="relative z-10 inline-flex min-h-11 items-center text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground sm:min-h-0"
+                          >
+                            {order.shopName}
+                          </Link>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">{order.shopName}</span>
+                        ))}
                     </span>
 
                     {/*
@@ -135,13 +159,10 @@ export function CustomerDetail({
                     </span>
 
                     {/*
-                     * Which orchard this order's crates were collected from.
-                     *
-                     * Read from the line snapshots, not by looking up a source:
-                     * the name was copied onto the line when the owner accepted
-                     * the order, so a retired orchard still renders correctly
-                     * here years later. An order not yet accepted has none,
-                     * because nobody has decided yet.
+                     * Which orchard this order's crates were collected from,
+                     * read from the line snapshots, so a retired orchard still
+                     * renders correctly here years later. An order not yet
+                     * accepted has none, because nobody has decided yet.
                      */}
                     {sourcesOf(order).length > 0 && (
                       <span className="mt-1 flex flex-wrap items-center gap-1">
@@ -161,9 +182,9 @@ export function CustomerDetail({
                   <span className="tabular shrink-0 text-sm font-semibold">
                     {formatMoney(order.totals.customerTotal)}
                   </span>
-                </Link>
-              </li>
-            ))}
+                </li>
+              );
+            })}
           </ul>
         )}
       </Card>

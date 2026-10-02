@@ -4,20 +4,22 @@ import { Suspense, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { Route } from 'next';
-import { useInfiniteQuery } from '@tanstack/react-query';
 import { Ban, ClipboardList, Eye, Plus } from 'lucide-react';
-import { api } from '@/lib/api';
 import { useReadOnlyAccount } from '@/lib/session';
-import { useDebounced } from '@/lib/use-debounced';
+import { useUrlSearch, useUrlState } from '@/lib/use-url-state';
+import { LIVE } from '@/lib/store/api';
+import { useGetResellerOrdersInfiniteQuery } from '@/lib/store/endpoints/reseller';
+import { cn } from '@/lib/utils';
 import { t, tStatus } from '@/lib/i18n/bn';
 import { formatMoney, formatQuantity, formatAge } from '@/lib/format';
-import type { Order, Paged } from '@/lib/types';
+import type { Order } from '@/lib/types';
 import {
   Badge,
   Card,
   ColumnToggle,
   EmptyState,
   ErrorState,
+  FilteredEmpty,
   PageHeader,
   RowMenu,
   SortTh,
@@ -32,12 +34,10 @@ import {
   type MenuItem,
 } from '@/components/ui/layout';
 import { Segmented, SearchInput, SortSelect, Toolbar, ToolbarSpacer } from '@/components/ui/toolbar';
-import { Button } from '@/components/ui/button';
+import { Button, ButtonLink } from '@/components/ui/button';
 import { ListSkeleton } from '@/components/ui/skeleton';
 import { ConfirmOrderModal } from '@/components/confirm-order-modal';
 import { CancelOrderModal } from '@/components/cancel-order-modal';
-
-const PAGE_SIZE = 20;
 
 const FILTERS: { value: string; label: string }[] = [
   { value: '', label: t('app.all') },
@@ -69,36 +69,26 @@ export default function ResellerOrdersPage() {
 
 function OrdersView() {
   const params = useSearchParams();
-  // The dashboard links here with a filter already chosen.
   const readOnly = useReadOnlyAccount();
-  const [status, setStatus] = useState(() => params.get('status') ?? '');
-  const [term, setTerm] = useState('');
+  /*
+   * The tab and the search live in the URL, so opening an order and coming back
+   * returns to the same list, and the dashboard can link here already filtered.
+   */
+  const [filters, setFilters] = useUrlState({ status: '' });
+  const status = filters.status;
+  const { input: term, setInput: setTerm, term: search } = useUrlSearch();
   const [confirming, setConfirming] = useState<Order | null>(null);
   const [cancelling, setCancelling] = useState<Order | null>(null);
   const router = useRouter();
-
-  const search = useDebounced(term);
 
   /**
    * Paged rather than a hard-coded fifty. A reseller two seasons in has more
    * orders than that, and the fifty-first was previously unreachable by any
    * means the interface offered.
    */
-  const orders = useInfiniteQuery({
-    queryKey: ['orders', status, search],
-    queryFn: ({ pageParam }) =>
-      api.get<Paged<'orders', Order>>(
-        `/reseller/orders?limit=${PAGE_SIZE}&page=${pageParam}` +
-          `${status ? `&status=${status}` : ''}` +
-          `${search ? `&q=${encodeURIComponent(search)}` : ''}`
-      ),
-    initialPageParam: 1,
-    getNextPageParam: (last, pages) => {
-      const loaded = pages.reduce((count, page) => count + page.orders.length, 0);
-      return loaded < last.total ? pages.length + 1 : undefined;
-    },
-    refetchInterval: 60_000,
-  });
+  const orders = useGetResellerOrdersInfiniteQuery({ status, q: search }, LIVE);
+  // The previous list stays on screen, dimmed, while a new tab or search loads.
+  const switching = orders.isFetching && !orders.currentData;
 
   /** The order's own page, which is also where a notification lands. */
   const detailHref = (order: Order) => `/reseller/orders/${order.id}` as Route;
@@ -146,7 +136,7 @@ function OrdersView() {
     ...(!readOnly && order.actions.includes('cancel')
       ? [
           {
-            label: t('app.cancel'),
+            label: t('order.cancelOrder'),
             icon: Ban,
             tone: 'danger' as const,
             onSelect: () => setCancelling(order),
@@ -162,9 +152,9 @@ function OrdersView() {
         subtitle={t('order.confirmHelp')}
         action={
           readOnly ? undefined : (
-            <Link href="/reseller/orders/new" className="hidden sm:block">
-              <Button size="sm">{t('order.manualOrder')}</Button>
-            </Link>
+            <ButtonLink href="/reseller/orders/new" size="sm" className="hidden sm:inline-flex">
+              {t('order.manualOrder')}
+            </ButtonLink>
           )
         }
       />
@@ -175,7 +165,12 @@ function OrdersView() {
        * three and should not have to pick a field first.
        */}
       <Toolbar>
-        <Segmented label={t('app.status')} value={status} onChange={setStatus} options={FILTERS} />
+        <Segmented
+          label={t('app.status')}
+          value={status}
+          onChange={(value) => setFilters({ status: value })}
+          options={FILTERS}
+        />
         <ToolbarSpacer />
         <SearchInput value={term} onChange={setTerm} placeholder={t('app.searchOrders')} />
         <SortSelect
@@ -189,12 +184,10 @@ function OrdersView() {
       </Toolbar>
 
       {!readOnly && (
-        <Link href="/reseller/orders/new" className="mb-4 block sm:hidden">
-          <Button full variant="outline">
-            <Plus className="h-4 w-4" />
-            {t('order.manualOrder')}
-          </Button>
-        </Link>
+        <ButtonLink href="/reseller/orders/new" full variant="outline" className="mb-4 sm:hidden">
+          <Plus className="h-4 w-4" />
+          {t('order.manualOrder')}
+        </ButtonLink>
       )}
 
       {orders.isLoading && <ListSkeleton />}
@@ -207,16 +200,27 @@ function OrdersView() {
         />
       )}
 
-      {orders.isSuccess && rows.length === 0 && (
-        <EmptyState
-          icon={ClipboardList}
-          title={search ? t('app.noResults') : t('order.noOrders')}
-          description={search ? t('order.searchHelp') : t('shop.shareHelp')}
-        />
+      {orders.isSuccess && !switching && rows.length === 0 && (
+        search ? (
+          <EmptyState
+            icon={ClipboardList}
+            title={t('app.noResults')}
+            description={t('order.searchHelp')}
+          />
+        ) : status ? (
+          // A tab emptied the list, not a lack of orders: say so and offer the way back.
+          <FilteredEmpty onClear={() => setFilters({ status: '' })} />
+        ) : (
+          <EmptyState
+            icon={ClipboardList}
+            title={t('order.noOrders')}
+            description={t('shop.shareHelp')}
+          />
+        )
       )}
 
       {rows.length > 0 && (
-        <>
+        <div className={cn('transition-opacity', switching && 'opacity-60')}>
           {/* Phones get cards. A 42rem table put Confirm off the right edge. */}
           {/*
            * Cards below `xl`, two across once there is room. Seven columns want
@@ -367,17 +371,28 @@ function OrdersView() {
               {rows.length} / {total}
             </p>
           </div>
-        </>
+        </div>
       )}
 
-      <ConfirmOrderModal
-        order={confirmTarget}
-        onClose={() => {
-          setConfirming(null);
-          setAutoOpenDismissed(true);
-        }}
-      />
-      <CancelOrderModal order={cancelling} scope="reseller" onClose={() => setCancelling(null)} />
+      {/* Mounted only while open, so nothing typed for one order carries into the next. */}
+      {confirmTarget && (
+        <ConfirmOrderModal
+          key={confirmTarget.id}
+          order={confirmTarget}
+          onClose={() => {
+            setConfirming(null);
+            setAutoOpenDismissed(true);
+          }}
+        />
+      )}
+      {cancelling && (
+        <CancelOrderModal
+          key={cancelling.id}
+          order={cancelling}
+          scope="reseller"
+          onClose={() => setCancelling(null)}
+        />
+      )}
     </>
   );
 }
@@ -445,7 +460,7 @@ function OrderCard({
           {canConfirm && <Button onClick={onConfirm}>{t('app.confirm')}</Button>}
           {canCancel && (
             <Button variant="outline" onClick={onCancel}>
-              {t('app.cancel')}
+              {t('order.cancelOrder')}
             </Button>
           )}
         </div>

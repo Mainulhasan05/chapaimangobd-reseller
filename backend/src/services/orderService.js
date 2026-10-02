@@ -32,6 +32,7 @@ const {
   assertCanTransition,
   assertDeliveryChargeEditable,
   assertCustomerEditable,
+  assertCourierEditable,
   SYSTEM_CANCELLABLE,
   getTransition,
   wasCommitted,
@@ -821,6 +822,71 @@ async function editCustomer({ orderId, role, resellerProfile, actorUser, changes
   return { order: updated, changed, before, after, deliveryZoneChanged, zone };
 }
 
+/* -------------------------------------------------------------- courier edit */
+
+/**
+ * Corrects the courier or the tracking number on a parcel that is on its way.
+ *
+ * A capability rather than a transition: nothing about the order's status or
+ * money changes, only what the owner wrote down when it left. The status is
+ * part of the guard, so an order delivered between the read and the write is
+ * refused rather than quietly edited after the fact.
+ *
+ * An empty tracking number clears it: "I typed the wrong one and have not got
+ * the right one yet" is a real state, and an old wrong number is worse than none.
+ *
+ * @returns {Promise<{ order, changed: string[], before, after }>}
+ */
+async function editCourier({ orderId, actorUser, courierName, trackingNumber }) {
+  const current = await Order.findById(orderId);
+  if (!current) throw notFound('Order not found');
+  assertCourierEditable(current);
+
+  const now = {
+    name: current.courier?.name ?? null,
+    trackingNumber: current.courier?.trackingNumber ?? null,
+  };
+  const next = {
+    name: courierName !== undefined ? courierName : now.name,
+    trackingNumber: trackingNumber !== undefined ? trackingNumber || null : now.trackingNumber,
+  };
+
+  const before = {};
+  const after = {};
+  ['name', 'trackingNumber'].forEach((field) => {
+    if (next[field] === now[field]) return;
+    before[field] = now[field];
+    after[field] = next[field];
+  });
+  const changed = Object.keys(after);
+  if (changed.length === 0) return { order: current, changed, before, after };
+
+  const updated = await Order.findOneAndUpdate(
+    { _id: current._id, status: current.status },
+    {
+      $set: { 'courier.name': next.name, 'courier.trackingNumber': next.trackingNumber },
+      $push: {
+        statusHistory: {
+          status: current.status,
+          at: new Date(),
+          by: actorUser._id,
+          event: 'courier_edited',
+          note: `Courier details changed: ${changed.join(', ')}`,
+        },
+      },
+    },
+    { new: true }
+  );
+  if (!updated) {
+    // Lost a race. If what won was the parcel arriving, say that it is locked.
+    const latest = await Order.findById(current._id).select('status');
+    if (latest) assertCourierEditable(latest);
+    throw conflict('ALREADY_HANDLED', 'This order was just changed by someone else');
+  }
+
+  return { order: updated, changed, before, after };
+}
+
 /* -------------------------------------------------------------- notifications */
 
 async function notifyReseller(profile, eventType, message) {
@@ -850,6 +916,7 @@ module.exports = {
   transitionOrder,
   cancelPendingForReseller,
   editCustomer,
+  editCourier,
   agingOrders,
   postConfirmationEntries,
   LedgerEntry,

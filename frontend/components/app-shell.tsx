@@ -2,9 +2,8 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import type { Route } from 'next';
-import { useQueryClient } from '@tanstack/react-query';
 import {
   Bell,
   CalendarDays,
@@ -13,15 +12,15 @@ import {
   Lock,
   LogOut,
   Menu,
+  UserCog,
   WifiOff,
   X,
 } from 'lucide-react';
-import { ApiError } from '@/lib/api';
-import { useSession, useLogout, sessionKey } from '@/lib/session';
+import { useSession, useLogout } from '@/lib/session';
 import { useOnline } from '@/lib/use-online';
 import { syncPushRole } from '@/lib/push';
-import { t, type DictKey } from '@/lib/i18n/bn';
-import { formatToday } from '@/lib/format';
+import { t, tf, type DictKey } from '@/lib/i18n/bn';
+import { formatNumber, formatToday } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { Alert, Avatar } from '@/components/ui/layout';
 import { Logo } from '@/components/ui/logo';
@@ -106,33 +105,11 @@ export function AppShell({
   }, [session, isLoading, role, router, pathname, accountHref]);
 
   /*
-   * Two refusals mean the session this screen holds is out of date: the owner
-   * issued a temporary password (PASSWORD_CHANGE_REQUIRED) or deactivated the
-   * reseller (RESELLER_INACTIVE) after `/auth/me` was last read. Refetching the
-   * session is enough, because the redirect above and the read-only banner
-   * below both follow what it says.
+   * A refusal that means this screen's session is out of date (a temporary
+   * password, a deactivation) refreshes the session from the store's listener
+   * middleware, so the redirect above and the read-only banner follow it. See
+   * lib/store/store.ts.
    */
-  const queryClient = useQueryClient();
-  useEffect(() => {
-    const stale = (error: unknown) => {
-      if (
-        error instanceof ApiError &&
-        (error.code === 'PASSWORD_CHANGE_REQUIRED' || error.code === 'RESELLER_INACTIVE')
-      ) {
-        void queryClient.invalidateQueries({ queryKey: sessionKey });
-      }
-    };
-    const offQueries = queryClient.getQueryCache().subscribe((event) => {
-      if (event.type === 'updated' && event.action.type === 'error') stale(event.action.error);
-    });
-    const offMutations = queryClient.getMutationCache().subscribe((event) => {
-      if (event.type === 'updated' && event.action.type === 'error') stale(event.action.error);
-    });
-    return () => {
-      offQueries();
-      offMutations();
-    };
-  }, [queryClient]);
 
   // Keeps the push worker's idea of who is signed in here current, so a tapped
   // notification opens this role's pages even after an account switch.
@@ -181,6 +158,17 @@ export function AppShell({
     .sort((a, b) => b.href.length - a.href.length)[0];
 
   const isActive = (href: string) => current?.href === href;
+
+  /*
+   * What the bar calls this page. The inbox is reached by the bell rather than
+   * from the nav, so it is named here rather than falling back to the brand.
+   */
+  const title =
+    notificationsHref && matches(notificationsHref)
+      ? t('nav.notifications')
+      : current
+        ? t(current.labelKey)
+        : t('app.name');
 
   const tabs = nav.slice(0, TABS);
   const overflow = nav.slice(TABS);
@@ -236,6 +224,7 @@ export function AppShell({
             role={role}
             placement="top"
             full
+            accountHref={accountHref}
             onLogout={() => logout.mutate()}
             loggingOut={logout.isPending}
           />
@@ -253,10 +242,11 @@ export function AppShell({
          * it is where the current place is named and where the controls that
          * are not destinations live.
          *
-         * The two halves swap at `lg`. Below it the bar carries the brand,
-         * because there is no sidebar to carry it and the account has nowhere
-         * else to go. At `lg` the sidebar has both, so the bar names the page
-         * instead.
+         * It names the page at every width. Below `lg` it used to carry the
+         * brand instead, so on a phone, once the page heading had scrolled
+         * away, nothing on screen said where you were; the brand is in the
+         * drawer and the home tab already. The account sits here below `lg`,
+         * because there is no sidebar footer to hold it.
          */}
         <header className="print-hide sticky top-0 z-30 border-b border-border bg-surface/90 backdrop-blur">
           <div className="mx-auto flex h-16 max-w-7xl items-center gap-2 px-4 sm:gap-3 sm:px-6 lg:px-8">
@@ -275,27 +265,22 @@ export function AppShell({
               aria-label={t('app.menu')}
               aria-haspopup="dialog"
               aria-expanded={menuOpen}
-              className="-ml-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-foreground transition-colors hover:bg-muted lg:hidden"
+              className="-ml-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-foreground transition-colors hover:bg-muted lg:hidden"
             >
               <Menu className="h-5 w-5" />
             </button>
-
-            <Link href={home} className="flex min-w-0 shrink items-center gap-2 lg:hidden">
-              <Logo />
-              <span className="truncate font-bold tracking-tight">{t('app.name')}</span>
-            </Link>
 
             {/*
              * Where you are, taken from the same nav the sidebar is drawn from,
              * so a new destination cannot arrive with an unnamed bar. A detail
              * route falls under its section, which is what the highlighted
-             * sidebar row already says.
+             * sidebar row already says. Not a heading: every page carries its
+             * own `h1`, and a second one would make a screen reader's outline
+             * stutter.
              */}
-            <h1 className="hidden min-w-0 truncate text-base font-semibold tracking-tight lg:block">
-              {current ? t(current.labelKey) : t('app.name')}
-            </h1>
+            <p className="min-w-0 flex-1 truncate text-base font-semibold tracking-tight">{title}</p>
 
-            <div className="ml-auto flex shrink-0 items-center gap-1">
+            <div className="flex shrink-0 items-center gap-0.5 sm:gap-1">
               <TodayChip />
 
               {notificationsHref && (
@@ -309,6 +294,7 @@ export function AppShell({
                 <ProfileMenu
                   name={session.user.name}
                   role={role}
+                  accountHref={accountHref}
                   onLogout={() => logout.mutate()}
                   loggingOut={logout.isPending}
                 />
@@ -326,7 +312,10 @@ export function AppShell({
          */}
         <main key={pathname} className="page-in mx-auto max-w-7xl px-4 py-8 pb-nav sm:px-6 lg:px-8 print:pb-0">
           {role === 'reseller' && !session.user.isActive && <DeactivatedBanner />}
-          {children}
+          {/* Pages keep their filters in the URL, and reading the URL needs a
+            * suspense boundary while a route is prerendered. One here covers
+            * every page. */}
+          <Suspense fallback={<ListSkeleton rows={4} />}>{children}</Suspense>
         </main>
       </div>
 
@@ -422,17 +411,31 @@ function OfflineStrip() {
   );
 }
 
+/**
+ * The way into the inbox, with how much is waiting in it.
+ *
+ * It used to carry a dot, on the reasoning that the count lived on the page.
+ * But "one new order" and "fourteen things since last night" call for different
+ * reactions, and the dot made the owner open the page to learn which. Capped at
+ * 9+, like the bottom bar, so the badge never outgrows the bell.
+ */
 function NotificationBell({ href, count }: { href: Route; count?: number }) {
   return (
     <Link
       href={href}
-      aria-label={t('nav.notifications')}
-      className="relative flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+      aria-label={
+        count ? tf('nav.notificationsCount', { count: formatNumber(count) }) : t('nav.notifications')
+      }
+      className="relative flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
     >
-      <Bell className="h-[1.125rem] w-[1.125rem]" />
-      {/* A dot, not a count. The count lives on the page itself. */}
+      <Bell className="h-5 w-5" />
       {count ? (
-        <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-danger ring-2 ring-surface" />
+        <span
+          aria-hidden
+          className="tabular absolute right-1 top-1 min-w-[1.125rem] rounded-full bg-danger px-1 text-center text-[0.625rem] font-semibold leading-[1.125rem] text-danger-foreground ring-2 ring-surface"
+        >
+          {count > 9 ? `${formatNumber(9)}+` : formatNumber(count)}
+        </span>
       ) : null}
     </Link>
   );
@@ -471,7 +474,7 @@ function SideLink({ item, active }: { item: NavItem; active: boolean }) {
       <span className="min-w-0 flex-1 truncate">{t(item.labelKey)}</span>
       {item.badge ? (
         <span className="tabular shrink-0 rounded-full bg-danger px-1.5 text-xs font-semibold text-danger-foreground">
-          {item.badge > 99 ? '99+' : item.badge}
+          {item.badge > 99 ? `${formatNumber(99)}+` : formatNumber(item.badge)}
         </span>
       ) : null}
     </Link>
@@ -489,6 +492,7 @@ function SideLink({ item, active }: { item: NavItem; active: boolean }) {
 function ProfileMenu({
   name,
   role,
+  accountHref,
   onLogout,
   loggingOut,
   placement = 'bottom',
@@ -496,6 +500,8 @@ function ProfileMenu({
 }: {
   name: string;
   role: Role;
+  /** Password, login phone and, for the owner, trusted devices. */
+  accountHref: Route;
   onLogout: () => void;
   loggingOut: boolean;
   placement?: 'bottom' | 'top';
@@ -572,12 +578,24 @@ function ProfileMenu({
             </span>
           </div>
 
+          {/* Behind the avatar is where people look for "change my password";
+            * it used to hold only the way out. */}
+          <Link
+            href={accountHref}
+            role="menuitem"
+            onClick={() => setOpen(false)}
+            className="flex min-h-11 w-full items-center gap-2.5 px-3 text-left text-sm transition-colors hover:bg-muted"
+          >
+            <UserCog className="h-4 w-4 shrink-0 text-muted-foreground" />
+            {t('nav.account')}
+          </Link>
+
           <button
             type="button"
             role="menuitem"
             disabled={loggingOut}
             onClick={onLogout}
-            className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-danger transition-colors hover:bg-danger-soft disabled:opacity-50"
+            className="flex min-h-11 w-full items-center gap-2.5 border-t border-border px-3 text-left text-sm text-danger transition-colors hover:bg-danger-soft disabled:opacity-50"
           >
             <LogOut className="h-4 w-4 shrink-0" />
             {t('auth.logout')}
@@ -612,7 +630,7 @@ function TabLink({ item, active }: { item: NavItem; active: boolean }) {
         <item.icon className="h-5 w-5" />
         {item.badge ? (
           <span className="tabular absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-danger px-1 text-center text-[0.625rem] font-semibold leading-4 text-danger-foreground ring-2 ring-surface">
-            {item.badge > 9 ? '9+' : item.badge}
+            {item.badge > 9 ? `${formatNumber(9)}+` : formatNumber(item.badge)}
           </span>
         ) : null}
       </span>
@@ -732,7 +750,7 @@ function NavDrawer({
             type="button"
             onClick={onClose}
             aria-label={t('app.close')}
-            className="ml-auto flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            className="-mr-2 ml-auto flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
             <X className="h-4 w-4" />
           </button>
@@ -772,7 +790,7 @@ function NavDrawer({
                         <span className="min-w-0 flex-1 truncate">{t(item.labelKey)}</span>
                         {item.badge ? (
                           <span className="tabular shrink-0 rounded-full bg-danger px-1.5 text-xs font-semibold text-danger-foreground">
-                            {item.badge > 99 ? '99+' : item.badge}
+                            {item.badge > 99 ? `${formatNumber(99)}+` : formatNumber(item.badge)}
                           </span>
                         ) : (
                           <ChevronRight className="h-4 w-4 shrink-0 opacity-40" />

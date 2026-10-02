@@ -158,6 +158,21 @@ const COPY: Record<string, ErrorCopy> = {
     hint: 'A required integration (ImgBB, R2, SMS or Telegram) has no credentials.',
   },
 
+  /* PLAN-4: corrections, reversals and the owner's new controls */
+  STOCK_BELOW_ZERO: { message: 'এতগুলো বাদ দিলে স্টক শূন্যের নিচে চলে যাবে। সংখ্যাটি দেখে নিন।' },
+  STOCK_NOT_TRACKED: { message: 'এই পণ্যের স্টক হিসাব রাখা হয় না। আগে "স্টক হিসাব রাখুন" চালু করুন।' },
+  ZONE_IN_USE: {
+    message: 'এই এলাকায় অর্ডার আছে, তাই মোছা যাবে না। বন্ধ করে রাখুন, নতুন অর্ডার আর আসবে না।',
+  },
+  COURIER_LOCKED: { message: 'কুরিয়ারের তথ্য শুধু পাঠানো অর্ডারে বদলানো যায়।' },
+  COMPLAINT_OPEN: { message: 'অভিযোগটি আগে থেকেই খোলা আছে।' },
+  NOT_FAILED: { message: 'এই বার্তাটি আর আটকে নেই। তালিকা নতুন করে দেখুন।' },
+  SMS_NOT_RESENDABLE: { message: 'কোড বা পরীক্ষার SMS আবার পাঠানো যায় না। দরকার হলে নতুন করে পাঠান।' },
+  ENTRY_NOT_REVERSIBLE: { message: 'এই ধরনের হিসাব বাতিল করা যায় না। কেনা বা খরচ থেকে বাতিল করুন।' },
+  ALREADY_REVERSED: { message: 'এই হিসাবটি আগেই বাতিল করা হয়েছে।' },
+  ALREADY_PAID: { message: 'এই খরচটি আগেই পরিশোধ করা হয়েছে।' },
+  EXPENSE_VOIDED: { message: 'বাতিল করা খরচ পরিশোধ করা যায় না।' },
+
   /* malformed requests, which a person should never cause */
   BAD_JSON: {
     message: 'পাঠানো তথ্য পড়া যায়নি। পাতা রিফ্রেশ করে আবার চেষ্টা করুন।',

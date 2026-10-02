@@ -21,34 +21,79 @@ const present = require('../../utils/present');
 const { REVIEW_STATUS, LEDGER_KIND, EVENT_TYPE } = require('../../domain/constants');
 const { describeDestination } = require('../../domain/payout');
 
-/* ------------------------------------------------------------------ deposits */
+/* ------------------------------------------------------------- shared rows */
 
-async function listDeposits(req, res) {
-  const { status, method, page, limit } = req.query;
+/**
+ * What a deposit and a withdrawal row both carry beyond their own fields: who
+ * asked, where their wallet stands now, and who decided and when.
+ *
+ * `balance` is the reseller's balance at the moment of reading, not at the
+ * moment of the request. That is the figure an approval is weighed against —
+ * a withdrawal the balance no longer covers will be refused — and the history
+ * rows carry it too so that every row in the list has the same shape.
+ */
+const RESELLER_POPULATE = {
+  path: 'reseller',
+  select: 'shopName slug user balancePoisha',
+  populate: { path: 'user', select: 'name phoneE164' },
+};
+const REVIEWER_POPULATE = { path: 'reviewedBy', select: 'name' };
+
+const presentReseller = (r) =>
+  r
+    ? {
+        _id: r._id,
+        id: r._id,
+        shopName: r.shopName,
+        slug: r.slug,
+        user: r.user ? { _id: r.user._id, name: r.user.name, phoneE164: r.user.phoneE164 } : null,
+      }
+    : null;
+
+const presentReview = (row) => ({
+  note: row.note || null,
+  // The owner's reason for a rejection. Null on anything approved or pending.
+  reason: row.rejectionReason || null,
+  reviewedAt: row.reviewedAt || null,
+  reviewedBy: row.reviewedBy ? { id: row.reviewedBy._id, name: row.reviewedBy.name } : null,
+  balance: row.reseller ? toTaka(row.reseller.balancePoisha || 0) : null,
+});
+
+const financeFilter = ({ status, method, resellerId }) => {
   const filter = {};
   if (status) filter.status = status;
   if (method) filter.method = method;
+  if (resellerId) filter.reseller = resellerId;
+  return filter;
+};
+
+/* ------------------------------------------------------------------ deposits */
+
+async function listDeposits(req, res) {
+  const { page, limit } = req.query;
+  const filter = financeFilter(req.query);
 
   const [deposits, total] = await Promise.all([
     Deposit.find(filter)
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
-      .populate({ path: 'reseller', select: 'shopName slug user', populate: { path: 'user', select: 'name phoneE164' } }),
+      .populate(RESELLER_POPULATE)
+      .populate(REVIEWER_POPULATE),
     Deposit.countDocuments(filter),
   ]);
 
   return ok(res, {
     deposits: deposits.map((d) => ({
       id: d._id,
-      reseller: d.reseller,
+      reseller: presentReseller(d.reseller),
       amount: toTaka(d.amountPoisha),
       method: d.method,
       senderNumber: d.senderNumber,
       transactionId: d.transactionId,
       hasScreenshot: Boolean(d.screenshot && d.screenshot.key),
       status: d.status,
-      note: d.note,
+      ...presentReview(d),
       createdAt: d.createdAt,
     })),
     page,
@@ -103,23 +148,23 @@ async function decideDeposit(req, res) {
 /* --------------------------------------------------------------- withdrawals */
 
 async function listWithdrawals(req, res) {
-  const { status, page, limit } = req.query;
-  const filter = {};
-  if (status) filter.status = status;
+  const { page, limit } = req.query;
+  const filter = financeFilter(req.query);
 
   const [withdrawals, total] = await Promise.all([
     Withdrawal.find(filter)
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
-      .populate({ path: 'reseller', select: 'shopName slug user', populate: { path: 'user', select: 'name phoneE164' } }),
+      .populate(RESELLER_POPULATE)
+      .populate(REVIEWER_POPULATE),
     Withdrawal.countDocuments(filter),
   ]);
 
   return ok(res, {
     withdrawals: withdrawals.map((w) => ({
       id: w._id,
-      reseller: w.reseller,
+      reseller: presentReseller(w.reseller),
       amount: toTaka(w.amountPoisha),
       method: w.method,
       // One of these is set, never both: a wallet is paid on a number and a
@@ -127,7 +172,9 @@ async function listWithdrawals(req, res) {
       destinationNumber: w.destinationNumber || null,
       bank: w.bank ? (w.bank.toObject ? w.bank.toObject() : w.bank) : null,
       status: w.status,
-      note: w.note,
+      // What the owner typed on approval: the bKash transaction id, a bank slip.
+      payoutReference: w.payoutReference || null,
+      ...presentReview(w),
       createdAt: w.createdAt,
     })),
     page,

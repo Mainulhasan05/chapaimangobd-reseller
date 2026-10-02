@@ -7,7 +7,7 @@ const { notFound } = require('../../utils/errors');
 const { toPoisha, toTaka } = require('../../utils/money');
 const { toMilli, fromMilli } = require('../../utils/quantity');
 const { startOfBusinessDay } = require('../../utils/dhakaTime');
-const { PURCHASE_STATUS } = require('../../domain/constants');
+const { purchaseFilter, countedPurchases } = require('../../utils/costFilter');
 
 /**
  * Purchases: what was bought, from whom, and what it really cost.
@@ -73,42 +73,47 @@ const present = (p) => ({
 });
 
 async function listPurchases(req, res) {
-  const { payeeId, supplyId, status, from, to, page, limit } = req.query;
+  const { page, limit } = req.query;
+  const filter = purchaseFilter(req.query);
 
-  const filter = {};
-  if (payeeId) filter.payee = payeeId;
-  if (supplyId) filter['lines.supply'] = supplyId;
-  if (status) filter.status = status;
-  if (from || to) {
-    // Matches the indexed businessDate string, never createdAt: the same rule
-    // utils/orderFilter.js follows, and for the same reason.
-    filter.businessDate = {};
-    if (from) filter.businessDate.$gte = from;
-    if (to) filter.businessDate.$lte = to;
-  }
-
-  const [purchases, total] = await Promise.all([
+  const [purchases, total, [sums]] = await Promise.all([
     Purchase.find(filter)
       .sort({ businessDate: -1, createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit),
     Purchase.countDocuments(filter),
+    /*
+     * Summed over the whole filter in the database, not over the page in hand.
+     * Reducing the twenty rows on screen made the figure above the list change as
+     * the owner scrolled, and on any range longer than a page it was simply the
+     * wrong number under the right heading.
+     */
+    Purchase.aggregate([
+      { $match: countedPurchases(req.query) },
+      {
+        $group: {
+          _id: null,
+          goodsCostPoisha: { $sum: '$goodsCostPoisha' },
+          chargeTotalPoisha: { $sum: '$chargeTotalPoisha' },
+          totalPoisha: { $sum: '$totalPoisha' },
+          payeeTotalPoisha: { $sum: '$payeeTotalPoisha' },
+        },
+      },
+    ]),
   ]);
 
-  const rows = purchases.map(present);
-  // Cancelled purchases are listed but never counted: they were undone.
-  const live = rows.filter((r) => r.status !== PURCHASE_STATUS.CANCELLED);
-
+  const t = sums || {};
   return ok(res, {
-    purchases: rows,
+    purchases: purchases.map(present),
     page,
     limit,
     total,
+    // Cancelled purchases are listed but never counted: they were undone.
     totals: {
-      goodsCost: live.reduce((sum, r) => sum + r.goodsCost, 0),
-      chargeTotal: live.reduce((sum, r) => sum + r.chargeTotal, 0),
-      spent: live.reduce((sum, r) => sum + r.total, 0),
-      billedByPayees: live.reduce((sum, r) => sum + r.payeeTotal, 0),
+      goodsCost: toTaka(t.goodsCostPoisha || 0),
+      chargeTotal: toTaka(t.chargeTotalPoisha || 0),
+      spent: toTaka(t.totalPoisha || 0),
+      billedByPayees: toTaka(t.payeeTotalPoisha || 0),
     },
   });
 }

@@ -187,7 +187,7 @@ export function InlineAction({
       <button
         type="button"
         className={cn(
-          'flex h-8 items-center gap-1.5 whitespace-nowrap rounded-lg border border-border bg-surface px-3 text-xs font-semibold text-foreground transition-colors hover:bg-muted disabled:opacity-50',
+          'flex h-9 items-center gap-1.5 whitespace-nowrap rounded-lg border border-border bg-surface px-3 text-xs font-semibold text-foreground transition-colors hover:bg-muted disabled:opacity-50 sm:h-8',
           className
         )}
         {...props}
@@ -219,11 +219,12 @@ export function InlineIconButton({
   ...props
 }: React.ComponentProps<'button'>) {
   return (
-    <span className="flex shrink-0 items-center pr-1.5">
+    <span className="flex shrink-0 items-center sm:pr-1.5">
       <button
         type="button"
         className={cn(
-          'flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
+          // The full height of the field on a phone, so the target is 44px.
+          'flex h-11 w-11 items-center justify-center rounded-lg sm:h-8 sm:w-8 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
           className
         )}
         {...props}
@@ -325,5 +326,37 @@ export function MoneyInput({ className, ...props }: React.ComponentProps<'input'
       prefix="৳"
       {...props}
     />
+  );
+}
+
+/**
+ * Moves the reader to the first field that needs them.
+ *
+ * Forms here used to grey out Save until every required field was filled, and
+ * said nothing about which one was missing. On a purchase with three lines and
+ * two charges, the empty box was usually a screen below. Save now stays enabled;
+ * on submit the form marks what is missing and calls this, which scrolls the
+ * first invalid field into view and puts the caret in it.
+ */
+export function focusFirstInvalid(root: HTMLElement | null | undefined): void {
+  if (!root) return;
+  const box = root.querySelector<HTMLElement>(
+    '[data-invalid] input, [data-invalid] select, [data-invalid] textarea, [aria-invalid="true"]'
+  );
+  if (!box) return;
+  box.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  box.focus({ preventScroll: true });
+}
+
+/** The one-line summary above a form's buttons: "২টি ঘর বাকি". */
+export function FormErrorSummary({ message }: { message?: string | null }) {
+  if (!message) return null;
+  return (
+    <p
+      role="alert"
+      className="mb-3 rounded-lg bg-danger-soft px-3 py-2 text-sm font-medium text-danger-ink"
+    >
+      {message}
+    </p>
   );
 }

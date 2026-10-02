@@ -1,32 +1,46 @@
 'use client';
 
-import { useState, useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import type { Route } from 'next';
 import {
-  BellOff,
+  ArrowDownToLine,
+  ArrowUpFromLine,
   BadgeCheck,
-  ChevronRight,
-  Settings2,
   Ban,
+  BellOff,
+  BellRing,
   CheckCheck,
+  ChevronRight,
   ClipboardList,
+  FileCheck,
   ListChecks,
+  MessageSquareWarning,
   PackageCheck,
+  Settings2,
   ShieldAlert,
   TriangleAlert,
   Truck,
   Undo2,
   Wallet,
 } from 'lucide-react';
-import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api, errorMessage } from '@/lib/api';
+import { errorMessage } from '@/lib/api';
 import { useSession } from '@/lib/session';
+import { LIVE } from '@/lib/store/api';
+import {
+  useGetNotificationsInfiniteQuery,
+  useLazyGetPushKeyQuery,
+  useMarkNotificationReadMutation,
+  useMarkNotificationsReadMutation,
+  useSubscribePushMutation,
+  type NotificationRow,
+} from '@/lib/store/endpoints/notifications';
+import { useUrlState } from '@/lib/use-url-state';
 import { t, type DictKey } from '@/lib/i18n/bn';
 import { syncPushRole } from '@/lib/push';
 import { cn } from '@/lib/utils';
-import { formatDateTime } from '@/lib/format';
-import type { CursorPaged } from '@/lib/types';
+import { businessDate, formatDate } from '@/lib/format';
+import type { Role } from '@/lib/types';
 import {
   Alert,
   Badge,
@@ -34,10 +48,14 @@ import {
   CardHeader,
   EmptyState,
   ErrorState,
+  FilteredEmpty,
   PageHeader,
 } from '@/components/ui/layout';
 import { Button, Spinner } from '@/components/ui/button';
+import { Segmented } from '@/components/ui/toolbar';
+import { ListSkeleton } from '@/components/ui/skeleton';
 import { LoadMore } from '@/components/ui/load-more';
+import { useToast } from '@/components/ui/toast';
 
 /**
  * The notification inbox, for either role.
@@ -48,18 +66,6 @@ import { LoadMore } from '@/components/ui/load-more';
  * read it. The list is identical for both, so this is one component and the only
  * difference between the two callers is which API path they read.
  */
-
-type NotificationRow = {
-  _id: string;
-  eventType: string;
-  title: string;
-  body?: string;
-  data?: { orderId?: string; orderCode?: string; url?: string };
-  readAt: string | null;
-  createdAt: string;
-};
-
-const PAGE_SIZE = 30;
 
 type PushState = 'unsupported' | 'ios-install' | 'default' | 'granted' | 'denied';
 
@@ -97,6 +103,11 @@ const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   'alert.ledger_drift': TriangleAlert,
   'alert.daily_digest': ListChecks,
   'alert.new_device': ShieldAlert,
+  // The owner's queues: something now waits on a decision.
+  'deposit.requested': ArrowDownToLine,
+  'withdrawal.requested': ArrowUpFromLine,
+  'kyc.submitted': FileCheck,
+  'complaint.created': MessageSquareWarning,
 };
 
 /** Events that are bad news, and should not be drawn in the same ink as the rest. */
@@ -109,26 +120,38 @@ const NEGATIVE = new Set([
   'balance.near_limit',
   'alert.ledger_drift',
   'alert.new_device',
+  'complaint.created',
 ]);
+
+/*
+ * The owner's queues, opened already filtered to what is waiting. The server
+ * names these pages itself (`data.url`); this is for rows written before it did.
+ */
+const OWNER_QUEUES: Record<string, Route> = {
+  'deposit.requested': '/owner/finance?tab=deposits&status=pending' as Route,
+  'withdrawal.requested': '/owner/finance?tab=withdrawals&status=pending' as Route,
+  'kyc.submitted': '/owner/kyc?status=pending' as Route,
+  'complaint.created': '/owner/complaints',
+};
 
 /**
  * Where a row leads, or null when there is nowhere worth going.
  *
  * An order notification opens that order. The rest go to the one screen that
- * answers them: ledger drift to the reports page, where the receivables table
- * flags the drifting wallets and the reconcile button explains them; the
- * morning digest to the dashboard, which lists the aging orders; a reseller near
- * their limit to the wallet, where a deposit is one tap away. Everything else
- * has no single destination, and a link that lands somewhere unrelated is
- * worse than no link. Keep in step with `targetFor` in `public/sw.js`.
+ * answers them: a request to the queue it waits in, ledger drift to the reports
+ * page, the morning digest to the dashboard, a reseller near their limit to the
+ * wallet. Everything else has no single destination, and a link that lands
+ * somewhere unrelated is worse than no link. Keep in step with `targetFor` in
+ * `public/sw.js` and `backend/src/domain/notificationLinks.js`.
  */
 function hrefFor(row: NotificationRow, base: '/reseller' | '/owner', ordersHref: Route): Route | null {
-  // The server names the page since Phase F (backend/src/domain/notificationLinks.js).
   // Only a path inside this role's own screens is followed; older rows fall through.
   const url = row.data?.url;
-  if (url && (url === base || url.startsWith(`${base}/`)) && !/[\s\\]/.test(url)) {
+  if (url && (url === base || url.startsWith(`${base}/`) || url.startsWith(`${base}?`)) && !/[\s\\]/.test(url)) {
     return url as Route;
   }
+
+  if (base === '/owner' && OWNER_QUEUES[row.eventType]) return OWNER_QUEUES[row.eventType];
 
   if (row.data?.orderId) return `${ordersHref}/${row.data.orderId}` as Route;
 
@@ -142,6 +165,31 @@ function hrefFor(row: NotificationRow, base: '/reseller' | '/owner', ordersHref:
   return null;
 }
 
+const TIME = new Intl.DateTimeFormat('bn-BD', {
+  timeZone: 'Asia/Dhaka',
+  hour: 'numeric',
+  minute: '2-digit',
+});
+
+/** Rows under "আজ", "গতকাল" or the date, newest day first, in the order they came. */
+function groupByDay(rows: NotificationRow[]) {
+  const today = businessDate();
+  const yesterday = businessDate(new Date(Date.now() - 24 * 60 * 60 * 1000));
+  const groups: { key: string; label: string; rows: NotificationRow[] }[] = [];
+  rows.forEach((row) => {
+    const day = businessDate(new Date(row.createdAt));
+    let group = groups[groups.length - 1];
+    if (!group || group.key !== day) {
+      const label =
+        day === today ? t('notif.today') : day === yesterday ? t('notif.yesterday') : formatDate(row.createdAt);
+      group = { key: day, label, rows: [] };
+      groups.push(group);
+    }
+    group.rows.push(row);
+  });
+  return groups;
+}
+
 export function NotificationsView({
   base,
   ordersHref,
@@ -151,32 +199,41 @@ export function NotificationsView({
   /** Where an order notification links to, so a row is a way in and not a dead end. */
   ordersHref: '/reseller/orders' | '/owner/orders';
 }) {
-  const queryClient = useQueryClient();
+  const role = base.slice(1) as Role;
+  const toast = useToast();
   const { data: session } = useSession();
+  const [filters, setFilters] = useUrlState({ unread: false as boolean });
 
-  // Newest first, thirty at a time. The key sits under ['notifications'], so the
-  // header badge and this list are refreshed together by one invalidation.
-  const notifications = useInfiniteQuery({
-    queryKey: ['notifications', 'inbox'],
-    queryFn: ({ pageParam }) =>
-      api.get<CursorPaged<'notifications', NotificationRow> & { unread: number }>(
-        `${base}/notifications?limit=${PAGE_SIZE}${
-          pageParam ? `&cursor=${encodeURIComponent(pageParam)}` : ''
-        }`
-      ),
-    initialPageParam: '',
-    getNextPageParam: (last) => last.nextCursor ?? undefined,
-    refetchInterval: 60_000,
-  });
+  // Newest first, thirty at a time, refreshed every minute like the bell.
+  const inbox = useGetNotificationsInfiniteQuery({ role }, LIVE);
+  const [markAll, markAllState] = useMarkNotificationsReadMutation();
+  const [markOne] = useMarkNotificationReadMutation();
 
-  const markRead = useMutation({
-    mutationFn: () => api.post(`${base}/notifications/read`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['notifications'] }),
-  });
-
-  const rows = notifications.data?.pages.flatMap((page) => page.notifications) ?? [];
+  const rows = inbox.data?.pages.flatMap((page) => page.notifications) ?? [];
   // The newest page carries the freshest count.
-  const unread = notifications.data?.pages[0]?.unread ?? 0;
+  const unread = inbox.data?.pages[0]?.unread ?? 0;
+  const shown = filters.unread ? rows.filter((row) => !row.readAt) : rows;
+
+  const readAll = async () => {
+    try {
+      await markAll({ role }).unwrap();
+      toast(t('notif.allRead'));
+    } catch (error) {
+      toast(errorMessage(error), 'danger');
+    }
+  };
+
+  /*
+   * Tapping a row reads that row, and only that row. It used to read nothing, so
+   * the list could never say which ones had been looked at short of "mark all".
+   * Shown read at once; the request runs behind the navigation.
+   */
+  const open = (row: NotificationRow) => {
+    if (row.readAt) return;
+    markOne({ role, id: row._id })
+      .unwrap()
+      .catch(() => toast(t('notif.markFailed'), 'danger'));
+  };
 
   return (
     <>
@@ -184,12 +241,7 @@ export function NotificationsView({
         title={t('nav.notifications')}
         action={
           unread > 0 ? (
-            <Button
-              size="sm"
-              variant="outline"
-              loading={markRead.isPending}
-              onClick={() => markRead.mutate()}
-            >
+            <Button size="sm" variant="outline" loading={markAllState.isLoading} onClick={readAll}>
               <CheckCheck className="h-4 w-4" />
               {t('app.markAllRead')}
             </Button>
@@ -202,7 +254,7 @@ export function NotificationsView({
       {/* Telegram and the per-event choices live one tap away, not in the inbox. */}
       <Link
         href={base === '/owner' ? '/owner/notifications/settings' : '/reseller/notifications/settings'}
-        className="card mb-4 flex items-center justify-between gap-3 px-4 py-3 text-sm font-medium transition-colors hover:bg-muted"
+        className="card mb-4 flex min-h-12 items-center justify-between gap-3 px-4 py-3 text-sm font-medium transition-colors hover:bg-muted"
       >
         <span className="flex items-center gap-2">
           <Settings2 aria-hidden className="h-4 w-4 text-muted-foreground" />
@@ -214,47 +266,76 @@ export function NotificationsView({
         <ChevronRight aria-hidden className="h-4 w-4 text-muted-foreground" />
       </Link>
 
-      <Card>
-        <CardHeader title={t('nav.notifications')} />
+      <Segmented
+        label={t('nav.notifications')}
+        className="mb-3"
+        value={filters.unread ? 'unread' : 'all'}
+        onChange={(value) => setFilters({ unread: value === 'unread' })}
+        options={[
+          { value: 'all', label: t('notif.allShown') },
+          { value: 'unread', label: t('notif.onlyUnread'), count: unread },
+        ]}
+      />
 
-        {notifications.isLoading && (
-          <div className="flex justify-center py-6">
-            <Spinner />
-          </div>
-        )}
+      {inbox.isLoading && <ListSkeleton rows={5} />}
 
-        {notifications.isError && rows.length === 0 && (
-          <ErrorState
-            onRetry={() => notifications.refetch()}
-            isRetrying={notifications.isFetching}
-            error={notifications.error}
-          />
-        )}
+      {inbox.isError && rows.length === 0 && (
+        <ErrorState onRetry={() => inbox.refetch()} isRetrying={inbox.isFetching} error={inbox.error} />
+      )}
 
-        {notifications.isSuccess && rows.length === 0 && (
-          <EmptyState icon={BellOff} title={t('app.none')} />
-        )}
+      {inbox.isSuccess && rows.length === 0 && (
+        <EmptyState icon={BellOff} title={t('notif.empty')} description={t('notif.emptyHelp')} />
+      )}
 
-        <ul className="divide-y divide-border">
-          {rows.map((row) => (
-            <Row key={row._id} row={row} href={hrefFor(row, base, ordersHref)} />
+      {rows.length > 0 && shown.length === 0 && (
+        <FilteredEmpty
+          title={t('notif.noneUnread')}
+          description=""
+          onClear={() => setFilters({ unread: false })}
+        />
+      )}
+
+      {shown.length > 0 && (
+        <Card className="px-4 py-2 sm:px-6 sm:py-3">
+          {groupByDay(shown).map((group) => (
+            <section key={group.key} aria-label={group.label}>
+              <h2 className="pb-1 pt-3 text-xs font-semibold text-muted-foreground">{group.label}</h2>
+              <ul className="divide-y divide-border">
+                {group.rows.map((row) => (
+                  <Row
+                    key={row._id}
+                    row={row}
+                    href={hrefFor(row, base, ordersHref)}
+                    onOpen={() => open(row)}
+                  />
+                ))}
+              </ul>
+            </section>
           ))}
-        </ul>
+        </Card>
+      )}
 
-        {rows.length > 0 && (
-          <LoadMore
-            hasMore={Boolean(notifications.hasNextPage)}
-            loading={notifications.isFetchingNextPage}
-            onLoadMore={() => notifications.fetchNextPage()}
-            error={notifications.isFetchNextPageError ? notifications.error : null}
-          />
-        )}
-      </Card>
+      {rows.length > 0 && (
+        <LoadMore
+          hasMore={Boolean(inbox.hasNextPage)}
+          loading={inbox.isFetchingNextPage}
+          onLoadMore={() => inbox.fetchNextPage()}
+          error={inbox.isFetchNextPageError ? inbox.error : null}
+        />
+      )}
     </>
   );
 }
 
-function Row({ row, href }: { row: NotificationRow; href: Route | null }) {
+function Row({
+  row,
+  href,
+  onOpen,
+}: {
+  row: NotificationRow;
+  href: Route | null;
+  onOpen: () => void;
+}) {
   const Icon = ICONS[row.eventType] ?? ClipboardList;
   const negative = NEGATIVE.has(row.eventType);
 
@@ -278,19 +359,22 @@ function Row({ row, href }: { row: NotificationRow; href: Route | null }) {
         {row.body && (
           <span className="block whitespace-pre-line text-sm text-muted-foreground">{row.body}</span>
         )}
-        <span className="block text-xs text-muted-foreground">{formatDateTime(row.createdAt)}</span>
+        <span className="tabular block text-xs text-muted-foreground">
+          {TIME.format(new Date(row.createdAt))}
+        </span>
       </span>
 
       {!row.readAt && (
-        <Badge tone="primary" dot>
+        <Badge tone="primary" dot className="shrink-0">
           {t('app.unread')}
         </Badge>
       )}
+      {href && <ChevronRight aria-hidden className="mt-2 h-4 w-4 shrink-0 text-muted-foreground" />}
     </>
   );
 
   const className = cn(
-    '-mx-2 flex items-start gap-3 rounded-lg px-2 py-3',
+    '-mx-2 flex w-[calc(100%+1rem)] items-start gap-3 rounded-lg px-2 py-3 text-left transition-colors',
     !row.readAt && 'bg-primary-softer'
   );
 
@@ -298,9 +382,14 @@ function Row({ row, href }: { row: NotificationRow; href: Route | null }) {
   return (
     <li>
       {href ? (
-        <Link href={href} className={cn(className, 'hover:bg-muted')}>
+        <Link href={href} onClick={onOpen} className={cn(className, 'hover:bg-muted')}>
           {inner}
         </Link>
+      ) : !row.readAt ? (
+        // Nowhere to go, but tapping still reads it.
+        <button type="button" onClick={onOpen} className={cn(className, 'hover:bg-muted')}>
+          {inner}
+        </button>
       ) : (
         <div className={className}>{inner}</div>
       )}
@@ -324,8 +413,17 @@ function readPushState(): PushState {
  * Web push is a nudge, never a guarantee: Xiaomi, Realme, Oppo and Vivo battery
  * savers kill the browser background process, and on iOS this only works from a
  * home screen install. The in-app list is the source of truth.
+ *
+ * "On" means this browser holds a subscription, not merely that permission was
+ * granted: a granted permission whose subscription failed, or was cleared with
+ * the site data, used to read "চালু আছে" while nothing could arrive. Once it is
+ * really on, the card shrinks to one line, because a settled setting does not
+ * need a card's worth of the inbox. Hidden entirely while the owner has push
+ * switched off.
  */
 export function PushCard({ base }: { base: '/reseller' | '/owner' }) {
+  const role = base.slice(1) as Role;
+  const { data: session } = useSession();
   // An external system read, so it goes through useSyncExternalStore rather than
   // an effect that pushes the value into state and costs a second render.
   const detected = useSyncExternalStore<PushState>(
@@ -334,36 +432,85 @@ export function PushCard({ base }: { base: '/reseller' | '/owner' }) {
     () => 'default'
   );
   const [granted, setGranted] = useState<PushState | null>(null);
+  const [subscribed, setSubscribed] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [getKey] = useLazyGetPushKeyQuery();
+  const [subscribe] = useSubscribePushMutation();
+  const toast = useToast();
 
   const state = granted ?? detected;
 
-  const enable = useMutation({
-    mutationFn: async () => {
+  // Whether this browser actually holds a subscription. Asked only once
+  // permission exists, because asking earlier can only answer no.
+  useEffect(() => {
+    if (state !== 'granted') return undefined;
+    let live = true;
+    navigator.serviceWorker
+      .getRegistration('/')
+      .then((registration) => registration?.pushManager.getSubscription() ?? null)
+      .then((subscription) => {
+        if (live) setSubscribed(Boolean(subscription));
+      })
+      .catch(() => {
+        if (live) setSubscribed(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, [state]);
+
+  if (session && session.features.webPush === false) return null;
+
+  const enable = async () => {
+    setBusy(true);
+    setError(null);
+    try {
       // Requested from a click, never on load: Chrome permanently penalises a
       // site that asks without a user gesture.
       const permission = await Notification.requestPermission();
       setGranted(permission as PushState);
       if (permission !== 'granted') return;
 
-      const { publicKey } = await api.get<{ publicKey: string | null }>(`${base}/push/key`);
+      const { publicKey } = await getKey({ role }).unwrap();
       if (!publicKey) throw new Error(t('push.notConfigured'));
 
       await navigator.serviceWorker.register('/sw.js');
       // Subscribing through the active worker, and telling it the role first, so
       // a rotated subscription re-registers with this role's endpoint.
       const registration = await navigator.serviceWorker.ready;
-      await syncPushRole(base === '/owner' ? 'owner' : 'reseller');
+      await syncPushRole(role);
       const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: publicKey,
       });
 
       const json = subscription.toJSON() as { endpoint: string; keys: Record<string, string> };
-      await api.post(`${base}/push/subscribe`, { endpoint: json.endpoint, keys: json.keys });
-    },
-    onError: (err) => setError(errorMessage(err)),
-  });
+      await subscribe({ role, endpoint: json.endpoint, keys: json.keys }).unwrap();
+      setSubscribed(true);
+      toast(t('push.enabled'));
+    } catch (failure) {
+      setError(errorMessage(failure));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const on = state === 'granted' && subscribed === true;
+
+  if (on || (state === 'granted' && subscribed === null)) {
+    return (
+      <div className="card mb-4 flex min-h-12 items-center gap-2.5 px-4 py-3 text-sm">
+        {subscribed === null ? (
+          <Spinner className="text-muted-foreground" />
+        ) : (
+          <BellRing aria-hidden className="h-4 w-4 shrink-0 text-success-ink" />
+        )}
+        <span className="min-w-0 flex-1">{t('push.title')}</span>
+        {on && <Badge tone="success">{t('push.stateGranted')}</Badge>}
+      </div>
+    );
+  }
 
   return (
     <Card className="mb-4">
@@ -371,24 +518,29 @@ export function PushCard({ base }: { base: '/reseller' | '/owner' }) {
         title={t('push.title')}
         subtitle={t('push.subtitle')}
         action={
-          <Badge tone={state === 'granted' ? 'success' : state === 'denied' ? 'warning' : 'neutral'}>
-            {t(PUSH_STATE_LABEL[state])}
+          <Badge tone={state === 'denied' ? 'warning' : 'neutral'}>
+            {state === 'granted' ? t('push.stateDefault') : t(PUSH_STATE_LABEL[state])}
           </Badge>
         }
       />
 
       {error && <Alert tone="danger">{error}</Alert>}
 
-      {state === 'ios-install' && (
-        <Alert tone="warning">{t('push.iosInstall')}</Alert>
-      )}
+      {state === 'ios-install' && <Alert tone="warning">{t('push.iosInstall')}</Alert>}
 
-      {state === 'denied' && (
-        <Alert tone="warning">{t('push.denied')}</Alert>
+      {state === 'denied' && <Alert tone="warning">{t('push.denied')}</Alert>}
+
+      {state === 'granted' && subscribed === false && (
+        <>
+          <p className="mb-3 text-sm text-muted-foreground">{t('push.grantedNoSubscription')}</p>
+          <Button size="sm" loading={busy} onClick={enable}>
+            {t('push.retry')}
+          </Button>
+        </>
       )}
 
       {state === 'default' && (
-        <Button size="sm" loading={enable.isPending} onClick={() => enable.mutate()}>
+        <Button size="sm" loading={busy} onClick={enable}>
           {t('push.enable')}
         </Button>
       )}

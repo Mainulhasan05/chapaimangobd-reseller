@@ -2,9 +2,11 @@
 
 const express = require('express');
 const controller = require('./controller');
+const devices = require('./devices.controller');
 const schema = require('./schema');
 const validate = require('../../middleware/validate');
-const { authenticate } = require('../../middleware/auth');
+const { authenticate, requireRole } = require('../../middleware/auth');
+const { ROLES } = require('../../domain/constants');
 const asyncHandler = require('../../utils/asyncHandler');
 const { createLimiter } = require('../../services/rateLimitStore');
 
@@ -93,6 +95,19 @@ router.post(
   validate({ body: schema.changePassword }),
   asyncHandler(controller.changePassword)
 );
+/*
+ * The owner's trusted devices (docs/adr/0014). Under /auth because the device
+ * cookie is scoped to this path, which is how the list knows which entry is the
+ * browser asking. Resellers have no trusted devices.
+ */
+router.get('/devices', authenticate, requireRole(ROLES.OWNER), asyncHandler(devices.listDevices));
+router.delete(
+  '/devices/:id',
+  authenticate,
+  requireRole(ROLES.OWNER),
+  asyncHandler(devices.revokeDevice)
+);
+
 router.post(
   '/phone/otp',
   authenticate,

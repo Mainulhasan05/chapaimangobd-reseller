@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { t } from '@/lib/i18n/bn';
 import { cn } from '@/lib/utils';
@@ -19,8 +19,15 @@ import { Button } from '@/components/ui/button';
  * - The header and footer stay put while the body scrolls. The Confirm button on
  *   an order is the point of the screen and was reachable only by scrolling to
  *   the bottom of it.
- * - Casual dismissal is guarded when `dirty` is set. A tap on the backdrop used
- *   to discard a half-filled deposit form, screenshot and all.
+ * - Dismissal is guarded when `dirty` is set: backdrop, Escape, swipe, the X and
+ *   the footer's `<ModalCancel />`. A tap on the backdrop used to discard a
+ *   half-filled deposit form, screenshot and all, and later the X and the
+ *   footer's Cancel, which sit under the thumb next to Save, did the same.
+ * - Sized against the dynamic viewport, so on Android the keyboard shrinks the
+ *   sheet instead of covering its footer.
+ *
+ * Mount a sheet only while it is open, or key it by the record it edits, so
+ * what was typed for one order can never be submitted for the next.
  */
 export function Modal({
   open,
@@ -48,7 +55,7 @@ export function Modal({
   const [dragY, setDragY] = useState(0);
   const dragStart = useRef<number | null>(null);
 
-  /** Every casual dismissal path goes through here. The X button does not. */
+  /** Every dismissal path goes through here, so `dirty` guards all of them. */
   const requestClose = useCallback(() => {
     if (dirty) {
       setConfirmingClose(true);
@@ -113,8 +120,10 @@ export function Modal({
     body.style.overflow = 'hidden';
 
     // Focus the panel rather than its first control: an autofocused text input
-    // on a phone opens the keyboard over the content the user came to read.
-    panelRef.current?.focus();
+    // on a phone opens the keyboard over the content the user came to read. A
+    // field that asked for focus on purpose (the amount on a payment) keeps it.
+    const panel = panelRef.current;
+    if (panel && !panel.contains(document.activeElement)) panel.focus();
 
     return () => {
       document.removeEventListener('keydown', onKey, true);
@@ -130,95 +139,123 @@ export function Modal({
   if (!open) return null;
 
   return (
-    <div
-      className="fade-in fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-label={title}
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) requestClose();
-      }}
-    >
+    <ModalCloseContext.Provider value={requestClose}>
       <div
-        ref={panelRef}
-        tabIndex={-1}
-        style={dragY ? { transform: `translateY(${dragY}px)` } : undefined}
-        className={cn(
-          'sheet-in card elev-3 relative flex max-h-[92vh] w-full flex-col overflow-hidden rounded-b-none rounded-t-2xl border-0 p-0 outline-none sm:max-h-[85vh] sm:rounded-2xl',
-          wide ? 'sm:max-w-2xl' : 'sm:max-w-md'
-        )}
+        className="fade-in fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:p-4"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        onMouseDown={(event) => {
+          if (event.target === event.currentTarget) requestClose();
+        }}
       >
-        <header
-          className="shrink-0 bg-surface"
-          onTouchStart={(event) => {
-            dragStart.current = event.touches[0].clientY;
-          }}
-          onTouchMove={(event) => {
-            if (dragStart.current === null) return;
-            // Downward only. Dragging a sheet up past its own top looks broken.
-            const delta = event.touches[0].clientY - dragStart.current;
-            if (delta > 0) setDragY(delta);
-          }}
-          onTouchEnd={() => {
-            // A quarter of the way down is a dismissal; anything less snaps back.
-            if (dragY > 120) requestClose();
-            setDragY(0);
-            dragStart.current = null;
-          }}
+        <div
+          ref={panelRef}
+          tabIndex={-1}
+          style={dragY ? { transform: `translateY(${dragY}px)` } : undefined}
+          className={cn(
+            'sheet-in card elev-3 relative flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-b-none rounded-t-2xl border-0 p-0 outline-none sm:max-h-[85dvh] sm:rounded-2xl',
+            wide ? 'sm:max-w-2xl' : 'sm:max-w-md'
+          )}
         >
-          {/* The grab handle, which is also the affordance that says "drag me". */}
-          <div className="flex justify-center pt-2 sm:hidden">
-            <span aria-hidden className="h-1 w-10 rounded-full bg-input" />
+          <header
+            className="shrink-0 bg-surface"
+            onTouchStart={(event) => {
+              dragStart.current = event.touches[0].clientY;
+            }}
+            onTouchMove={(event) => {
+              if (dragStart.current === null) return;
+              // Downward only. Dragging a sheet up past its own top looks broken.
+              const delta = event.touches[0].clientY - dragStart.current;
+              if (delta > 0) setDragY(delta);
+            }}
+            onTouchEnd={() => {
+              // A quarter of the way down is a dismissal; anything less snaps back.
+              if (dragY > 120) requestClose();
+              setDragY(0);
+              dragStart.current = null;
+            }}
+          >
+            {/* The grab handle, which is also the affordance that says "drag me". */}
+            <div className="flex justify-center pt-2 sm:hidden">
+              <span aria-hidden className="h-1 w-10 rounded-full bg-input" />
+            </div>
+
+            <div className="flex items-center justify-between gap-3 px-5 pb-3 pt-4 sm:px-6 sm:pt-5">
+              <h2 className="min-w-0 truncate text-lg font-semibold tracking-tight">{title}</h2>
+              <button
+                type="button"
+                onClick={requestClose}
+                aria-label={t('app.close')}
+                className="-mr-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </header>
+
+          {/* A little more room than the header and footer, because this is the
+            * part that is read rather than scanned. */}
+          <div className="flex-1 overflow-y-auto overscroll-contain px-5 pb-5 pt-1 sm:px-6">
+            {children}
           </div>
 
-          <div className="flex items-center justify-between gap-3 px-5 pb-3 pt-4 sm:px-6 sm:pt-5">
-            <h2 className="min-w-0 truncate text-lg font-semibold tracking-tight">{title}</h2>
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label={t('app.close')}
-              className="-mr-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-        </header>
+          {(footer || footerLead) && (
+            <div className="shrink-0 border-t border-border bg-surface px-5 pt-4 pb-safe-4 sm:px-6">
+              {footerLead && <div className="mb-3">{footerLead}</div>}
+              {/* Full width and side by side on a phone, where a corner button is a stretch. */}
+              {footer && (
+                <div className="flex gap-3 [&>button]:flex-1 sm:justify-end sm:[&>button]:flex-none">
+                  {footer}
+                </div>
+              )}
+            </div>
+          )}
 
-        {/* A little more room than the header and footer, because this is the
-          * part that is read rather than scanned. */}
-        <div className="flex-1 overflow-y-auto overscroll-contain px-5 pb-5 pt-1 sm:px-6">
-          {children}
-        </div>
-
-        {(footer || footerLead) && (
-          <div className="shrink-0 border-t border-border bg-surface px-5 pt-4 pb-safe-4 sm:px-6">
-            {footerLead && <div className="mb-3">{footerLead}</div>}
-            {/* Full width and side by side on a phone, where a corner button is a stretch. */}
-            {footer && (
-              <div className="flex gap-3 [&>button]:flex-1 sm:justify-end sm:[&>button]:flex-none">
-                {footer}
-              </div>
-            )}
-          </div>
-        )}
-
-        {confirmingClose && (
-          <div className="fade-in absolute inset-0 z-10 flex flex-col justify-end bg-black/40 sm:justify-center sm:p-6">
-            <div className="card elev-3 m-0 rounded-b-none rounded-t-2xl border-0 px-5 pt-5 pb-safe-5 sm:rounded-2xl sm:pb-5">
-              <p className="font-medium">{t('app.unsavedTitle')}</p>
-              <p className="mt-1 text-sm text-muted-foreground">{t('app.unsavedHelp')}</p>
-              <div className="mt-5 flex gap-3 [&>button]:flex-1">
-                <Button variant="outline" onClick={() => setConfirmingClose(false)}>
-                  {t('app.keepEditing')}
-                </Button>
-                <Button variant="danger" onClick={onClose}>
-                  {t('app.discard')}
-                </Button>
+          {confirmingClose && (
+            <div className="fade-in absolute inset-0 z-10 flex flex-col justify-end bg-black/40 sm:justify-center sm:p-6">
+              <div className="card elev-3 m-0 rounded-b-none rounded-t-2xl border-0 px-5 pt-5 pb-safe-5 sm:rounded-2xl sm:pb-5">
+                <p className="font-medium">{t('app.unsavedTitle')}</p>
+                <p className="mt-1 text-sm text-muted-foreground">{t('app.unsavedHelp')}</p>
+                <div className="mt-5 flex gap-3 [&>button]:flex-1">
+                  <Button variant="outline" onClick={() => setConfirmingClose(false)}>
+                    {t('app.keepEditing')}
+                  </Button>
+                  <Button variant="danger" onClick={onClose}>
+                    {t('app.discard')}
+                  </Button>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
-    </div>
+    </ModalCloseContext.Provider>
+  );
+}
+
+const ModalCloseContext = createContext<() => void>(() => {});
+
+/**
+ * The guarded close, for anything inside a sheet that dismisses it: the
+ * footer's Cancel, a "done" link. Goes through the unsaved-changes check.
+ */
+export function useModalClose(): () => void {
+  return useContext(ModalCloseContext);
+}
+
+/**
+ * The footer's dismiss button. Use this rather than a Button wired to `onClose`
+ * so a half-filled form asks before it is thrown away.
+ *
+ * Next to a destructive action (reject, cancel an order, void) pass
+ * `label={t('app.dismiss')}`, "ফিরে যান", so the two buttons never share a word.
+ */
+export function ModalCancel({ label, disabled }: { label?: string; disabled?: boolean }) {
+  const close = useModalClose();
+  return (
+    <Button variant="outline" onClick={close} disabled={disabled}>
+      {label ?? t('app.cancel')}
+    </Button>
   );
 }

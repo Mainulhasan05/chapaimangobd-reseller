@@ -2,11 +2,10 @@
 
 import { Suspense, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { useMutation } from '@tanstack/react-query';
-import { api, errorMessage } from '@/lib/api';
+import { errorMessage } from '@/lib/api';
+import { useLazyGetTrackedOrderQuery } from '@/lib/store/endpoints/public';
 import { t, tStatus } from '@/lib/i18n/bn';
 import { formatMoney, formatNumber, formatQuantity, formatDateTime } from '@/lib/format';
-import type { PublicOrder } from '@/lib/types';
 import { Alert, Badge, Card, statusTone } from '@/components/ui/layout';
 import { Logo } from '@/components/ui/logo';
 import { Button, Spinner } from '@/components/ui/button';
@@ -32,14 +31,11 @@ function TrackView() {
   const [code, setCode] = useState(() => params.get('code') ?? '');
   const [phone, setPhone] = useState('');
 
-  const lookup = useMutation({
-    mutationFn: () =>
-      api.get<{ order: PublicOrder }>(
-        `/public/track/${encodeURIComponent(code)}?phone=${encodeURIComponent(phone)}`
-      ),
-  });
+  // Asked on demand, never cached: each search goes to the server.
+  const [track, lookup] = useLazyGetTrackedOrderQuery();
 
-  const order = lookup.data?.order;
+  // The answer to the latest search only: a failed search must not leave the previous order up.
+  const order = lookup.currentData?.order;
 
   return (
     <>
@@ -55,7 +51,7 @@ function TrackView() {
         <form
           onSubmit={(event) => {
             event.preventDefault();
-            lookup.mutate();
+            void track({ code, phone });
           }}
         >
           <Field label={t('order.code')} htmlFor="code" required>
@@ -76,13 +72,15 @@ function TrackView() {
             required
           />
 
-          <Button type="submit" full loading={lookup.isPending}>
+          <Button type="submit" full loading={lookup.isFetching}>
             {t('app.search')}
           </Button>
         </form>
       </Card>
 
-      {lookup.error && <Alert tone="danger">{errorMessage(lookup.error)}</Alert>}
+      {lookup.isError && !lookup.isFetching && (
+        <Alert tone="danger">{errorMessage(lookup.error)}</Alert>
+      )}
 
       {order && (
         <Card>

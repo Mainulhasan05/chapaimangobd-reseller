@@ -51,10 +51,11 @@ function editCustomer(role) {
     }
 
     // The same shape as GET /orders/:id for this role: the owner's includes the shop.
-    if (role === ROLES.OWNER) await result.order.populate('reseller', 'shopName slug');
+    if (role === ROLES.OWNER) await result.order.populate(present.ownerResellerPopulate());
 
     return ok(res, {
-      order: present.orderFor(result.order, role),
+      order:
+        role === ROLES.OWNER ? present.ownerOrder(result.order) : present.orderFor(result.order, role),
       changed: result.changed.map((field) => (field === 'phoneE164' ? 'phone' : field)),
       deliveryZoneChanged: result.deliveryZoneChanged,
       // The zone the new district belongs to, when it differs from the order's.

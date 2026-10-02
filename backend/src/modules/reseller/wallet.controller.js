@@ -16,7 +16,8 @@ const { badRequest, forbidden } = require('../../utils/errors');
 const { toPoisha, toTaka } = require('../../utils/money');
 const { normalizeBdPhone } = require('../../utils/phone');
 const present = require('../../utils/present');
-const { REVIEW_STATUS, LEDGER_KIND } = require('../../domain/constants');
+const { notifyOwners } = require('../../services/notify');
+const { REVIEW_STATUS, LEDGER_KIND, EVENT_TYPE } = require('../../domain/constants');
 const { isBankMethod } = require('../../domain/payout');
 
 const getWallet = async (req, res) => ok(res, { wallet: present.wallet(req.reseller) });
@@ -63,6 +64,12 @@ async function createDeposit(req, res) {
     transactionId: transactionId || undefined,
     screenshot,
     note,
+  });
+
+  // The balance does not move until the owner approves, so the owner is told.
+  await notifyOwners({
+    eventType: EVENT_TYPE.DEPOSIT_REQUESTED,
+    data: { depositId: deposit._id, shopName: req.reseller.shopName, amountPoisha },
   });
 
   return ok(res, { deposit: presentDeposit(deposit) }, 201);
@@ -159,6 +166,11 @@ async function createWithdrawal(req, res) {
     method: req.body.method,
     ...destination,
     note: req.body.note,
+  });
+
+  await notifyOwners({
+    eventType: EVENT_TYPE.WITHDRAWAL_REQUESTED,
+    data: { withdrawalId: withdrawal._id, shopName: req.reseller.shopName, amountPoisha },
   });
 
   return ok(res, { withdrawal: presentWithdrawal(withdrawal) }, 201);

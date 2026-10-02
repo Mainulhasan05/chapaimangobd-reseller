@@ -1,15 +1,20 @@
 'use client';
 
 import { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ExternalLink, ShieldAlert } from 'lucide-react';
-import { api, errorMessage, fieldErrors } from '@/lib/api';
-import { useReadOnlyAccount, useSession, sessionKey } from '@/lib/session';
+import { errorMessage, fieldErrors } from '@/lib/api';
+import { useReadOnlyAccount, useSession } from '@/lib/session';
+import {
+  useRemoveProfileLogoMutation,
+  useUpdateProfileMutation,
+  useUploadProfileLogoMutation,
+  type ProfilePatch,
+} from '@/lib/store/endpoints/reseller';
 import { t } from '@/lib/i18n/bn';
 import { kycBlocks } from '@/lib/kyc';
 import { LANDING_TEMPLATES } from '@/lib/landing';
 import { cn } from '@/lib/utils';
-import type { LandingTemplate, ResellerProfile } from '@/lib/types';
+import type { ResellerProfile } from '@/lib/types';
 import { Alert, Badge, Card, CardHeader, PageHeader } from '@/components/ui/layout';
 import { Button, Spinner } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -39,7 +44,6 @@ export default function ShopSettingsPage() {
 }
 
 function ShopSettings({ profile }: { profile: ResellerProfile }) {
-  const queryClient = useQueryClient();
   const toast = useToast();
   const shopUrl = useShopUrl(profile.slug);
   // Deactivated: the owner closed the shop, and every field here is read only.
@@ -60,38 +64,45 @@ function ShopSettings({ profile }: { profile: ResellerProfile }) {
   const field = (key: keyof typeof form) => (event: { target: { value: string } }) =>
     setForm((prev) => ({ ...prev, [key]: event.target.value }));
 
-  const save = useMutation({
-    mutationFn: (patch: Record<string, unknown>) => api.patch('/reseller/profile', patch),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: sessionKey });
+  // Profile writes refresh the session, which carries the profile the whole dashboard reads.
+  const [updateProfile, save] = useUpdateProfileMutation();
+
+  const saveProfile = async (patch: ProfilePatch) => {
+    try {
+      await updateProfile(patch).unwrap();
       toast(t('shop.savedToast'));
-    },
-  });
+    } catch (error) {
+      // The open switch and the save button are both far from the error alert.
+      toast(errorMessage(error), 'danger');
+    }
+  };
 
   /*
    * The picture is multipart and the rest of this page is JSON, so it cannot
-   * ride along with `save`. It invalidates the session, because the profile the
-   * whole dashboard reads is the one the session carries.
+   * ride along with `save`. Failures show inside the picture field.
    */
-  const uploadLogo = useMutation({
-    mutationFn: (file: File) => {
-      const data = new FormData();
-      data.set('logo', file);
-      return api.upload('/reseller/profile/logo', data);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: sessionKey });
-      toast(t('file.uploaded'));
-    },
-  });
+  const [uploadProfileLogo, uploadLogo] = useUploadProfileLogoMutation();
+  const [removeProfileLogo, removeLogo] = useRemoveProfileLogoMutation();
 
-  const removeLogo = useMutation({
-    mutationFn: () => api.del('/reseller/profile/logo'),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: sessionKey });
+  const onUploadLogo = async (file: File) => {
+    const data = new FormData();
+    data.set('logo', file);
+    try {
+      await uploadProfileLogo({ formData: data }).unwrap();
+      toast(t('file.uploaded'));
+    } catch {
+      // Shown in the field.
+    }
+  };
+
+  const onRemoveLogo = async () => {
+    try {
+      await removeProfileLogo().unwrap();
       toast(t('file.removed'));
-    },
-  });
+    } catch {
+      // Shown in the field.
+    }
+  };
 
   /*
    * Not "is KYC approved" but "is anything held shut by KYC". For the reseller
@@ -124,8 +135,8 @@ function ShopSettings({ profile }: { profile: ResellerProfile }) {
          */}
         <Switch
           checked={profile.formActive}
-          disabled={readOnly || blocked || save.isPending}
-          onChange={(checked) => save.mutate({ formActive: checked })}
+          disabled={readOnly || blocked || save.isLoading}
+          onChange={(checked) => void saveProfile({ formActive: checked })}
           label={profile.formActive ? t('shop.open') : t('shop.closed')}
           hint={blocked ? t('kyc.gateHelp') : undefined}
         />
@@ -142,10 +153,10 @@ function ShopSettings({ profile }: { profile: ResellerProfile }) {
           hint={t('shop.logoHint')}
           shape="circle"
           currentUrl={profile.logoUrl}
-          uploading={uploadLogo.isPending}
-          removing={removeLogo.isPending}
-          onUpload={(file) => uploadLogo.mutate(file)}
-          onRemove={() => removeLogo.mutate()}
+          uploading={uploadLogo.isLoading}
+          removing={removeLogo.isLoading}
+          onUpload={(file) => void onUploadLogo(file)}
+          onRemove={() => void onRemoveLogo()}
           error={
             uploadLogo.error
               ? errorMessage(uploadLogo.error)
@@ -290,9 +301,9 @@ function ShopSettings({ profile }: { profile: ResellerProfile }) {
         <Button
           full
           hidden={readOnly}
-          loading={save.isPending}
+          loading={save.isLoading}
           onClick={() =>
-            save.mutate({
+            void saveProfile({
               shopName: form.shopName,
               address: form.address,
               about: form.about,
@@ -318,18 +329,20 @@ function ShopSettings({ profile }: { profile: ResellerProfile }) {
  * at first in a new tab, with the reseller's own products and contact details.
  */
 function DesignPicker({ profile, readOnly }: { profile: ResellerProfile; readOnly: boolean }) {
-  const queryClient = useQueryClient();
   const toast = useToast();
   const current = profile.landingTemplate ?? 'bagan';
 
-  const choose = useMutation({
-    mutationFn: (landingTemplate: LandingTemplate) =>
-      api.patch('/reseller/profile', { landingTemplate }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: sessionKey });
+  // Its own hook instance, so its spinner and error stay on this card.
+  const [updateProfile, choose] = useUpdateProfileMutation();
+
+  const pick = async (landingTemplate: ProfilePatch['landingTemplate']) => {
+    try {
+      await updateProfile({ landingTemplate }).unwrap();
       toast(t('shop.designSaved'));
-    },
-  });
+    } catch {
+      // Shown at the top of this card.
+    }
+  };
 
   return (
     <Card className="mb-4">
@@ -340,7 +353,7 @@ function DesignPicker({ profile, readOnly }: { profile: ResellerProfile; readOnl
       <div role="radiogroup" aria-label={t('shop.design')} className="grid gap-3 sm:grid-cols-3">
         {LANDING_TEMPLATES.map((design) => {
           const selected = design.id === current;
-          const pending = choose.isPending && choose.variables === design.id;
+          const pending = choose.isLoading && choose.originalArgs?.landingTemplate === design.id;
           return (
             <div
               key={design.id}
@@ -353,8 +366,8 @@ function DesignPicker({ profile, readOnly }: { profile: ResellerProfile; readOnl
                 type="button"
                 role="radio"
                 aria-checked={selected}
-                disabled={readOnly || choose.isPending}
-                onClick={() => !selected && choose.mutate(design.id)}
+                disabled={readOnly || choose.isLoading}
+                onClick={() => !selected && void pick(design.id)}
                 className="tap flex flex-1 flex-col text-left disabled:cursor-default"
               >
                 {/* A miniature of the design: its header colour, a headline bar, its button. */}

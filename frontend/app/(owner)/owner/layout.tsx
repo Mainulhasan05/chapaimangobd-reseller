@@ -22,14 +22,16 @@ import {
   Users,
   Wallet,
 } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { skipToken } from '@reduxjs/toolkit/query/react';
 import { useSession } from '@/lib/session';
+import { LIVE } from '@/lib/store/api';
+import { useGetDashboardQuery } from '@/lib/store/endpoints/dashboard';
+import { useGetNotificationsInfiniteQuery } from '@/lib/store/endpoints/notifications';
 import { AppShell, type NavItem } from '@/components/app-shell';
-import type { Order, Paged } from '@/lib/types';
 
 /**
- * Fourteen destinations, four of which reach the bottom bar on a phone.
+ * Every owner destination, four of which reach the bottom bar on a phone. The
+ * inbox is not in the list: it is the bell in the top bar.
  *
  * The four are the ones touched every day: the day's numbers, the fulfilment
  * queue, the catalog behind it, and the money waiting for a decision. Setup
@@ -44,7 +46,7 @@ const NAV: NavItem[] = [
   { href: '/owner', labelKey: 'nav.dashboard', icon: LayoutDashboard, section: 'nav.groupDaily' },
   { href: '/owner/orders', labelKey: 'nav.orders', icon: ClipboardList, section: 'nav.groupDaily' },
   { href: '/owner/products', labelKey: 'nav.products', icon: Package, section: 'nav.groupDaily' },
-  { href: '/owner/finance', labelKey: 'nav.deposits', icon: Wallet, section: 'nav.groupDaily' },
+  { href: '/owner/finance', labelKey: 'nav.finance', icon: Wallet, section: 'nav.groupDaily' },
   { href: '/owner/resellers', labelKey: 'nav.resellers', icon: Users, section: 'nav.groupMoney' },
   { href: '/owner/customers', labelKey: 'nav.customers', icon: Contact, section: 'nav.groupMoney' },
   { href: '/owner/kyc', labelKey: 'nav.kyc', icon: BadgeCheck, section: 'nav.groupMoney' },
@@ -98,32 +100,32 @@ export default function OwnerLayout({ children }: { children: React.ReactNode })
   const ready = Boolean(session) && !session?.user.mustChangePassword;
 
   /*
-   * Orders waiting to be accepted. A confirmed order is one the reseller has
-   * committed to and the owner has not yet touched, and mangoes do not wait, so
-   * the count rides on the tab rather than waiting to be discovered. Gated on
-   * the session because the layout renders before the redirect to /login, and an
+   * Every badge from one request. The dashboard payload already counts what is
+   * waiting on the owner (orders to accept, deposits and withdrawals to decide,
+   * KYC to review, complaints to close), and the dashboard page polls the same
+   * cache entry, so the badges cost nothing extra there and one request
+   * a minute everywhere else, instead of a list query per badge. Gated on the
+   * session because the layout renders before the redirect to /login, and an
    * ungated query would fire a guaranteed 401 on the way out.
    */
-  const waiting = useQuery({
-    queryKey: ['owner', 'orders', 'confirmed'],
-    queryFn: () => api.get<Paged<'orders', Order>>('/owner/orders?status=confirmed&limit=5'),
-    enabled: ready,
-    refetchInterval: 60_000,
-  });
+  const { data: counts } = useGetDashboardQuery(ready ? undefined : skipToken, LIVE);
 
-  /*
-   * Only the count is wanted, so one row is asked for. The key is the prefix of
-   * the notifications page's own, so marking things read there refreshes the bell.
-   */
-  const notifications = useQuery({
-    queryKey: ['notifications'],
-    queryFn: () => api.get<{ unread: number }>('/owner/notifications?limit=1'),
-    enabled: ready,
-    refetchInterval: 60_000,
-  });
+  // Only the count is wanted, so one row is asked for; `unread` rides on the page.
+  const { data: inbox } = useGetNotificationsInfiniteQuery(
+    ready ? { role: 'owner', limit: 1 } : skipToken,
+    LIVE
+  );
+
+  const badges: Partial<Record<string, number>> = {
+    // A confirmed order is one the reseller committed to and nobody has touched.
+    '/owner/orders': counts?.awaitingAcceptance,
+    '/owner/finance': counts ? counts.pendingDeposits + counts.pendingWithdrawals : undefined,
+    '/owner/kyc': counts?.pendingKyc,
+    '/owner/complaints': counts?.openComplaints,
+  };
 
   const nav = NAV.map((item) =>
-    item.href === '/owner/orders' ? { ...item, badge: waiting.data?.total ?? 0 } : item
+    badges[item.href] ? { ...item, badge: badges[item.href] } : item
   );
 
   return (
@@ -131,7 +133,7 @@ export default function OwnerLayout({ children }: { children: React.ReactNode })
       role="owner"
       nav={nav}
       notificationsHref="/owner/notifications"
-      notificationCount={notifications.data?.unread ?? 0}
+      notificationCount={inbox?.pages[0]?.unread ?? 0}
     >
       {children}
     </AppShell>

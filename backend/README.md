@@ -128,6 +128,7 @@ login) reports which integrations are live.
 | `LOG_LEVEL` | `info` | `fatal` `error` `warn` `info` `debug` `trace`. Ignored under `NODE_ENV=test`, which is silent. |
 | `RUN_JOBS` | `false` | Runs the scheduled jobs and may hold the Telegram polling lease in this process. Safe on every instance; see below. |
 | `SMS_LOW_BALANCE` | `200` | The daily digest warns when the gateway balance falls below this many **messages** (Automas reports a count, not taka). |
+| `SMS_COST_PER_SEGMENT_POISHA` | unset | What the gateway charges per segment, in poisha. Set, the SMS panel shows the last thirty days' spend in taka; unset, it shows none rather than a guess. |
 | `IMGBB_API_KEY` | unset | Public images (product photos, shop logos, brand assets) go to ImgBB when set. |
 | `IMGBB_UPLOAD_URL` | `https://api.imgbb.com/1/upload` | ImgBB upload endpoint. |
 | `IMGBB_TIMEOUT_MS` | `20000` | Upload timeout, so a slow host cannot hold a request open. |

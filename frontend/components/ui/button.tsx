@@ -1,3 +1,5 @@
+import Link from 'next/link';
+import type { Route } from 'next';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '@/lib/utils';
 
@@ -79,6 +81,30 @@ export function Spinner({ className }: { className?: string }) {
         className
       )}
     />
+  );
+}
+
+/**
+ * A link drawn as a button.
+ *
+ * `<Link><Button/></Link>` nests one interactive element in another, which
+ * screen readers announce twice and keyboards stop on twice. This is one
+ * element that navigates and looks like a button.
+ */
+export function ButtonLink({
+  href,
+  className,
+  variant,
+  size,
+  full,
+  children,
+  ...props
+}: Omit<React.ComponentProps<typeof Link>, 'href'> &
+  VariantProps<typeof button> & { href: Route | string }) {
+  return (
+    <Link href={href as Route} className={cn(button({ variant, size, full }), className)} {...props}>
+      {children}
+    </Link>
   );
 }
 

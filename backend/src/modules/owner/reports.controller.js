@@ -13,6 +13,7 @@ const Complaint = require('../../models/Complaint');
 const User = require('../../models/User');
 
 const { getSettings } = require('../../services/settings');
+const smsHealth = require('../../services/smsHealth');
 const ledger = require('../../services/ledger');
 const { ok } = require('../../middleware/error');
 const { toTaka } = require('../../utils/money');
@@ -26,7 +27,7 @@ const {
 } = require('../../utils/dhakaTime');
 const present = require('../../utils/present');
 const { streamCsv, trustedFormula } = require('../../utils/csv');
-const { buildOrderFilter } = require('../../utils/orderFilter');
+const { buildOwnerOrderFilter } = require('../../utils/orderFilter');
 const { ORDER_STATUS, REVIEW_STATUS, PAYMENT_MODE, ROLES } = require('../../domain/constants');
 const { variantLabel } = require('../../domain/variants');
 const { OUTBOX_STATUS } = require('../../models/OutboxMessage');
@@ -82,9 +83,20 @@ const presentMoney = (row = {}) => ({
  * ever and stops meaning anything by the end of a season. What closed today is
  * a different question and gets its own field.
  */
+/** How many debtors the dashboard names. The rest are on the receivables report. */
+const TOP_DEBTORS = 5;
+
 async function dashboard(_req, res) {
   const settings = await getSettings();
-  const today = businessDate();
+  const now = new Date();
+  const today = businessDate(now);
+  /*
+   * The same moment yesterday. Dhaka keeps no daylight saving, so twenty-four
+   * hours back is the same clock time, and "12 orders by 11am" can be held
+   * against what yesterday had by 11am rather than against all of yesterday.
+   */
+  const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const yesterday = businessDate(dayAgo);
 
   const [
     statusCounts,
@@ -100,6 +112,10 @@ async function dashboard(_req, res) {
     deadLetters,
     activeResellers,
     openComplaints,
+    ordersYesterdaySameTime,
+    deliveredToday,
+    debtors,
+    sms,
   ] = await Promise.all([
     Order.aggregate([
       { $match: { status: { $in: OPEN_STATUSES } } },
@@ -169,6 +185,32 @@ async function dashboard(_req, res) {
      * order reads as a clean delivery for ever. See models/Complaint.js.
      */
     Complaint.countDocuments({ resolved: false }),
+    /*
+     * Counted the way `ordersToday` is — every order raised that day except
+     * the ones still pending, cancellations included — so the two can be
+     * compared at all.
+     */
+    Order.countDocuments({
+      businessDate: yesterday,
+      status: { $ne: ORDER_STATUS.PENDING },
+      createdAt: { $lte: dayAgo },
+    }),
+    /*
+     * Delivered today, whenever the order was placed. `closedToday.delivered`
+     * counts orders *placed* today that are already delivered, which is nearly
+     * always none: nobody delivers a mango the day it is ordered.
+     */
+    Order.countDocuments({
+      status: ORDER_STATUS.DELIVERED,
+      deliveredAt: { $gte: startOfBusinessDay(today) },
+    }),
+    // Who owes the most, from the balance the ledger service keeps.
+    ResellerProfile.find({ balancePoisha: { $lt: 0 } })
+      .sort({ balancePoisha: 1, _id: 1 })
+      .limit(TOP_DEBTORS)
+      .select('shopName balancePoisha')
+      .lean(),
+    smsHealth.gatewayHealth(),
   ]);
 
   const byStatus = Object.fromEntries(statusCounts.map((s) => [s._id, s.count]));
@@ -198,11 +240,25 @@ async function dashboard(_req, res) {
     pendingKyc,
     openComplaints,
     activeResellers,
+    ordersYesterdaySameTime,
+    deliveredToday,
+    // Positive taka: how much each one owes, not their (negative) balance.
+    debtors: debtors.map((p) => ({
+      id: p._id,
+      shopName: p.shopName,
+      owed: toTaka(-p.balancePoisha),
+    })),
     health: {
       lowStock,
       deadLetters,
-      // The master switch, which governs reseller-paid SMS. See docs/adr/0013.
+      /*
+       * The master switch, which governs reseller-paid SMS (docs/adr/0013). A
+       * choice, not a fault: whether SMS actually works is `smsGateway`.
+       */
       smsEnabled: Boolean(settings.features && settings.features.sms),
+      smsGateway: sms.smsGateway,
+      smsBalance: sms.smsBalance,
+      smsBalanceLow: sms.smsBalanceLow,
     },
   });
 }
@@ -562,7 +618,7 @@ async function pickList(req, res) {
 async function orderSheet(req, res) {
   const { max, ...filters } = req.query;
   const agingHours = filters.aging ? (await getSettings()).orderAgingHours : undefined;
-  const filter = buildOrderFilter(filters, { agingHours });
+  const filter = await buildOwnerOrderFilter(filters, { agingHours });
 
   const [orders, total] = await Promise.all([
     // Oldest first: a sheet is worked through from the top, and the oldest
@@ -764,7 +820,7 @@ async function customersReport(req, res) {
  */
 async function exportOrders(req, res) {
   const agingHours = req.query.aging ? (await getSettings()).orderAgingHours : undefined;
-  const filter = buildOrderFilter(req.query, { agingHours });
+  const filter = await buildOwnerOrderFilter(req.query, { agingHours });
 
   const headers = [
     'Order Code',

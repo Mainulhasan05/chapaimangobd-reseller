@@ -84,7 +84,8 @@ phone number to look up status.
 string so "today's orders" is an index scan.
 
 **Capability** — something a role may do to an order now that is not a status change:
-`editCustomer` and `changeDeliveryCharge`. Declared beside the transitions in
+`editCustomer`, `changeDeliveryCharge` and `editCourier` (the courier and tracking number,
+while shipped). Declared beside the transitions in
 `domain/orderStateMachine.js`. An order's **actions** are its available transitions followed
 by its capabilities, for the role asking; every order response carries them, and a screen
 offers exactly those buttons, never a status list of its own.

@@ -167,7 +167,10 @@ export type OrderTotals = {
 export type Order = {
   id: string;
   orderCode: string;
-  reseller: string | { _id: string; shopName: string; slug: string };
+  /** The owner's copy also carries the shop's id and its owner's phone. */
+  reseller:
+    | string
+    | { _id: string; id?: string; shopName: string; slug: string; phone?: string | null };
   origin: 'form' | 'manual';
   paymentMode: PaymentMode;
   businessDate: string;
@@ -214,7 +217,8 @@ export type OrderAction =
   | 'cancel'
   | 'return'
   | 'changeDeliveryCharge'
-  | 'editCustomer';
+  | 'editCustomer'
+  | 'editCourier';
 
 /** The answer to correcting an order's customer details. PLAN-2 decision 9. */
 export type CustomerEditResult = {
@@ -293,6 +297,8 @@ export type CatalogItem = {
 export type ProductVariant = {
   id: string;
   label: string;
+  /** What the owner typed, or null when the box goes by its derived Bengali name. */
+  customLabel?: string | null;
   content: number;
   costPrice: number;
   maxSellPrice: number | null;
@@ -345,6 +351,8 @@ export type Complaint = {
   orderCode: string;
   reseller?: { shopName: string } | string;
   customerPhone?: string;
+  /** Read off the order on the owner's list; absent on one order's own complaints. */
+  customerName?: string | null;
   businessDate: string;
   kind: ComplaintKind;
   note: string;
@@ -622,7 +630,23 @@ export type OwnerDashboard = {
   /** Complaints nobody has closed out. */
   openComplaints: number;
   activeResellers: number;
-  health: { lowStock: number; deadLetters: number; smsEnabled: boolean };
+  /** Orders raised yesterday up to this same Dhaka time, for a fair "vs yesterday". */
+  ordersYesterdaySameTime?: number;
+  /** Delivered today, whenever placed. `closedToday.delivered` is orders placed today. */
+  deliveredToday?: number;
+  /** The five deepest debts, deepest first. `owed` is positive taka. */
+  debtors?: { id: string; shopName: string; owed: number }[];
+  health: {
+    lowStock: number;
+    deadLetters: number;
+    /** The reseller-paid SMS switch: a choice, not a fault. See docs/adr/0013. */
+    smsEnabled: boolean;
+    /** Whether SMS actually works. */
+    smsGateway?: 'ok' | 'not_configured' | 'error';
+    /** Gateway balance as a count of messages, or null when unknown. */
+    smsBalance?: number | null;
+    smsBalanceLow?: boolean;
+  };
 };
 
 /** Counts and money for exactly the orders a filter selects. */
@@ -785,6 +809,8 @@ export type AuditEntry = {
   action: string;
   targetType: string;
   targetId: string | null;
+  /** What the target is called (order code, shop, product…), or null when nothing names it. */
+  targetLabel?: string | null;
   actor: { id: string; name: string; role: Role } | null;
   before: Record<string, unknown> | null;
   after: Record<string, unknown> | null;

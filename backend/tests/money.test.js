@@ -564,7 +564,7 @@ test('stock is counted per box, and one box running out does not stop the other'
     () => confirm({ _id: third.order._id }, profile, reseller),
     (err) => {
       assert.equal(err.code, 'OUT_OF_STOCK');
-      assert.match(err.message, /6 kg/);
+      assert.match(err.message, /৬ কেজি/);
       return true;
     }
   );

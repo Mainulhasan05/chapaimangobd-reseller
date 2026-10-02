@@ -17,9 +17,15 @@ import { cn } from '@/lib/utils';
 
 export type ToastTone = 'success' | 'danger' | 'neutral';
 
-type Toast = { id: number; message: string; tone: ToastTone };
+export type ToastAction = { label: string; onClick: () => void };
 
-type Push = (message: string, tone?: ToastTone) => void;
+type Toast = { id: number; message: string; tone: ToastTone; action?: ToastAction };
+
+/**
+ * `action` adds one button to the toast, for an Undo after a removal. A toast
+ * with an action stays longer, because it asks for a decision, not a glance.
+ */
+type Push = (message: string, tone?: ToastTone, options?: { action?: ToastAction }) => void;
 
 const ToastContext = createContext<Push>(() => {});
 
@@ -29,6 +35,7 @@ export function useToast(): Push {
 }
 
 const DURATION = 4000;
+const ACTION_DURATION = 7000;
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -45,16 +52,17 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const push = useCallback<Push>(
-    (message, tone = 'success') => {
+    (message, tone = 'success', options) => {
       const id = (nextId.current += 1);
+      const action = options?.action;
       setToasts((prev) => {
         // Three is as many as anyone reads. Older ones fall off the top.
-        const next = [...prev, { id, message, tone }];
+        const next = [...prev, { id, message, tone, action }];
         return next.slice(-3);
       });
       timers.current.set(
         id,
-        setTimeout(() => dismiss(id), DURATION)
+        setTimeout(() => dismiss(id), action ? ACTION_DURATION : DURATION)
       );
     },
     [dismiss]
@@ -79,12 +87,10 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         className="pointer-events-none fixed inset-x-0 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-[60] flex flex-col items-center gap-2 px-4 sm:bottom-6"
       >
         {toasts.map((toast) => (
-          <button
+          <div
             key={toast.id}
-            type="button"
-            onClick={() => dismiss(toast.id)}
             className={cn(
-              'toast-in elev-3 pointer-events-auto w-full max-w-sm rounded-xl px-4 py-3 text-left text-sm font-medium',
+              'toast-in elev-3 pointer-events-auto flex w-full max-w-sm items-center rounded-xl text-sm font-medium',
               toast.tone === 'danger'
                 ? 'bg-danger text-danger-foreground'
                 : toast.tone === 'success'
@@ -92,8 +98,26 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
                   : 'bg-foreground text-background'
             )}
           >
-            {toast.message}
-          </button>
+            <button
+              type="button"
+              onClick={() => dismiss(toast.id)}
+              className="min-h-11 min-w-0 flex-1 px-4 py-3 text-left"
+            >
+              {toast.message}
+            </button>
+            {toast.action && (
+              <button
+                type="button"
+                onClick={() => {
+                  toast.action?.onClick();
+                  dismiss(toast.id);
+                }}
+                className="min-h-11 shrink-0 px-4 font-semibold underline underline-offset-2"
+              >
+                {toast.action.label}
+              </button>
+            )}
+          </div>
         ))}
       </div>
     </ToastContext.Provider>

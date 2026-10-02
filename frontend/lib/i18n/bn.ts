@@ -1,3 +1,11 @@
+import { common } from './areas/common';
+import { shell } from './areas/shell';
+import { orders } from './areas/orders';
+import { catalog } from './areas/catalog';
+import { people } from './areas/people';
+import { cost } from './areas/cost';
+import { reseller } from './areas/reseller';
+
 /**
  * Every user-facing string lives here.
  *
@@ -5,7 +13,7 @@
  * typo is a compile error rather than `undefined` rendered on screen. No locale
  * routing: adding English later means a second file and a swap, not a restructure.
  */
-export const bn = {
+const core = {
   'app.name': 'চাঁপাই ম্যাঙ্গো',
   'app.loading': 'লোড হচ্ছে...',
   'app.saving': 'সংরক্ষণ হচ্ছে...',
@@ -262,7 +270,7 @@ export const bn = {
   'order.acceptedToast': 'অর্ডার গ্রহণ করা হয়েছে',
   'order.pack': 'প্যাক করুন',
   'order.ship': 'পাঠান',
-  'order.deliver': 'ডেলিভারি সম্পন্ন',
+  'order.deliver': 'ডেলিভারি হয়েছে',
   'order.return': 'ফেরত এসেছে',
   'order.confirmedToast': 'অর্ডার নিশ্চিত হয়েছে',
   'order.cancelledToast': 'অর্ডার বাতিল হয়েছে',
@@ -400,7 +408,7 @@ export const bn = {
   'kyc.notSubmitted': 'জমা দেওয়া হয়নি',
   'kyc.pending': 'যাচাই চলছে',
   'kyc.approved': 'অনুমোদিত',
-  'kyc.rejected': 'বাতিল',
+  'kyc.rejected': 'নামঞ্জুর',
   'kyc.nidFront': 'এনআইডি সামনের দিক',
   'kyc.nidBack': 'এনআইডি পেছনের দিক',
   'kyc.selfie': 'আপনার ছবি',
@@ -553,8 +561,8 @@ export const bn = {
   'owner.reconcile': 'হিসাব মিলিয়ে দেখুন',
   'owner.manualEntry': 'হাতে হিসাব সমন্বয়',
   'owner.creditLimit': 'ক্রেডিট সীমা নির্ধারণ',
-  'owner.approve': 'অনুমোদন',
-  'owner.reject': 'বাতিল',
+  'owner.approve': 'অনুমোদন করুন',
+  'owner.reject': 'নামঞ্জুর করুন',
 
   /*
    * The public landing page. The only marketing copy in the app, and the only
@@ -1592,6 +1600,51 @@ export const bn = {
   'position.payableHint': 'পার্টিদের পাওনা',
 } as const;
 
+/*
+ * Strings added per area live in ./areas/*.ts, so work on one part of the app
+ * never edits the same lines as work on another. An area may only ADD keys: the
+ * check below fails to compile if an area redefines a key that already exists,
+ * because a silent override would change wording on screens nobody looked at.
+ */
+type Overlap<A, B> = Extract<keyof A, keyof B>;
+type NoOverlap<A, B> = [Overlap<A, B>] extends [never] ? true : Overlap<A, B>;
+const noOverlap: {
+  common: NoOverlap<typeof core, typeof common>;
+  shell: NoOverlap<typeof core & typeof common, typeof shell>;
+  orders: NoOverlap<typeof core & typeof common & typeof shell, typeof orders>;
+  catalog: NoOverlap<typeof core & typeof common & typeof shell & typeof orders, typeof catalog>;
+  people: NoOverlap<
+    typeof core & typeof common & typeof shell & typeof orders & typeof catalog,
+    typeof people
+  >;
+  cost: NoOverlap<
+    typeof core & typeof common & typeof shell & typeof orders & typeof catalog & typeof people,
+    typeof cost
+  >;
+  reseller: NoOverlap<
+    typeof core &
+      typeof common &
+      typeof shell &
+      typeof orders &
+      typeof catalog &
+      typeof people &
+      typeof cost,
+    typeof reseller
+  >;
+} = { common: true, shell: true, orders: true, catalog: true, people: true, cost: true, reseller: true };
+void noOverlap;
+
+export const bn = {
+  ...core,
+  ...common,
+  ...shell,
+  ...orders,
+  ...catalog,
+  ...people,
+  ...cost,
+  ...reseller,
+} as const;
+
 export type DictKey = keyof typeof bn;
 
 /** The only way strings reach the UI. An unknown key will not compile. */
@@ -1657,4 +1710,27 @@ export function tComplaintKind(kind: string): string {
 export function tLedgerKind(kind: string): string {
   const key = `ledger.kind.${kind}` as DictKey;
   return key in bn ? bn[key] : kind;
+}
+
+/** A deposit or withdrawal status, never the raw `pending` the API sends. */
+export function tRequestStatus(status: string): string {
+  const key = `status.deposit.${status}` as DictKey;
+  return key in bn ? bn[key] : status;
+}
+
+/** How money was sent: bKash, Nagad, Rocket, bank or cash. */
+export function tMethod(method: string): string {
+  const key = `method.${method.toLowerCase()}` as DictKey;
+  return key in bn ? bn[key] : method;
+}
+
+/**
+ * Fills `{name}` placeholders in a dictionary string. Numbers are passed already
+ * formatted (Bengali digits) by the caller, so this never formats anything.
+ */
+export function tf(key: DictKey, values: Record<string, string | number>): string {
+  return Object.entries(values).reduce(
+    (text, [name, value]) => text.replaceAll(`{${name}}`, String(value)),
+    t(key)
+  );
 }

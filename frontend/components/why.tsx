@@ -28,13 +28,19 @@ import { Button } from '@/components/ui/button';
  * somebody wants to sit and follow on a phone.
  */
 
-/** The small "কীভাবে?" button that sits beside a worked-out figure. */
+/**
+ * The small "কীভাবে?" button that sits beside a worked-out figure.
+ *
+ * Small to look at, full height to touch on a phone. Its colours are tokens:
+ * this file once named variables (`--muted-fg`, `--card`) that the theme does
+ * not define, so every greyed note in the working rendered in full ink.
+ */
 export function WhyButton({ onClick }: { onClick: () => void }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex items-center gap-1 text-xs font-semibold text-[var(--primary)] underline-offset-2 hover:underline"
+      className="inline-flex min-h-11 items-center gap-1 text-xs font-semibold text-primary-ink underline-offset-2 hover:underline sm:min-h-0"
     >
       <HelpCircle className="h-3.5 w-3.5" />
       {t('why.show')}
@@ -59,14 +65,14 @@ function Line({
   return (
     <div
       className={`flex items-baseline justify-between gap-3 py-1 ${
-        strong ? 'border-t border-[var(--border)] pt-2 font-semibold' : ''
+        strong ? 'border-t border-border pt-2 font-semibold' : ''
       }`}
     >
-      <span className={`text-sm ${muted ? 'text-[var(--muted-fg)]' : ''}`}>
+      <span className={`text-sm ${muted ? 'text-muted-foreground' : ''}`}>
         {label}
-        {note && <span className="block text-xs text-[var(--muted-fg)]">{note}</span>}
+        {note && <span className="block text-xs text-muted-foreground">{note}</span>}
       </span>
-      <span className={`tabular text-sm ${muted ? 'text-[var(--muted-fg)]' : ''}`}>{value}</span>
+      <span className={`tabular text-sm ${muted ? 'text-muted-foreground' : ''}`}>{value}</span>
     </div>
   );
 }
@@ -119,13 +125,13 @@ export function AvgCostWhyModal({
       title={t('why.avgCost')}
       footer={<Button onClick={onClose}>{t('why.close')}</Button>}
     >
-      <p className="mb-3 text-sm text-[var(--muted-fg)]">{t('why.avgCostNote')}</p>
+      <p className="mb-3 text-sm text-muted-foreground">{t('why.avgCostNote')}</p>
 
       {!from ? (
         <p className="text-sm">{t('why.noPurchase')}</p>
       ) : (
         <>
-          <p className="mb-2 text-xs text-[var(--muted-fg)]">
+          <p className="mb-2 text-xs text-muted-foreground">
             {from.payeeNameBn} · {from.businessDate} · {from.purchaseCode}
           </p>
 
@@ -171,7 +177,7 @@ export function AvgCostWhyModal({
             * dialog, and concludes the software is wrong.
             */}
           {from.isBlended && (
-            <p className="mt-3 rounded-md bg-[var(--muted)] p-2 text-xs">{t('why.blended')}</p>
+            <p className="mt-3 rounded-md bg-muted p-2 text-xs">{t('why.blended')}</p>
           )}
         </>
       )}
@@ -200,7 +206,7 @@ export function OnHandWhyModal({
       title={t('why.onHand')}
       footer={<Button onClick={onClose}>{t('why.close')}</Button>}
     >
-      <p className="mb-3 text-sm text-[var(--muted-fg)]">{t('why.onHandNote')}</p>
+      <p className="mb-3 text-sm text-muted-foreground">{t('why.onHandNote')}</p>
 
       {rows.length === 0 ? (
         <p className="text-sm">{t('costSetup.noPurchaseYet')}</p>
@@ -238,10 +244,10 @@ export function ExplainedStat({
   onWhy: () => void;
 }) {
   return (
-    <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-3">
-      <div className="text-xs text-[var(--muted-fg)]">{label}</div>
+    <div className="rounded-lg border border-border bg-surface p-3">
+      <div className="text-xs text-muted-foreground">{label}</div>
       <div className="tabular mt-0.5 text-lg font-semibold">{value}</div>
-      {hint && <div className="text-xs text-[var(--muted-fg)]">{hint}</div>}
+      {hint && <div className="text-xs text-muted-foreground">{hint}</div>}
       <div className="mt-1">
         <WhyButton onClick={onWhy} />
       </div>

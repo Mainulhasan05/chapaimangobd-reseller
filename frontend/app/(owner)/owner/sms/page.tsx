@@ -1,19 +1,34 @@
 'use client';
 
 import { useState } from 'react';
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import Link from 'next/link';
+import type { Route } from 'next';
 import {
   Ban,
   CircleAlert,
   MessageSquare,
+  PenLine,
   Power,
   Send,
   TriangleAlert,
+  Wallet,
+  X,
 } from 'lucide-react';
-import { api, errorMessage, fieldErrors } from '@/lib/api';
-import { t, type DictKey } from '@/lib/i18n/bn';
+import { ApiError, errorMessage, fieldErrors } from '@/lib/api';
+import { bn, t, tf, type DictKey } from '@/lib/i18n/bn';
 import { formatDateTime, formatMoney, formatNumber } from '@/lib/format';
-import { useDebounced } from '@/lib/use-debounced';
+import { measure } from '@/lib/gsm7';
+import { cn } from '@/lib/utils';
+import { useUrlSearch, useUrlState } from '@/lib/use-url-state';
+import {
+  useGetSmsLogQuery,
+  useGetSmsLogsInfiniteQuery,
+  useGetSmsOverviewQuery,
+  useResendSmsMutation,
+  useSendTestSmsMutation,
+  useToggleSmsMutation,
+  type SmsOverviewData,
+} from '@/lib/store/endpoints/people';
 import {
   Alert,
   Badge,
@@ -21,6 +36,7 @@ import {
   CardHeader,
   EmptyState,
   ErrorState,
+  FilteredEmpty,
   PageHeader,
   Stat,
   TableWrap,
@@ -29,16 +45,17 @@ import {
   Tr,
   type Tone,
 } from '@/components/ui/layout';
-import { Button } from '@/components/ui/button';
+import { Button, ButtonLink } from '@/components/ui/button';
 import { Field, Textarea } from '@/components/ui/form';
 import { Switch } from '@/components/ui/switch';
 import { PhoneField } from '@/components/ui/phone-field';
 import { Modal } from '@/components/ui/modal';
-import { ListSkeleton } from '@/components/ui/skeleton';
-import { SearchInput, Segmented, Toolbar } from '@/components/ui/toolbar';
+import { ConfirmSheet } from '@/components/ui/confirm-sheet';
+import { ListSkeleton, StatSkeleton } from '@/components/ui/skeleton';
+import { SearchInput, Segmented, Toolbar, ToolbarSpacer } from '@/components/ui/toolbar';
 import { useToast } from '@/components/ui/toast';
 import { LoadMore } from '@/components/ui/load-more';
-import type { SmsLog, SmsLogDetail, SmsOverview, SmsStatus } from '@/lib/types';
+import type { SmsLog, SmsLogDetail, SmsStatus } from '@/lib/types';
 
 /**
  * The owner's SMS panel: one switch, and the record of every message.
@@ -46,8 +63,8 @@ import type { SmsLog, SmsLogDetail, SmsOverview, SmsStatus } from '@/lib/types';
  * The switch is the reason this page exists. SMS is the only thing in this app
  * that spends money every time it happens, and the owner needs to be able to
  * stop it for everybody in one tap, from a phone, without hunting through a
- * settings form. So it is the first thing on the page and it saves on the tap
- * rather than waiting for a Save button at the bottom.
+ * settings form. So it is the first thing on the page and turning it off saves
+ * on the tap; turning it on, which starts spending, asks first.
  *
  * The record is the other half. "Did that customer get their text" used to be
  * answerable only by ringing the customer; now every attempt is a row, including
@@ -88,51 +105,83 @@ const REASON_LABEL: Record<string, DictKey> = {
   empty_text: 'sms.reasonEmptyText',
 };
 
+/** What to do about a blocked message, by why it was blocked. */
+const REASON_FIX: Record<string, DictKey> = {
+  feature_off: 'smsPanel.fixFeatureOff',
+  not_configured: 'smsPanel.fixNotConfigured',
+  no_credits: 'smsPanel.fixNoCredits',
+  no_recipient: 'smsPanel.fixNoRecipient',
+  empty_text: 'smsPanel.fixEmptyText',
+};
+
 /** What one row says happened, in one phrase. */
-function outcomeOf(log: SmsLog): string {
+function outcomeOf(log: Pick<SmsLog, 'status' | 'blockedReason'>): string {
   if (log.status === 'blocked' && log.blockedReason && REASON_LABEL[log.blockedReason]) {
     return t(REASON_LABEL[log.blockedReason]);
   }
-  return t(STATUS_LABEL[log.status]);
+  return STATUS_LABEL[log.status] ? t(STATUS_LABEL[log.status]) : log.status;
+}
+
+const purposeOf = (purpose: string) => t(PURPOSE_LABEL[purpose] ?? 'sms.purposeNotification');
+
+/** An event identifier such as `order.shipped`, in Bengali when the dictionary has it. */
+function eventOf(eventType: string | null): string | undefined {
+  if (!eventType) return undefined;
+  const key = `event.${eventType}`;
+  return key in bn ? t(key as DictKey) : eventType;
+}
+
+/**
+ * The start of the thirty-day window, to the hour. Rounded so that the request,
+ * and so its cache entry, stays the same for a whole hour instead of changing
+ * on every render; the overview counts the same thirty days.
+ */
+function thirtyDaysAgo(): string {
+  const at = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  at.setMinutes(0, 0, 0);
+  return at.toISOString();
 }
 
 /* ------------------------------------------------------------------ page -- */
 
 type Filter = SmsStatus | 'all';
-
-const LOG_PAGE_SIZE = 50;
+const FILTERS: Filter[] = ['all', 'sent', 'failed', 'blocked'];
 
 export default function OwnerSmsPage() {
-  const [status, setStatus] = useState<Filter>('all');
-  const [term, setTerm] = useState('');
+  const [filters, setFilters, { reset }] = useUrlState({ status: 'all', window: '30', purpose: '' });
+  const { input, setInput, term } = useUrlSearch();
+  const status: Filter = FILTERS.includes(filters.status as Filter) ? (filters.status as Filter) : 'all';
+  const recent = filters.window !== 'all';
+  const [since] = useState(thirtyDaysAgo);
   const [open, setOpen] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
-  const search = useDebounced(term, 300);
 
-  const overview = useQuery({
-    queryKey: ['owner', 'sms', 'overview'],
-    queryFn: () => api.get<SmsOverview>('/owner/sms/overview'),
-  });
+  const overview = useGetSmsOverviewQuery();
 
   // A page at a time: the log grows by one row per message, forever.
-  const logs = useInfiniteQuery({
-    queryKey: ['owner', 'sms', 'logs', status, search],
-    queryFn: ({ pageParam }) =>
-      api.get<{ logs: SmsLog[]; total: number }>(
-        `/owner/sms/logs?limit=${LOG_PAGE_SIZE}&page=${pageParam}${status === 'all' ? '' : `&status=${status}`}${
-          search ? `&q=${encodeURIComponent(search)}` : ''
-        }`
-      ),
-    initialPageParam: 1,
-    getNextPageParam: (last, pages) => {
-      const loaded = pages.reduce((count, page) => count + page.logs.length, 0);
-      return loaded < last.total ? pages.length + 1 : undefined;
-    },
+  const logs = useGetSmsLogsInfiniteQuery({
+    status: status === 'all' ? undefined : status,
+    q: term,
+    purpose: filters.purpose || undefined,
+    from: recent ? since : undefined,
   });
 
   const rows = logs.data?.pages.flatMap((page) => page.logs) ?? [];
   const logTotal = logs.data?.pages[0]?.total ?? 0;
+  const switching = logs.isFetching && !logs.isFetchingNextPage && !logs.currentData;
   const stats = overview.data?.stats;
+  const filtered = Boolean(term || status !== 'all' || filters.purpose || !recent);
+
+  /*
+   * The counts on the filter are the overview's thirty-day counts, so they are
+   * shown only while the list covers the same thirty days. They used to sit on
+   * an all-time list and disagree with it.
+   */
+  const countOf = (value: Filter): number | undefined => {
+    if (!recent || !stats || filters.purpose || term) return undefined;
+    const { sent, failed, blocked } = stats.last30;
+    return value === 'all' ? sent + failed + blocked : stats.last30[value];
+  };
 
   return (
     <>
@@ -140,19 +189,33 @@ export default function OwnerSmsPage() {
         title={t('sms.title')}
         subtitle={t('sms.help')}
         action={
-          <Button variant="outline" onClick={() => setTesting(true)}>
-            <Send className="h-4 w-4" />
-            {t('sms.test')}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <ButtonLink href={'/owner/settings#customer-sms' as Route} variant="outline">
+              <PenLine aria-hidden className="h-4 w-4" />
+              {t('smsPanel.templates')}
+            </ButtonLink>
+            <Button variant="outline" onClick={() => setTesting(true)}>
+              <Send aria-hidden className="h-4 w-4" />
+              {t('sms.test')}
+            </Button>
+          </div>
         }
       />
 
-      <MasterSwitch overview={overview.data} loading={overview.isLoading} />
+      {overview.isError && !overview.data ? (
+        <div className="mb-4">
+          <ErrorState onRetry={() => overview.refetch()} isRetrying={overview.isFetching} error={overview.error} />
+        </div>
+      ) : (
+        <MasterSwitch overview={overview.data} />
+      )}
 
-      {stats && (
+      {overview.isLoading ? (
+        <StatSkeleton count={4} />
+      ) : stats ? (
         /*
-         * Two across on a phone rather than one. These are four small counts and
-         * a single column of them pushes the log, which is the reason the page
+         * Two across on a phone rather than one. These are small counts and a
+         * single column of them pushes the log, which is the reason the page
          * was opened, below two screens of scrolling.
          */
         <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -169,30 +232,68 @@ export default function OwnerSmsPage() {
             tone={stats.last30.failed > 0 ? 'danger' : 'neutral'}
             icon={stats.last30.failed > 0 ? TriangleAlert : undefined}
           />
-          <Stat
-            label={t('sms.creditsOut')}
-            value={formatNumber(stats.resellerCredits)}
-            hint={`${t('sms.pricePerCredit')} ${formatMoney(overview.data?.pricePerCredit ?? 0)}`}
-          />
+          {overview.data?.spent30d != null ? (
+            <Stat
+              label={t('smsPanel.spent30')}
+              value={formatMoney(overview.data.spent30d)}
+              icon={Wallet}
+              hint={
+                overview.data.costPerSegment != null
+                  ? tf('smsPanel.perSegment', { amount: formatMoney(overview.data.costPerSegment) })
+                  : undefined
+              }
+            />
+          ) : (
+            <Stat
+              label={t('sms.creditsOut')}
+              value={formatNumber(stats.resellerCredits)}
+              hint={`${t('sms.pricePerCredit')} ${formatMoney(overview.data?.pricePerCredit ?? 0)}`}
+            />
+          )}
         </div>
-      )}
+      ) : null}
 
-      <Card>
+      <Card id="sms-log">
         <CardHeader title={t('sms.log')} subtitle={t('sms.logHelp')} />
+
+        {filters.purpose && (
+          <div className="mb-3 flex items-center justify-between gap-2 rounded-xl bg-primary-softer px-3 py-1 text-sm text-primary-ink">
+            <span className="min-w-0 truncate font-medium">
+              {tf('smsPanel.onlyPurpose', { purpose: purposeOf(filters.purpose) })}
+            </span>
+            <button
+              type="button"
+              onClick={() => setFilters({ purpose: '' })}
+              className="tap inline-flex shrink-0 items-center gap-1 rounded-lg px-2 font-semibold hover:bg-primary-soft"
+            >
+              <X aria-hidden className="h-4 w-4" />
+              {t('app.clearFilters')}
+            </button>
+          </div>
+        )}
 
         <Toolbar>
           <Segmented<Filter>
             label={t('app.status')}
             value={status}
-            onChange={setStatus}
+            onChange={(value) => setFilters({ status: value })}
+            options={FILTERS.map((value) => ({
+              value,
+              label: value === 'all' ? t('app.all') : t(STATUS_LABEL[value]),
+              count: countOf(value),
+            }))}
+          />
+          <Segmented
+            label={t('smsPanel.window')}
+            value={recent ? '30' : 'all'}
+            onChange={(value) => setFilters({ window: value })}
             options={[
-              { value: 'all', label: t('app.all') },
-              { value: 'sent', label: t('sms.statusSent') },
-              { value: 'failed', label: t('sms.statusFailed'), count: stats?.last30.failed },
-              { value: 'blocked', label: t('sms.statusBlocked'), count: stats?.last30.blocked },
+              { value: '30', label: t('smsPanel.last30') },
+              { value: 'all', label: t('smsPanel.allTime') },
             ]}
           />
-          <SearchInput value={term} onChange={setTerm} placeholder={t('sms.search')} />
+          <ToolbarSpacer />
+          <SearchInput value={input} onChange={setInput} placeholder={t('sms.search')} />
         </Toolbar>
 
         {logs.isLoading && <ListSkeleton rows={5} />}
@@ -201,24 +302,28 @@ export default function OwnerSmsPage() {
           <ErrorState onRetry={() => logs.refetch()} isRetrying={logs.isFetching} error={logs.error} />
         )}
 
-        {logs.isSuccess && rows.length === 0 && (
-          <EmptyState
-            icon={MessageSquare}
-            title={search || status !== 'all' ? t('app.noResults') : t('sms.none')}
-            description={search || status !== 'all' ? undefined : t('sms.noneHelp')}
-          />
-        )}
+        {logs.isSuccess && rows.length === 0 &&
+          (filtered ? (
+            <FilteredEmpty
+              onClear={() => {
+                setInput('');
+                reset();
+              }}
+            />
+          ) : (
+            <EmptyState icon={MessageSquare} title={t('sms.none')} description={t('sms.noneHelp')} />
+          ))}
 
         {rows.length > 0 && (
-          <>
-            {/* Cards below `lg`. Eight columns do not belong on a phone. */}
+          <div className={cn('transition-opacity', switching && 'opacity-60')} aria-busy={switching || undefined}>
+            {/* Cards below `lg`. Six columns do not belong on a phone. */}
             <div className="grid gap-3 lg:hidden">
               {rows.map((log) => (
                 <button
                   key={log.id}
                   type="button"
                   onClick={() => setOpen(log.id)}
-                  className="card card-interactive p-4 text-left"
+                  className="card card-interactive min-w-0 p-4 text-left"
                 >
                   <div className="mb-2 flex items-start justify-between gap-2">
                     <span className="tabular text-sm font-semibold">{log.phone}</span>
@@ -226,9 +331,10 @@ export default function OwnerSmsPage() {
                       {outcomeOf(log)}
                     </Badge>
                   </div>
-                  <p className="line-clamp-2 text-sm text-muted-foreground">{log.text}</p>
+                  <p className="line-clamp-2 break-words text-sm text-muted-foreground">{log.text}</p>
                   <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                     <span>{formatDateTime(log.createdAt)}</span>
+                    <span>{purposeOf(log.purpose)}</span>
                     {log.resellerName && <span className="truncate">{log.resellerName}</span>}
                     <span className="tabular">
                       {formatNumber(log.segments)} {t('sms.segments')}
@@ -251,16 +357,31 @@ export default function OwnerSmsPage() {
               </thead>
               <tbody>
                 {rows.map((log) => (
-                  <Tr key={log.id} className="cursor-pointer" onClick={() => setOpen(log.id)}>
+                  /*
+                   * A row that opens a sheet, reachable and operable from the
+                   * keyboard like the button it behaves as.
+                   */
+                  <Tr
+                    key={log.id}
+                    className="cursor-pointer focus-visible:bg-muted focus-visible:outline-none"
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`${log.phone} · ${outcomeOf(log)}`}
+                    onClick={() => setOpen(log.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        setOpen(log.id);
+                      }
+                    }}
+                  >
                     <Td className="whitespace-nowrap text-sm text-muted-foreground">
                       {formatDateTime(log.createdAt)}
                     </Td>
                     <Td className="tabular whitespace-nowrap text-sm font-medium">{log.phone}</Td>
                     <Td className="max-w-md">
                       <span className="line-clamp-1 text-sm">{log.text}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {t(PURPOSE_LABEL[log.purpose] ?? 'sms.purposeNotification')}
-                      </span>
+                      <span className="text-xs text-muted-foreground">{purposeOf(log.purpose)}</span>
                     </Td>
                     <Td className="text-sm text-muted-foreground">{log.resellerName ?? '—'}</Td>
                     <Td className="tabular text-right text-sm">{formatNumber(log.segments)}</Td>
@@ -282,12 +403,14 @@ export default function OwnerSmsPage() {
               shown={rows.length}
               total={logTotal}
             />
-          </>
+          </div>
         )}
       </Card>
 
-      <LogDetail id={open} onClose={() => setOpen(null)} />
-      <TestSend open={testing} onClose={() => setTesting(false)} />
+      {open && (
+        <LogDetail key={open} id={open} smsEnabled={overview.data?.enabled} onClose={() => setOpen(null)} />
+      )}
+      {testing && <TestSend onClose={() => setTesting(false)} />}
     </>
   );
 }
@@ -295,28 +418,18 @@ export default function OwnerSmsPage() {
 /* ---------------------------------------------------------------- switch -- */
 
 /**
- * The master switch, saved on the tap.
+ * The master switch.
  *
- * No draft and no Save button, unlike the settings form this used to live in.
- * The reason to touch this control is nearly always that something is going
- * wrong right now, and a switch that needs a second confirming tap somewhere
- * further down the page is a switch that gets left half-thrown.
+ * Off saves on the tap, with no draft and no Save button: the reason to touch
+ * it is nearly always that something is going wrong right now. On asks first,
+ * because it starts spending resellers' credits and the gateway balance.
  */
-function MasterSwitch({ overview, loading }: { overview?: SmsOverview; loading: boolean }) {
-  const queryClient = useQueryClient();
+function MasterSwitch({ overview }: { overview?: SmsOverviewData }) {
   const toast = useToast();
+  const [toggle, toggling] = useToggleSmsMutation();
+  const [confirmingOn, setConfirmingOn] = useState(false);
 
-  const toggle = useMutation({
-    mutationFn: (enabled: boolean) => api.post('/owner/sms/toggle', { enabled }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['owner', 'sms'] });
-      // The settings page reads the same flag, so its cache is stale from here.
-      await queryClient.invalidateQueries({ queryKey: ['owner', 'settings'] });
-      toast(t('app.saved'));
-    },
-  });
-
-  if (loading || !overview) {
+  if (!overview) {
     return (
       <Card className="mb-4">
         <ListSkeleton rows={1} />
@@ -325,6 +438,15 @@ function MasterSwitch({ overview, loading }: { overview?: SmsOverview; loading: 
   }
 
   const enabled = overview.enabled;
+
+  const turnOff = async () => {
+    try {
+      await toggle({ enabled: false }).unwrap();
+      toast(t('smsPanel.turnedOff'));
+    } catch (error) {
+      toast(errorMessage(error), 'danger');
+    }
+  };
 
   return (
     <Card className="mb-4">
@@ -338,12 +460,16 @@ function MasterSwitch({ overview, loading }: { overview?: SmsOverview; loading: 
         action={
           overview.configured && overview.balance !== null ? (
             <span className="text-right">
-              <span className="tabular block text-sm font-bold">
-                {formatNumber(overview.balance)}
+              {/* A count of messages, never taka: the gateway sells messages. */}
+              <span
+                className={cn(
+                  'tabular block text-sm font-bold',
+                  overview.balanceLow && 'text-danger'
+                )}
+              >
+                {tf('smsPanel.balanceCount', { n: formatNumber(overview.balance) })}
               </span>
-              <span className="block text-[0.6875rem] text-muted-foreground">
-                {t('sms.balance')}
-              </span>
+              <span className="block text-[0.6875rem] text-muted-foreground">{t('sms.balance')}</span>
             </span>
           ) : undefined
         }
@@ -352,6 +478,12 @@ function MasterSwitch({ overview, loading }: { overview?: SmsOverview; loading: 
       {!overview.configured && (
         <Alert tone="warning" icon={CircleAlert} title={t('sms.notConfigured')}>
           {t('sms.notConfiguredHelp')}
+        </Alert>
+      )}
+
+      {overview.configured && overview.balanceLow && (
+        <Alert tone="danger" icon={TriangleAlert} title={t('smsPanel.lowBalanceTitle')}>
+          {tf('smsPanel.lowBalance', { n: formatNumber(overview.lowBalanceAt ?? 0) })}
         </Alert>
       )}
 
@@ -368,18 +500,34 @@ function MasterSwitch({ overview, loading }: { overview?: SmsOverview; loading: 
 
       <Switch
         checked={enabled}
-        disabled={toggle.isPending}
-        onChange={(next) => toggle.mutate(next)}
+        disabled={toggling.isLoading}
+        onChange={(next) => (next ? setConfirmingOn(true) : turnOff())}
         label={t('sms.master')}
         hint={enabled ? t('sms.masterOnHint') : t('sms.masterOffHint')}
       />
-
-      {toggle.error && <Alert tone="danger">{errorMessage(toggle.error)}</Alert>}
 
       {!enabled && (
         <Alert tone="warning" icon={Power} title={t('sms.offNotice')} className="mt-3">
           {t('sms.offNoticeHelp')}
         </Alert>
+      )}
+
+      {confirmingOn && (
+        <ConfirmSheet
+          title={t('smsPanel.turnOnTitle')}
+          tone="primary"
+          confirmLabel={t('smsPanel.turnOn')}
+          onClose={() => setConfirmingOn(false)}
+          onConfirm={async () => {
+            await toggle({ enabled: true }).unwrap();
+            toast(t('smsPanel.turnedOn'));
+          }}
+          consequences={[
+            t('smsPanel.turnOnSends'),
+            t('smsPanel.turnOnCost'),
+            ...(overview.configured ? [] : [t('smsPanel.turnOnNoGateway')]),
+          ]}
+        />
       )}
     </Card>
   );
@@ -405,43 +553,70 @@ function Row({ label, value }: { label: string; value?: React.ReactNode }) {
  * open it is because something did not arrive, and at that point a faithful copy
  * of the bytes is worth more than a tidy summary of them.
  */
-function LogDetail({ id, onClose }: { id: string | null; onClose: () => void }) {
-  const queryClient = useQueryClient();
+function LogDetail({
+  id,
+  smsEnabled,
+  onClose,
+}: {
+  id: string;
+  smsEnabled?: boolean;
+  onClose: () => void;
+}) {
   const toast = useToast();
-
-  const log = useQuery({
-    queryKey: ['owner', 'sms', 'log', id],
-    queryFn: () => api.get<{ log: SmsLogDetail }>(`/owner/sms/logs/${id}`),
-    enabled: Boolean(id),
-  });
-
-  const resend = useMutation({
-    mutationFn: () => api.post(`/owner/sms/logs/${id}/resend`),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['owner', 'sms'] });
-      toast(t('sms.resent'));
-      onClose();
-    },
-  });
-
+  const log = useGetSmsLogQuery({ id });
+  const [resend, resending] = useResendSmsMutation();
   const row = log.data?.log;
+
+  // A sign-in code is logged masked and a test is sent again from the test form.
+  const resendable = row ? row.resendable !== false && row.purpose !== 'otp' && row.purpose !== 'test' : false;
+  const canResend = Boolean(row) && row!.status !== 'sent' && resendable;
+
+  const doResend = async () => {
+    try {
+      const { result } = await resend({ id }).unwrap();
+      if (result.status === 'sent') toast(t('sms.resent'));
+      else toast(tf('smsPanel.resendOutcome', { outcome: outcomeOf(result) }), 'danger');
+      onClose();
+    } catch (error) {
+      toast(
+        error instanceof ApiError && error.code === 'SMS_NOT_RESENDABLE'
+          ? t('smsPanel.notResendable')
+          : errorMessage(error),
+        'danger'
+      );
+    }
+  };
+
+  /** Why a blocked message stopped, and what would let a resend through. */
+  const fix =
+    row?.status === 'blocked' && row.blockedReason && REASON_FIX[row.blockedReason]
+      ? row.blockedReason === 'feature_off' && smsEnabled
+        ? t('smsPanel.fixFeatureNowOn')
+        : t(REASON_FIX[row.blockedReason])
+      : null;
 
   return (
     <Modal
-      open={Boolean(id)}
+      open
       onClose={onClose}
       title={t('sms.detail')}
       footer={
-        row && row.status !== 'sent' ? (
-          <Button loading={resend.isPending} onClick={() => resend.mutate()} full>
+        canResend ? (
+          <Button loading={resending.isLoading} onClick={doResend} full>
             {t('sms.resend')}
           </Button>
         ) : undefined
       }
-      footerLead={row && row.status !== 'sent' ? t('sms.resendHelp') : undefined}
+      footerLead={
+        canResend ? (
+          <p className="text-xs text-muted-foreground">{t('sms.resendHelp')}</p>
+        ) : row && row.status !== 'sent' && !resendable ? (
+          <p className="text-xs text-muted-foreground">{t('smsPanel.notResendable')}</p>
+        ) : undefined
+      }
     >
       {log.isLoading && <ListSkeleton rows={4} />}
-      {log.isError && <ErrorState onRetry={() => log.refetch()} isRetrying={log.isFetching} />}
+      {log.isError && <ErrorState onRetry={() => log.refetch()} isRetrying={log.isFetching} error={log.error} />}
 
       {row && (
         <>
@@ -452,23 +627,24 @@ function LogDetail({ id, onClose }: { id: string | null; onClose: () => void }) 
             </Badge>
           </div>
 
-          <div className="mb-4 rounded-xl bg-subtle p-3 text-sm">{row.text}</div>
+          <div className="mb-4 break-words rounded-xl bg-subtle p-3 text-sm">{row.text}</div>
 
-          {row.error && (
-            <Alert tone={row.status === 'blocked' ? 'warning' : 'danger'} icon={Ban}>
-              {row.error}
+          {fix && (
+            <Alert tone="warning" icon={Ban}>
+              {fix}
             </Alert>
           )}
 
-          {resend.error && <Alert tone="danger">{errorMessage(resend.error)}</Alert>}
+          {row.error && row.status !== 'blocked' && (
+            <Alert tone="danger" icon={Ban}>
+              <span className="break-words">{row.error}</span>
+            </Alert>
+          )}
 
           <Row label={t('app.date')} value={formatDateTime(row.createdAt)} />
           <Row label={t('sms.shop')} value={row.resellerName} />
-          <Row
-            label={t('sms.purposeNotification')}
-            value={t(PURPOSE_LABEL[row.purpose] ?? 'sms.purposeNotification')}
-          />
-          <Row label={t('sms.event')} value={row.eventType} />
+          <Row label={t('smsPanel.purpose')} value={purposeOf(row.purpose)} />
+          <Row label={t('sms.event')} value={eventOf(row.eventType)} />
           <Row label={t('sms.senderId')} value={row.senderId} />
           <Row
             label={t('sms.encoding')}
@@ -500,7 +676,11 @@ function LogDetail({ id, onClose }: { id: string | null; onClose: () => void }) 
           />
           <Row
             label={t('sms.duration')}
-            value={row.durationMs === null ? undefined : <span className="tabular">{row.durationMs} ms</span>}
+            value={
+              row.durationMs === null ? undefined : (
+                <span className="tabular">{tf('smsPanel.durationMs', { n: formatNumber(row.durationMs) })}</span>
+              )
+            }
           />
 
           {row.providerRaw && (
@@ -508,7 +688,7 @@ function LogDetail({ id, onClose }: { id: string | null; onClose: () => void }) 
               <p className="mb-1.5 text-xs text-muted-foreground">{t('sms.providerReply')}</p>
               {/* Its own scroller. A gateway that answers with an HTML page would
                 * otherwise make the whole sheet scroll sideways. */}
-              <pre className="max-h-40 overflow-auto rounded-xl bg-subtle p-3 text-xs">
+              <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-xl bg-subtle p-3 text-xs">
                 {row.providerRaw}
               </pre>
             </div>
@@ -529,57 +709,58 @@ function LogDetail({ id, onClose }: { id: string | null; onClose: () => void }) 
  * work. It is charged to nobody and logged as a test, so it stays out of the
  * delivery figures.
  */
-function TestSend({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const queryClient = useQueryClient();
+function TestSend({ onClose }: { onClose: () => void }) {
   const toast = useToast();
   const [phone, setPhone] = useState('');
   const [text, setText] = useState('');
+  const [tried, setTried] = useState(false);
   const [result, setResult] = useState<SmsLogDetail | null>(null);
+  const [send, sending] = useSendTestSmsMutation();
 
-  const send = useMutation({
-    mutationFn: () => api.post<{ result: SmsLogDetail }>('/owner/sms/test', { phone, text }),
-    onSuccess: async (data) => {
+  const errors = fieldErrors(sending.error);
+  const phoneMissing = tried && !phone.trim();
+  const textMissing = tried && !text.trim();
+
+  /*
+   * What it will cost, counted the way the gateway bills: one Bengali letter
+   * makes the whole message Unicode, at 70 characters a part against 160.
+   * Shown while typing, the only moment the number can still change anything.
+   */
+  const cost = text ? measure(text) : null;
+
+  const submit = async () => {
+    setTried(true);
+    if (!phone.trim() || !text.trim()) return;
+    try {
+      const data = await send({ phone, text }).unwrap();
       setResult(data.result);
-      await queryClient.invalidateQueries({ queryKey: ['owner', 'sms'] });
-      if (data.result.status === 'sent') toast(t('sms.resent'));
-    },
-  });
-
-  const close = () => {
-    setResult(null);
-    send.reset();
-    onClose();
+      if (data.result.status === 'sent') toast(t('smsPanel.testSent'));
+      else toast(tf('smsPanel.testOutcome', { outcome: outcomeOf(data.result) }), 'danger');
+    } catch (error) {
+      if (Object.keys(fieldErrors(error)).length === 0) toast(errorMessage(error), 'danger');
+    }
   };
-
-  const errors = fieldErrors(send.error);
-
-  // Bengali caps a segment at 70 characters against 160, so the same sentence
-  // costs twice as much. Saying so while it is being typed is the only moment
-  // the number can still change anything.
-  const unicode = /[^\x00-\x7F]/.test(text);
-  const segments = text ? Math.ceil(text.length / (unicode ? 70 : 160)) : 0;
 
   return (
     <Modal
-      open={open}
-      onClose={close}
+      open
+      onClose={onClose}
       title={t('sms.test')}
       dirty={Boolean(text) && !result}
       footerLead={
-        segments > 0 ? (
-          <span className="tabular">
-            {formatNumber(segments)} {t('sms.costHint')}
-          </span>
+        cost ? (
+          <p className={cn('tabular text-xs', cost.encoding === 'UCS-2' ? 'text-warning-ink' : 'text-muted-foreground')}>
+            {tf('smsPanel.estimate', {
+              chars: formatNumber(cost.chars),
+              segments: formatNumber(cost.segments),
+              encoding: cost.encoding === 'UCS-2' ? t('smsPanel.encodingBn') : t('smsPanel.encodingEn'),
+            })}
+          </p>
         ) : undefined
       }
       footer={
-        <Button
-          loading={send.isPending}
-          disabled={!phone || !text}
-          onClick={() => send.mutate()}
-          full
-        >
-          <Send className="h-4 w-4" />
+        <Button loading={sending.isLoading} onClick={submit} full>
+          <Send aria-hidden className="h-4 w-4" />
           {t('sms.testSend')}
         </Button>
       }
@@ -588,8 +769,8 @@ function TestSend({ open, onClose }: { open: boolean; onClose: () => void }) {
         {t('sms.testWhileOff')}
       </Alert>
 
-      {send.error && !Object.keys(errors).length && (
-        <Alert tone="danger">{errorMessage(send.error)}</Alert>
+      {sending.error && !Object.keys(errors).length && (
+        <Alert tone="danger">{errorMessage(sending.error)}</Alert>
       )}
 
       {/*
@@ -603,9 +784,11 @@ function TestSend({ open, onClose }: { open: boolean; onClose: () => void }) {
           title={outcomeOf(result)}
           icon={result.status === 'sent' ? undefined : Ban}
         >
-          {result.status === 'sent'
-            ? `${t('sms.providerId')}: ${result.providerMessageId ?? '—'}`
-            : (result.error ?? '')}
+          <span className="break-words">
+            {result.status === 'sent'
+              ? `${t('sms.providerId')}: ${result.providerMessageId ?? '—'}`
+              : (result.error ?? '')}
+          </span>
         </Alert>
       )}
 
@@ -614,19 +797,34 @@ function TestSend({ open, onClose }: { open: boolean; onClose: () => void }) {
         label={t('sms.recipient')}
         value={phone}
         onChange={setPhone}
-        error={errors.phone}
+        error={errors.phone ?? (phoneMissing ? t('smsPanel.phoneRequired') : undefined)}
         autoComplete="off"
+        required
       />
 
-      <Field label={t('sms.testText')} htmlFor="testText" error={errors.text}>
+      <Field
+        label={t('sms.testText')}
+        htmlFor="testText"
+        error={errors.text ?? (textMissing ? t('smsPanel.textRequired') : undefined)}
+        hint={t('smsPanel.testTextHint')}
+        required
+      >
         <Textarea
           id="testText"
           value={text}
           maxLength={1000}
           onChange={(e) => setText(e.target.value)}
-          invalid={Boolean(errors.text)}
+          invalid={Boolean(errors.text) || textMissing}
         />
       </Field>
+
+      <Link
+        href={'/owner/settings#customer-sms' as Route}
+        className="tap inline-flex items-center gap-1.5 text-sm font-medium underline-offset-2 hover:underline"
+      >
+        <PenLine aria-hidden className="h-4 w-4" />
+        {t('smsPanel.templates')}
+      </Link>
     </Modal>
   );
 }

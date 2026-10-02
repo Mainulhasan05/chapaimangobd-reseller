@@ -8,6 +8,12 @@ const OUTBOX_STATUS = Object.freeze({
   SENT: 'sent',
   // Gave up after the maximum attempts. Reported in the owner's daily digest.
   DEAD: 'dead',
+  /*
+   * A dead letter the owner looked at and let go: the customer was rung instead,
+   * or the news is stale. Kept rather than deleted, so the record of what failed
+   * survives, and no longer counted as a fault anywhere.
+   */
+  DISMISSED: 'dismissed',
 });
 
 const CHANNEL_STATUS = Object.freeze({
@@ -80,6 +86,8 @@ const outboxMessageSchema = new mongoose.Schema(
     leaseOwner: { type: String, default: null },
     sentAt: { type: Date, default: null },
     deadAt: { type: Date, default: null },
+    dismissedAt: { type: Date, default: null },
+    dismissedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     lastError: { type: String },
   },
   { timestamps: true }

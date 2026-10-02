@@ -32,13 +32,11 @@ export const GRID = 'oklch(0.9 0.01 90)';
  * The order stages a pipeline bar paints, dark end last. Cancelled and returned
  * are deliberately absent: they are not stages on the way to delivered, and
  * mixing an outcome into a progression makes the bar mean two things at once.
+ *
+ * Delivered is absent too. The dashboard counts open orders only, so it was a
+ * stage that always read zero; what was delivered today is a separate figure
+ * beside the bar.
  */
-export const PIPELINE_STAGES = [
-  'confirmed',
-  'accepted',
-  'packed',
-  'shipped',
-  'delivered',
-] as const;
+export const PIPELINE_STAGES = ['confirmed', 'accepted', 'packed', 'shipped'] as const;
 
 export type PipelineStage = (typeof PIPELINE_STAGES)[number];

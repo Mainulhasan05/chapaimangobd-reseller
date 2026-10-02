@@ -17,11 +17,9 @@
 
 import { Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { useGetPayablesReportQuery } from '@/lib/store/endpoints/reports';
 import { t, tPayeeKind } from '@/lib/i18n/bn';
 import { formatMoney, formatNumber } from '@/lib/format';
-import type { PayablesReport } from '@/lib/types';
 import {
   Figure,
   KeyFigures,
@@ -34,6 +32,7 @@ import {
   RTd,
   RTh,
   RTotalRow,
+  SheetBody,
   useAutoPrint,
 } from '@/components/report/sheet';
 import { ErrorState } from '@/components/ui/layout';
@@ -50,14 +49,11 @@ export default function PayablesReportPage() {
 function PayablesReportView() {
   const params = useSearchParams();
 
-  const report = useQuery({
-    queryKey: ['owner', 'payables-report'],
-    queryFn: () => api.get<PayablesReport>('/owner/reports/payables'),
-  });
+  const report = useGetPayablesReportQuery();
 
-  useAutoPrint(report.isSuccess, params.get('auto') === '1');
+  useAutoPrint(report.isSuccess && !report.isFetching, params.get('auto') === '1');
 
-  if (report.isError) {
+  if (report.isError && !report.data) {
     return (
       <>
         <PrintBar back="/owner/payees" />
@@ -87,126 +83,128 @@ function PayablesReportView() {
       <PrintBar back="/owner/payees" />
 
       {/* No `range` prop: this sheet covers no period, only this moment. */}
-      <ReportSheet
-        title={t('report.payables')}
-        subtitle={t('report.payablesHint')}
-        meta={t('report.rowCount').replace('{n}', formatNumber(totals.payeeCount))}
-      >
-        <KeyFigures>
-          <Figure
-            label={t('payee.totalDue')}
-            value={formatMoney(totals.due)}
-            hint={t('payee.dueHint')}
-            tone={totals.due > 0 ? 'danger' : undefined}
-          />
-          <Figure
-            label={t('payee.totalAdvance')}
-            value={formatMoney(totals.advance)}
-            hint={t('payee.advanceHint')}
-          />
-          <Figure label={t('nav.payees')} value={formatNumber(totals.payeeCount)} />
-          <Figure label={t('payee.owingOnly')} value={formatNumber(data.payables.length)} />
-        </KeyFigures>
+      <SheetBody busy={report.isFetching}>
+        <ReportSheet
+          title={t('report.payables')}
+          subtitle={t('report.payablesHint')}
+          meta={t('report.rowCount').replace('{n}', formatNumber(totals.payeeCount))}
+        >
+          <KeyFigures>
+            <Figure
+              label={t('payee.totalDue')}
+              value={formatMoney(totals.due)}
+              hint={t('payee.dueHint')}
+              tone={totals.due > 0 ? 'danger' : undefined}
+            />
+            <Figure
+              label={t('payee.totalAdvance')}
+              value={formatMoney(totals.advance)}
+              hint={t('payee.advanceHint')}
+            />
+            <Figure label={t('nav.payees')} value={formatNumber(totals.payeeCount)} />
+            <Figure label={t('payee.owingOnly')} value={formatNumber(data.payables.length)} />
+          </KeyFigures>
 
-        <ReportSection title={t('payee.due')} hint={t('payee.dueHint')}>
-          {data.payables.length === 0 ? (
-            <ReportEmpty />
-          ) : (
-            <ReportTable
-              head={
-                <>
-                  <RTh>{t('payee.name')}</RTh>
-                  <RTh>{t('payee.kind')}</RTh>
-                  <RTh>{t('auth.phone')}</RTh>
-                  <RTh align="right">{t('payee.due')}</RTh>
-                </>
-              }
-            >
-              {data.payables.map((row) => (
-                <tr key={row.payeeId}>
-                  <RTd className="font-medium">
-                    {row.nameBn}
-                    {row.isArchived && (
-                      <span className="ml-1 text-xs text-muted-foreground">
-                        ({t('app.inactive')})
+          <ReportSection title={t('payee.due')} hint={t('payee.dueHint')}>
+            {data.payables.length === 0 ? (
+              <ReportEmpty />
+            ) : (
+              <ReportTable
+                head={
+                  <>
+                    <RTh>{t('payee.name')}</RTh>
+                    <RTh>{t('payee.kind')}</RTh>
+                    <RTh>{t('auth.phone')}</RTh>
+                    <RTh align="right">{t('payee.due')}</RTh>
+                  </>
+                }
+              >
+                {data.payables.map((row) => (
+                  <tr key={row.payeeId}>
+                    <RTd className="font-medium">
+                      {row.nameBn}
+                      {row.isArchived && (
+                        <span className="ml-1 text-xs text-muted-foreground">
+                          ({t('payee.archivedBadge')})
+                        </span>
+                      )}
+                      <span className="block text-xs font-normal text-muted-foreground">
+                        {t('report.rowCount').replace('{n}', formatNumber(row.entries))}
                       </span>
-                    )}
-                    <span className="block text-xs font-normal text-muted-foreground">
-                      {t('report.rowCount').replace('{n}', formatNumber(row.entries))}
-                    </span>
+                    </RTd>
+                    <RTd className="text-xs">{tPayeeKind(row.kind)}</RTd>
+                    <RTd className="tabular">{row.phone ?? '-'}</RTd>
+                    <RTd align="right" className="tabular font-bold text-danger">
+                      {formatMoney(row.due)}
+                    </RTd>
+                  </tr>
+                ))}
+                <RTotalRow>
+                  <RTd>{t('payee.totalDue')}</RTd>
+                  <RTd />
+                  <RTd />
+                  <RTd align="right" className="tabular">
+                    {formatMoney(totals.due)}
                   </RTd>
-                  <RTd className="text-xs">{tPayeeKind(row.kind)}</RTd>
-                  <RTd className="tabular">{row.phone ?? '-'}</RTd>
-                  <RTd align="right" className="tabular font-bold text-danger">
-                    {formatMoney(row.due)}
-                  </RTd>
-                </tr>
-              ))}
-              <RTotalRow>
-                <RTd>{t('payee.totalDue')}</RTd>
-                <RTd />
-                <RTd />
-                <RTd align="right" className="tabular">
-                  {formatMoney(totals.due)}
-                </RTd>
-              </RTotalRow>
-            </ReportTable>
-          )}
-        </ReportSection>
+                </RTotalRow>
+              </ReportTable>
+            )}
+          </ReportSection>
 
-        {/*
-         * Advances, kept whole on their own sheet where they can be: handing this
-         * page to somebody as the list of what to pay must not risk the two
-         * tables running together across a fold.
-         */}
-        <ReportSection title={t('payee.advance')} hint={t('payee.advanceHint')} breakBefore>
-          {data.advances.length === 0 ? (
-            <ReportEmpty />
-          ) : (
-            <ReportTable
-              head={
-                <>
-                  <RTh>{t('payee.name')}</RTh>
-                  <RTh>{t('payee.kind')}</RTh>
-                  <RTh>{t('auth.phone')}</RTh>
-                  <RTh align="right">{t('payee.advance')}</RTh>
-                </>
-              }
-            >
-              {data.advances.map((row) => (
-                <tr key={row.payeeId}>
-                  <RTd className="font-medium">
-                    {row.nameBn}
-                    {row.isArchived && (
-                      <span className="ml-1 text-xs text-muted-foreground">
-                        ({t('app.inactive')})
+          {/*
+           * Advances, kept whole on their own sheet where they can be: handing this
+           * page to somebody as the list of what to pay must not risk the two
+           * tables running together across a fold.
+           */}
+          <ReportSection title={t('payee.advance')} hint={t('payee.advanceHint')} breakBefore>
+            {data.advances.length === 0 ? (
+              <ReportEmpty />
+            ) : (
+              <ReportTable
+                head={
+                  <>
+                    <RTh>{t('payee.name')}</RTh>
+                    <RTh>{t('payee.kind')}</RTh>
+                    <RTh>{t('auth.phone')}</RTh>
+                    <RTh align="right">{t('payee.advance')}</RTh>
+                  </>
+                }
+              >
+                {data.advances.map((row) => (
+                  <tr key={row.payeeId}>
+                    <RTd className="font-medium">
+                      {row.nameBn}
+                      {row.isArchived && (
+                        <span className="ml-1 text-xs text-muted-foreground">
+                          ({t('payee.archivedBadge')})
+                        </span>
+                      )}
+                      <span className="block text-xs font-normal text-muted-foreground">
+                        {t('report.rowCount').replace('{n}', formatNumber(row.entries))}
                       </span>
-                    )}
-                    <span className="block text-xs font-normal text-muted-foreground">
-                      {t('report.rowCount').replace('{n}', formatNumber(row.entries))}
-                    </span>
+                    </RTd>
+                    <RTd className="text-xs">{tPayeeKind(row.kind)}</RTd>
+                    <RTd className="tabular">{row.phone ?? '-'}</RTd>
+                    <RTd align="right" className="tabular font-semibold text-success">
+                      {formatMoney(row.advance)}
+                    </RTd>
+                  </tr>
+                ))}
+                <RTotalRow>
+                  <RTd>{t('payee.totalAdvance')}</RTd>
+                  <RTd />
+                  <RTd />
+                  <RTd align="right" className="tabular">
+                    {formatMoney(totals.advance)}
                   </RTd>
-                  <RTd className="text-xs">{tPayeeKind(row.kind)}</RTd>
-                  <RTd className="tabular">{row.phone ?? '-'}</RTd>
-                  <RTd align="right" className="tabular font-semibold text-success">
-                    {formatMoney(row.advance)}
-                  </RTd>
-                </tr>
-              ))}
-              <RTotalRow>
-                <RTd>{t('payee.totalAdvance')}</RTd>
-                <RTd />
-                <RTd />
-                <RTd align="right" className="tabular">
-                  {formatMoney(totals.advance)}
-                </RTd>
-              </RTotalRow>
-            </ReportTable>
-          )}
-        </ReportSection>
+                </RTotalRow>
+              </ReportTable>
+            )}
+          </ReportSection>
 
-        <ReportFooter signatures />
-      </ReportSheet>
+          <ReportFooter signatures />
+        </ReportSheet>
+      </SheetBody>
     </>
   );
 }

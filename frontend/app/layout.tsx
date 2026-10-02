@@ -43,6 +43,13 @@ export const viewport: Viewport = {
    * disabling it is an accessibility failure, not a polish detail.
    */
   viewportFit: 'cover',
+  /*
+   * Android Chrome's default only shrinks the visual viewport when the keyboard
+   * opens, so a sheet's pinned footer, the Save or Ship button, sat under the
+   * keyboard while a field was being typed in. Resizing the layout viewport
+   * keeps the footer above it.
+   */
+  interactiveWidget: 'resizes-content',
   themeColor: '#e0a34a',
 };
 

@@ -1,7 +1,9 @@
 'use client';
 
+import { useEffect, useRef, useState } from 'react';
 import { Search, X } from 'lucide-react';
 import { t } from '@/lib/i18n/bn';
+import { formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
 /**
@@ -20,6 +22,49 @@ export function Toolbar({ children, className }: { children: React.ReactNode; cl
 /** Pushes everything after it to the right edge, on wide viewports only. */
 export function ToolbarSpacer() {
   return <div className="hidden flex-1 sm:block" />;
+}
+
+/**
+ * Marks a sideways-scrolling strip whose far edge is hidden, so CSS can fade
+ * that edge.
+ *
+ * A row of seven filter chips on a 360px phone showed four and gave no hint the
+ * other three existed: the scrollbar is hidden on purpose and nothing else said
+ * "there is more". The fade appears only while there is more to see in that
+ * direction, so a strip that fits looks exactly as it did.
+ */
+export function useScrollFade<E extends HTMLElement>() {
+  const ref = useRef<E>(null);
+  const [edges, setEdges] = useState({ start: false, end: false });
+
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return undefined;
+    const measure = () => {
+      const max = element.scrollWidth - element.clientWidth;
+      const start = element.scrollLeft > 2;
+      const end = max - element.scrollLeft > 2;
+      setEdges((current) =>
+        current.start === start && current.end === end ? current : { start, end }
+      );
+    };
+    measure();
+    element.addEventListener('scroll', measure, { passive: true });
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => {
+      element.removeEventListener('scroll', measure);
+      observer.disconnect();
+    };
+  }, []);
+
+  return {
+    ref,
+    fadeProps: {
+      'data-fade-start': edges.start || undefined,
+      'data-fade-end': edges.end || undefined,
+    },
+  };
 }
 
 export type SegmentOption<T extends string> = {
@@ -51,6 +96,8 @@ export function Segmented<T extends string>({
   label: string;
   className?: string;
 }) {
+  const { ref, fadeProps } = useScrollFade<HTMLDivElement>();
+
   const move = (event: React.KeyboardEvent, index: number) => {
     const keys = ['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp'];
     if (!keys.includes(event.key)) return;
@@ -62,10 +109,12 @@ export function Segmented<T extends string>({
 
   return (
     <div
+      ref={ref}
+      {...fadeProps}
       role="radiogroup"
       aria-label={label}
       className={cn(
-        'scroll-x-bare flex max-w-full items-center gap-1 rounded-xl bg-muted p-1',
+        'scroll-x-bare scroll-fade flex max-w-full items-center gap-1 rounded-xl bg-muted p-1',
         className
       )}
     >
@@ -81,7 +130,8 @@ export function Segmented<T extends string>({
             onKeyDown={(event) => move(event, index)}
             onClick={() => onChange(option.value)}
             className={cn(
-              'flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
+              // 44px tall on a phone, where these are tapped; compact from `sm`.
+              'flex min-h-11 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-colors sm:min-h-0',
               active
                 ? 'bg-surface text-foreground elev-1'
                 : 'text-muted-foreground hover:text-foreground'
@@ -95,7 +145,7 @@ export function Segmented<T extends string>({
                   active ? 'bg-primary-soft text-primary-ink' : 'bg-subtle text-muted-foreground'
                 )}
               >
-                {option.count}
+                {formatNumber(option.count)}
               </span>
             ) : null}
           </button>
@@ -141,7 +191,7 @@ export function SearchInput({
           type="button"
           onClick={() => onChange('')}
           aria-label={t('app.clear')}
-          className="absolute right-1 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+          className="absolute right-0 top-1/2 flex h-11 w-11 -translate-y-1/2 sm:h-9 sm:w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
         >
           <X className="h-4 w-4" />
         </button>

@@ -154,6 +154,23 @@ function assertCustomerEditable(order) {
 }
 
 /**
+ * The courier and the tracking number can be corrected while the parcel is with
+ * the courier, and only then. A typo in a tracking number is found when the
+ * customer rings asking where their parcel is, which is after it has shipped;
+ * once it is delivered or back, nobody will look the number up again.
+ */
+const COURIER_EDITABLE = Object.freeze([S.SHIPPED]);
+
+function assertCourierEditable(order) {
+  if (!COURIER_EDITABLE.includes(order.status)) {
+    throw conflict(
+      'COURIER_LOCKED',
+      `The courier can only be changed while an order is shipped, and this one is ${order.status}`
+    );
+  }
+}
+
+/**
  * Things that are not transitions but still depend on status and role. They
  * travel in the same `actions` list as the transitions so an interface asks one
  * question, "is this in actions", instead of keeping its own copy of the
@@ -162,6 +179,7 @@ function assertCustomerEditable(order) {
 const CAPABILITIES = Object.freeze({
   changeDeliveryCharge: { [ROLES.OWNER]: DELIVERY_CHARGE_EDITABLE },
   editCustomer: { [ROLES.OWNER]: CUSTOMER_EDITABLE, [ROLES.RESELLER]: CUSTOMER_EDITABLE },
+  editCourier: { [ROLES.OWNER]: COURIER_EDITABLE },
 });
 
 /**
@@ -222,6 +240,8 @@ module.exports = {
   assertDeliveryChargeEditable,
   CUSTOMER_EDITABLE,
   assertCustomerEditable,
+  COURIER_EDITABLE,
+  assertCourierEditable,
   CAPABILITIES,
   SYSTEM_CANCELLABLE,
   getTransition,

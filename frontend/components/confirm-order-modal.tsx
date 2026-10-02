@@ -1,17 +1,23 @@
 'use client';
 
-import { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { api, ApiError, fieldErrors } from '@/lib/api';
-import { t, tUnit } from '@/lib/i18n/bn';
+import { useRef, useState } from 'react';
+import { ApiError, fieldErrors } from '@/lib/api';
+import { t } from '@/lib/i18n/bn';
 import { districtLabel } from '@/lib/districts';
 import { formatMoney, formatMoneyPlain } from '@/lib/format';
+import { useConfirmResellerOrderMutation } from '@/lib/store/endpoints/reseller';
 import type { Order, PaymentMode } from '@/lib/types';
-import { primeOrder } from '@/components/order-page';
-import { Modal } from '@/components/ui/modal';
+import { Modal, ModalCancel } from '@/components/ui/modal';
 import { useToast } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
-import { Field, MoneyInput, Input, Select } from '@/components/ui/form';
+import {
+  Field,
+  FormErrorSummary,
+  Input,
+  MoneyInput,
+  Select,
+  focusFirstInvalid,
+} from '@/components/ui/form';
 import { Alert } from '@/components/ui/layout';
 
 /** One line being corrected: which box, how many, and at what price. */
@@ -32,9 +38,35 @@ export function ConfirmOrderModal({ order, onClose }: { order: Order | null; onC
   return <ConfirmForm key={order.id} order={order} onClose={onClose} />;
 }
 
+/**
+ * What is wrong with one line, before the server is asked.
+ *
+ * A count of boxes is a whole number of at least one (the field used to step
+ * by a quarter and was labelled in kilos); a price below the cost price is
+ * refused by the server anyway, so it is said here, next to the price.
+ */
+function lineErrors(draft: Draft, costPrice: number): { quantity?: string; sellPrice?: string } {
+  const quantity = Number(draft.quantity);
+  const price = Number(draft.sellPrice);
+  return {
+    quantity:
+      draft.quantity.trim() === '' || !Number.isInteger(quantity) || quantity < 1
+        ? t('orders.boxesWhole')
+        : undefined,
+    sellPrice:
+      draft.sellPrice.trim() === '' || !Number.isFinite(price)
+        ? t('orders.priceRequired')
+        : price < costPrice
+          ? t('catalog.priceFloorHelp')
+          : undefined,
+  };
+}
+
 function ConfirmForm({ order, onClose }: { order: Order; onClose: () => void }) {
-  const queryClient = useQueryClient();
   const toast = useToast();
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const [confirm, confirmState] = useConfirmResellerOrderMutation();
+  const [tried, setTried] = useState(false);
 
   const [drafts, setDrafts] = useState<Draft[]>(() =>
     order.items.map((item) => ({
@@ -49,34 +81,21 @@ function ConfirmForm({ order, onClose }: { order: Order; onClose: () => void }) 
   );
   const [paymentMode, setPaymentMode] = useState<PaymentMode>(order.paymentMode);
 
-  const confirm = useMutation({
-    mutationFn: () =>
-      api.post<{ order: Order }>(`/reseller/orders/${order.id}/confirm`, {
-        paymentMode,
-        items: drafts.map((d) => ({
-          product: d.product,
-          variant: d.variant,
-          quantity: Number(d.quantity),
-          sellPrice: Number(d.sellPrice),
-        })),
-      }),
-    onSuccess: async (data) => {
-      primeOrder(queryClient, 'reseller', data.order);
-      await queryClient.invalidateQueries({ queryKey: ['orders'] });
-      await queryClient.invalidateQueries({ queryKey: ['wallet'] });
-      onClose();
-      // The sheet closing is not, by itself, a confirmation that money moved.
-      toast(t('order.confirmedToast'));
-    },
-  });
-
-  const errors = fieldErrors(confirm.error);
+  const serverErrors = fieldErrors(confirmState.error);
   const generalError =
-    confirm.error instanceof ApiError && !confirm.error.fields ? confirm.error.message : null;
+    confirmState.error instanceof ApiError && !confirmState.error.fields
+      ? confirmState.error.message
+      : null;
 
-  // Cost prices are snapshots on the order, so this preview matches the server.
+  const checks = order.items.map((item, index) => lineErrors(drafts[index], item.costPrice));
+  const problemCount = checks.reduce(
+    (sum, check) => sum + (check.quantity ? 1 : 0) + (check.sellPrice ? 1 : 0),
+    0
+  );
+
+  // Cost prices are snapshots on the order, per box, so this preview matches the server.
   const costSubtotal = order.items.reduce((sum, item, index) => {
-    const boxes = Number(drafts[index]?.quantity ?? item.boxes ?? item.quantity) || 0;
+    const boxes = Number(drafts[index]?.quantity) || 0;
     return sum + item.costPrice * boxes;
   }, 0);
 
@@ -91,11 +110,36 @@ function ConfirmForm({ order, onClose }: { order: Order; onClose: () => void }) 
   const update = (index: number, key: keyof Draft, value: string) =>
     setDrafts((prev) => prev.map((d, i) => (i === index ? { ...d, [key]: value } : d)));
 
+  const submit = async () => {
+    setTried(true);
+    if (problemCount > 0) {
+      requestAnimationFrame(() => focusFirstInvalid(bodyRef.current));
+      return;
+    }
+    try {
+      await confirm({
+        id: order.id,
+        paymentMode,
+        items: drafts.map((d) => ({
+          product: d.product,
+          variant: d.variant,
+          quantity: Number(d.quantity),
+          sellPrice: Number(d.sellPrice),
+        })),
+      }).unwrap();
+      onClose();
+      // The sheet closing is not, by itself, a confirmation that money moved.
+      toast(`${order.orderCode} · ${t('order.confirmedToast')}`);
+    } catch {
+      // Shown in the sheet, beside the field or above the buttons.
+    }
+  };
+
   return (
     <Modal
       open
       wide
-      onClose={onClose}
+      onClose={confirmState.isLoading ? () => {} : onClose}
       title={`${t('order.confirmOrder')} · ${order.orderCode}`}
       /*
        * This is the moment money moves, so the numbers behind the decision are
@@ -103,99 +147,126 @@ function ConfirmForm({ order, onClose }: { order: Order; onClose: () => void }) 
        * phone the wallet debit was previously never on screen with Confirm.
        */
       footerLead={
-        <dl className="space-y-1 rounded-lg bg-muted p-3 text-sm">
-          <Row label={t('order.customerTotal')} value={formatMoney(customerTotal)} strong />
-          <Row label={t('order.walletDebit')} value={formatMoney(walletDebit)} tone="danger" />
-          <Row label={t('order.yourProfit')} value={formatMoney(profit)} tone="success" strong />
-        </dl>
+        <>
+          {tried && problemCount > 0 && <FormErrorSummary message={t('app.fixFields')} />}
+          <dl className="space-y-1 rounded-lg bg-muted p-3 text-sm">
+            <Row label={t('order.customerTotal')} value={formatMoney(customerTotal)} strong />
+            <Row label={t('order.walletDebit')} value={formatMoney(walletDebit)} tone="danger" />
+            <Row
+              label={t('order.yourProfit')}
+              value={formatMoney(profit)}
+              tone={profit < 0 ? 'danger' : 'success'}
+              strong
+            />
+          </dl>
+        </>
       }
       footer={
         <>
-          <Button variant="outline" onClick={onClose}>
-            {t('app.cancel')}
-          </Button>
-          <Button onClick={() => confirm.mutate()} loading={confirm.isPending}>
+          <ModalCancel disabled={confirmState.isLoading} />
+          <Button onClick={submit} loading={confirmState.isLoading}>
             {t('app.confirm')}
           </Button>
         </>
       }
     >
-      {generalError && <Alert tone="danger">{generalError}</Alert>}
+      <div ref={bodyRef}>
+        {generalError && <Alert tone="danger">{generalError}</Alert>}
+        {/* A loss is allowed only if somebody means it; it should never be a typo. */}
+        {profit < 0 && <Alert tone="warning">{t('orders.negativeProfit')}</Alert>}
 
-      <div className="mb-4 rounded-lg bg-muted p-3 text-sm">
-        <p className="font-medium">{order.customer.name}</p>
-        <p className="tabular text-muted-foreground">{order.customer.phoneE164}</p>
-        <p className="text-muted-foreground">
-          {order.customer.address}, {districtLabel(order.customer.district)}
-        </p>
-        {order.customer.note && <p className="mt-1 text-muted-foreground">{order.customer.note}</p>}
+        <div className="mb-4 rounded-lg bg-muted p-3 text-sm">
+          <p className="font-medium">{order.customer.name}</p>
+          <p className="tabular text-muted-foreground">{order.customer.phoneE164}</p>
+          <p className="text-muted-foreground">
+            {order.customer.address}, {districtLabel(order.customer.district)}
+          </p>
+          {order.customer.note && <p className="mt-1 text-muted-foreground">{order.customer.note}</p>}
+        </div>
+
+        <Field label={t('order.paymentMode')} htmlFor="paymentMode">
+          <Select
+            id="paymentMode"
+            value={paymentMode}
+            onChange={(e) => setPaymentMode(e.target.value as PaymentMode)}
+          >
+            <option value="prepaid">{t('order.prepaid')}</option>
+            <option value="cod">{t('order.cod')}</option>
+          </Select>
+        </Field>
+
+        <div className="mb-4 flex justify-between rounded-lg bg-muted p-3 text-sm">
+          <span className="text-muted-foreground">{t('order.deliveryCharge')}</span>
+          <span className="tabular">{formatMoney(order.deliveryCharge)}</span>
+        </div>
+
+        <div className="mb-4 space-y-3">
+          {order.items.map((item, index) => {
+            const check = checks[index];
+            const quantityError =
+              serverErrors[`items.${index}.quantity`] ?? (tried ? check.quantity : undefined);
+            const priceError =
+              serverErrors[`items.${index}.sellPrice`] ??
+              (tried || drafts[index].sellPrice !== formatMoneyPlain(item.sellPrice)
+                ? check.sellPrice
+                : undefined);
+            return (
+              <div key={item.id} className="rounded-lg border border-border p-3">
+                <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-2">
+                  <p className="font-medium">
+                    {item.productName}
+                    {item.variantLabel && (
+                      <span className="font-normal text-muted-foreground"> · {item.variantLabel}</span>
+                    )}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {t('catalog.costPrice')} {formatMoney(item.costPrice)} / {t('orders.box')}
+                  </p>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field
+                    label={t('order.boxes')}
+                    htmlFor={`qty-${index}`}
+                    hint={item.variantLabel ?? undefined}
+                    error={quantityError}
+                    className="mb-0"
+                  >
+                    <Input
+                      id={`qty-${index}`}
+                      type="number"
+                      inputMode="numeric"
+                      step="1"
+                      min="1"
+                      className="tabular"
+                      invalid={Boolean(quantityError)}
+                      value={drafts[index]?.quantity ?? ''}
+                      onChange={(e) => update(index, 'quantity', e.target.value)}
+                    />
+                  </Field>
+
+                  <Field
+                    label={`${t('catalog.sellPrice')} / ${t('orders.box')}`}
+                    htmlFor={`price-${index}`}
+                    hint={t('catalog.priceFloorHelp')}
+                    error={priceError}
+                    className="mb-0"
+                  >
+                    <MoneyInput
+                      id={`price-${index}`}
+                      invalid={Boolean(priceError)}
+                      value={drafts[index]?.sellPrice ?? ''}
+                      onChange={(e) => update(index, 'sellPrice', e.target.value)}
+                    />
+                  </Field>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <p className="text-xs text-muted-foreground">{t('order.confirmHelp')}</p>
       </div>
-
-      <Field label={t('order.paymentMode')} htmlFor="paymentMode">
-        <Select
-          id="paymentMode"
-          value={paymentMode}
-          onChange={(e) => setPaymentMode(e.target.value as PaymentMode)}
-        >
-          <option value="prepaid">{t('order.prepaid')}</option>
-          <option value="cod">{t('order.cod')}</option>
-        </Select>
-      </Field>
-
-      <div className="mb-4 flex justify-between rounded-lg bg-muted p-3 text-sm">
-        <span className="text-muted-foreground">{t('order.deliveryCharge')}</span>
-        <span className="tabular">{formatMoney(order.deliveryCharge)}</span>
-      </div>
-
-      <div className="mb-4 space-y-3">
-        {order.items.map((item, index) => (
-          <div key={item.id} className="rounded-lg border border-border p-3">
-            <div className="mb-2 flex items-baseline justify-between gap-2">
-              <p className="font-medium">{item.productName}</p>
-              <p className="text-xs text-muted-foreground">
-                {t('catalog.costPrice')} {formatMoney(item.costPrice)} / {tUnit(item.unit)}
-              </p>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Field
-                label={`${t('order.quantity')} (${tUnit(item.unit)})`}
-                htmlFor={`qty-${index}`}
-                hint={item.variantLabel ?? undefined}
-                error={errors[`items.${index}.quantity`]}
-                className="mb-0"
-              >
-                <Input
-                  id={`qty-${index}`}
-                  type="number"
-                  inputMode="decimal"
-                  step="0.25"
-                  min="0"
-                  className="tabular"
-                  value={drafts[index]?.quantity ?? ''}
-                  onChange={(e) => update(index, 'quantity', e.target.value)}
-                />
-              </Field>
-
-              <Field
-                label={t('catalog.sellPrice')}
-                htmlFor={`price-${index}`}
-                hint={t('catalog.priceFloorHelp')}
-                error={errors[`items.${index}.sellPrice`]}
-                className="mb-0"
-              >
-                <MoneyInput
-                  id={`price-${index}`}
-                  value={drafts[index]?.sellPrice ?? ''}
-                  onChange={(e) => update(index, 'sellPrice', e.target.value)}
-                />
-              </Field>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <p className="text-xs text-muted-foreground">{t('order.confirmHelp')}</p>
     </Modal>
   );
 }

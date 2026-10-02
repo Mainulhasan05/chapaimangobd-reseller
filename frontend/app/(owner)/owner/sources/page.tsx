@@ -1,48 +1,67 @@
 'use client';
 
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import type { Route } from 'next';
-
-import { useState } from 'react';
-import { Plus, Store } from 'lucide-react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, errorMessage, fieldErrors } from '@/lib/api';
+import { Archive, ArchiveRestore, ClipboardList, Pencil, Plus, Store } from 'lucide-react';
 import { t } from '@/lib/i18n/bn';
+import { cn } from '@/lib/utils';
+import { useUrlSearch, useUrlState } from '@/lib/use-url-state';
 import type { Source } from '@/lib/types';
+import { useGetSourcesQuery } from '@/lib/store/endpoints/catalog';
 import {
-  Alert,
-  Card,
   EmptyState,
   ErrorState,
+  FilteredEmpty,
   PageHeader,
+  PhoneLink,
+  RowMenu,
   TableWrap,
   Td,
   Th,
   Tr,
 } from '@/components/ui/layout';
-import { Button, Spinner } from '@/components/ui/button';
+import { Button, ButtonLink } from '@/components/ui/button';
+import { ListSkeleton } from '@/components/ui/skeleton';
+import { SearchInput, Segmented, Toolbar, ToolbarSpacer } from '@/components/ui/toolbar';
 import { DownloadMenu } from '@/components/report/download-menu';
-import { Field, Input, Textarea } from '@/components/ui/form';
-import { PhoneField } from '@/components/ui/phone-field';
-import { Modal } from '@/components/ui/modal';
+import { ArchiveSourceSheet, SourceSheet, useSourceArchive } from './source-sheet';
 
-type Draft = { name: string; address: string; phone: string; note: string };
-const blank: Draft = { name: '', address: '', phone: '', note: '' };
-
+/**
+ * Sources: the orchards and wholesalers the mangoes are collected from.
+ *
+ * A source is picked per order line when the owner accepts an order, and its
+ * page is where a complaint about one parcel becomes a decision about the
+ * orchard. Archived, never deleted, because old orders still name it.
+ */
 export default function OwnerSourcesPage() {
-  const queryClient = useQueryClient();
+  const [filters, setFilters] = useUrlState({ view: 'live' });
+  const search = useUrlSearch();
+  const archivedView = filters.view === 'archived';
+
+  // No argument for the live list: the same cache entry the accept sheet reads.
+  const sources = useGetSourcesQuery(archivedView ? { archived: 'only' } : undefined);
+  const { archive, restore, restoringId } = useSourceArchive();
+
   const [editing, setEditing] = useState<Source | null>(null);
   const [creating, setCreating] = useState(false);
+  const [archiving, setArchiving] = useState<Source | null>(null);
 
-  const sources = useQuery({
-    queryKey: ['owner', 'sources'],
-    queryFn: () => api.get<{ sources: Source[] }>('/owner/sources'),
-  });
+  const all = useMemo(() => sources.data?.sources ?? [], [sources.data]);
+  const needle = search.term.trim().toLowerCase();
+  const rows = useMemo(
+    () =>
+      needle
+        ? all.filter((source) =>
+            [source.name, source.address ?? '', source.phoneE164 ?? ''].some((field) =>
+              field.toLowerCase().includes(needle)
+            )
+          )
+        : all,
+    [all, needle]
+  );
 
-  const archive = useMutation({
-    mutationFn: (id: string) => api.del(`/owner/sources/${id}`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['owner', 'sources'] }),
-  });
+  const href = (source: Source) => `/owner/sources/${source._id}` as Route;
 
   return (
     <>
@@ -55,87 +74,173 @@ export default function OwnerSourcesPage() {
             <DownloadMenu range={null} only={['sources']} />
             <Button onClick={() => setCreating(true)}>
               <Plus className="h-4 w-4" />
-              {t('nav.sources')}
+              {t('sources.new')}
             </Button>
           </div>
         }
       />
 
-      {sources.isLoading && (
-        <Card className="flex justify-center py-10">
-          <Spinner />
-        </Card>
+      <Toolbar>
+        <Segmented
+          label={t('sources.filterLabel')}
+          value={archivedView ? 'archived' : 'live'}
+          onChange={(view) => setFilters({ view })}
+          options={[
+            { value: 'live', label: t('sources.viewLive') },
+            { value: 'archived', label: t('app.archived') },
+          ]}
+        />
+        <ToolbarSpacer />
+        <SearchInput
+          value={search.input}
+          onChange={search.setInput}
+          placeholder={t('sources.searchPlaceholder')}
+          className="basis-full sm:basis-auto"
+        />
+      </Toolbar>
+
+      {sources.isLoading && <ListSkeleton rows={3} />}
+
+      {sources.isError && !sources.data && (
+        <ErrorState onRetry={() => sources.refetch()} isRetrying={sources.isFetching} error={sources.error} />
       )}
 
-      {sources.isError && (
-        <ErrorState
-          onRetry={() => sources.refetch()}
-          isRetrying={sources.isFetching}
-          error={sources.error}
+      {sources.data && all.length === 0 && !archivedView && (
+        <EmptyState
+          icon={Store}
+          title={t('sources.emptyTitle')}
+          description={t('sources.emptyHelp')}
+          action={
+            <Button onClick={() => setCreating(true)}>
+              <Plus className="h-4 w-4" />
+              {t('sources.new')}
+            </Button>
+          }
         />
       )}
 
-      {sources.data?.sources.length === 0 && (
-        <EmptyState icon={Store} title={t('app.none')} />
+      {sources.data && all.length === 0 && archivedView && (
+        <EmptyState icon={Archive} title={t('sources.archivedEmpty')} />
       )}
 
-      {sources.data && sources.data.sources.length > 0 && (
-        <TableWrap alwaysVisible>
-          <thead>
-            <tr>
-              <Th>{t('nav.sources')}</Th>
-              <Th>{t('order.address')}</Th>
-              <Th>{t('auth.phone')}</Th>
-              <Th className="text-right">{t('app.actions')}</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {sources.data.sources.map((source) => (
-              <Tr key={source._id}>
+      {all.length > 0 && rows.length === 0 && <FilteredEmpty onClear={() => search.setInput('')} />}
+
+      {rows.length > 0 && (
+        <div className={cn('transition-opacity', sources.isFetching && 'opacity-60')}>
+          <ul className="space-y-3 sm:hidden">
+            {rows.map((source) => (
+              <li key={source._id} className="card p-4">
                 {/*
                  * The name is the way in to the orchard's record. That page is
-                 * where a complaint about one parcel turns into a decision
-                 * about everything else that came from the same place.
+                 * where a complaint about one parcel turns into a decision about
+                 * everything else that came from the same place.
                  */}
-                <Td className="font-medium">
-                  <Link
-                    href={`/owner/sources/${source._id}` as Route}
-                    className="rounded-md text-primary-ink hover:underline"
-                  >
-                    {source.name}
-                  </Link>
-                </Td>
-                <Td className="text-sm text-muted-foreground">{source.address ?? '—'}</Td>
-                <Td className="tabular text-sm">{source.phoneE164 ?? '—'}</Td>
-                <Td className="text-right">
-                  <div className="flex justify-end gap-2">
-                    <Link href={`/owner/sources/${source._id}` as Route}>
-                      <Button size="sm" variant="outline">
-                        {t('source.record')}
-                      </Button>
-                    </Link>
-                    <Button size="sm" variant="outline" onClick={() => setEditing(source)}>
-                      {t('app.edit')}
-                    </Button>
-                    {/* Archived, never deleted: shipped orders still reference it. */}
+                <Link href={href(source)} className="block min-h-11">
+                  <span className="block break-words font-semibold text-primary-ink">{source.name}</span>
+                  {source.address && (
+                    <span className="mt-0.5 block text-sm text-muted-foreground">{source.address}</span>
+                  )}
+                </Link>
+                {source.phoneE164 && <PhoneLink phone={source.phoneE164} className="text-sm" />}
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  {archivedView ? (
                     <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => archive.mutate(source._id)}
-                      loading={archive.isPending && archive.variables === source._id}
+                      variant="outline"
+                      className="col-span-2"
+                      loading={restoringId === source._id}
+                      onClick={() => void restore(source)}
                     >
-                      {t('app.close')}
+                      <ArchiveRestore className="h-4 w-4" />
+                      {t('app.restore')}
                     </Button>
-                  </div>
-                </Td>
-              </Tr>
+                  ) : (
+                    <>
+                      <ButtonLink href={href(source)} variant="outline">
+                        <ClipboardList className="h-4 w-4" />
+                        {t('source.record')}
+                      </ButtonLink>
+                      <Button variant="outline" onClick={() => setEditing(source)}>
+                        <Pencil className="h-4 w-4" />
+                        {t('app.edit')}
+                      </Button>
+                      <Button
+                        variant="quiet"
+                        className="col-span-2 text-danger"
+                        onClick={() => setArchiving(source)}
+                      >
+                        <Archive className="h-4 w-4" />
+                        {t('app.archive')}
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </li>
             ))}
-          </tbody>
-        </TableWrap>
+          </ul>
+
+          <TableWrap>
+            <thead>
+              <tr>
+                <Th>{t('nav.sources')}</Th>
+                <Th>{t('order.address')}</Th>
+                <Th>{t('auth.phone')}</Th>
+                <Th className="text-right">{t('app.actions')}</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((source) => (
+                <Tr key={source._id}>
+                  <Td className="font-medium">
+                    <Link href={href(source)} className="rounded-md text-primary-ink hover:underline">
+                      {source.name}
+                    </Link>
+                  </Td>
+                  <Td className="text-sm text-muted-foreground">{source.address || '—'}</Td>
+                  <Td className="text-sm">
+                    {source.phoneE164 ? <PhoneLink phone={source.phoneE164} showIcon={false} /> : '—'}
+                  </Td>
+                  <Td className="text-right">
+                    {archivedView ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        loading={restoringId === source._id}
+                        onClick={() => void restore(source)}
+                      >
+                        {t('app.restore')}
+                      </Button>
+                    ) : (
+                      <div className="inline-flex items-center gap-1">
+                        <ButtonLink href={href(source)} size="sm" variant="outline">
+                          {t('source.record')}
+                        </ButtonLink>
+                        <Button size="sm" variant="outline" onClick={() => setEditing(source)}>
+                          {t('app.edit')}
+                        </Button>
+                        <RowMenu
+                          label={source.name}
+                          items={[
+                            {
+                              label: t('app.archive'),
+                              icon: Archive,
+                              tone: 'danger',
+                              onSelect: () => setArchiving(source),
+                            },
+                          ]}
+                        />
+                      </div>
+                    )}
+                  </Td>
+                </Tr>
+              ))}
+            </tbody>
+          </TableWrap>
+        </div>
       )}
 
       {(creating || editing) && (
-        <SourceModal
+        <SourceSheet
+          key={editing?._id ?? 'new'}
           source={editing}
           onClose={() => {
             setCreating(false);
@@ -143,84 +248,10 @@ export default function OwnerSourcesPage() {
           }}
         />
       )}
-    </>
-  );
-}
 
-function SourceModal({ source, onClose }: { source: Source | null; onClose: () => void }) {
-  const queryClient = useQueryClient();
-  const [draft, setDraft] = useState<Draft>(
-    source
-      ? {
-          name: source.name,
-          address: source.address ?? '',
-          phone: source.phoneE164 ?? '',
-          note: source.note ?? '',
-        }
-      : blank
-  );
-
-  const save = useMutation({
-    mutationFn: () => {
-      const body = {
-        name: draft.name,
-        ...(draft.address ? { address: draft.address } : {}),
-        ...(draft.phone ? { phone: draft.phone } : {}),
-        ...(draft.note ? { note: draft.note } : {}),
-      };
-      return source ? api.patch(`/owner/sources/${source._id}`, body) : api.post('/owner/sources', body);
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['owner', 'sources'] });
-      onClose();
-    },
-  });
-
-  const errors = fieldErrors(save.error);
-  const set = (key: keyof Draft) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
-    setDraft((prev) => ({ ...prev, [key]: e.target.value }));
-
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      title={source ? source.name : t('nav.sources')}
-      footer={
-        <>
-          <Button variant="outline" onClick={onClose}>
-            {t('app.cancel')}
-          </Button>
-          <Button loading={save.isPending} onClick={() => save.mutate()}>
-            {t('app.save')}
-          </Button>
-        </>
-      }
-    >
-      {save.error && !Object.keys(errors).length && (
-        <Alert tone="danger">{errorMessage(save.error)}</Alert>
+      {archiving && (
+        <ArchiveSourceSheet source={archiving} onClose={() => setArchiving(null)} onConfirm={archive} />
       )}
-
-      <Field label={t('nav.sources')} htmlFor="name" error={errors.name} required>
-        <Input id="name" value={draft.name} onChange={set('name')} autoFocus />
-      </Field>
-
-      <Field label={t('order.address')} htmlFor="address" error={errors.address}>
-        <Textarea id="address" rows={2} value={draft.address} onChange={set('address')} />
-      </Field>
-
-      <PhoneField
-        id="phone"
-        label={t('auth.phone')}
-        hint={t('app.optional')}
-        value={draft.phone}
-        onChange={(phone) => setDraft((prev) => ({ ...prev, phone }))}
-        error={errors.phone}
-        autoComplete="off"
-      />
-
-      <Field label={t('app.notes')} htmlFor="note">
-        <Textarea id="note" rows={2} value={draft.note} onChange={set('note')} />
-      </Field>
-    </Modal>
+    </>
   );
 }

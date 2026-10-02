@@ -1,27 +1,36 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import Link from 'next/link';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Boxes, Plus, ShoppingCart, TriangleAlert } from 'lucide-react';
-import { api, errorMessage, fieldErrors } from '@/lib/api';
-import { t, tUnit } from '@/lib/i18n/bn';
-import { formatMoney, formatMoneyPlain, formatNumber } from '@/lib/format';
-import { useDebounced } from '@/lib/use-debounced';
+import type { Route } from 'next';
+import { Archive, ArchiveRestore, Boxes, Plus, ShoppingCart, TriangleAlert } from 'lucide-react';
+import { errorMessage, fieldErrors } from '@/lib/api';
+import { t, tf, tUnit } from '@/lib/i18n/bn';
+import { formatMoney, formatNumber } from '@/lib/format';
+import { cn } from '@/lib/utils';
+import { useUrlSearch, useUrlState } from '@/lib/use-url-state';
 import type { Supply } from '@/lib/types';
+import {
+  useCreateSupplyMutation,
+  useGetSuppliesQuery,
+  useGetSupplyQuery,
+  useSetSupplyArchivedMutation,
+  useUpdateSupplyMutation,
+} from '@/lib/store/endpoints/catalog';
 import {
   Alert,
   Badge,
-  Card,
   EmptyState,
   ErrorState,
+  FilteredEmpty,
   PageHeader,
   Stat,
 } from '@/components/ui/layout';
 import { Td, Th, Tr, TableWrap } from '@/components/ui/table';
-import { Field, Input, Select, Textarea } from '@/components/ui/form';
-import { Button, Spinner } from '@/components/ui/button';
-import { Modal } from '@/components/ui/modal';
+import { Field, Input, Select, Textarea, focusFirstInvalid } from '@/components/ui/form';
+import { Button } from '@/components/ui/button';
+import { Modal, ModalCancel } from '@/components/ui/modal';
+import { ListSkeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { Segmented, SearchInput, Toolbar, ToolbarSpacer } from '@/components/ui/toolbar';
 import { DownloadMenu } from '@/components/report/download-menu';
@@ -39,29 +48,46 @@ const UNITS = ['pcs', 'sheet', 'roll', 'kg', 'gram', 'metre', 'packet', 'bundle'
 
 type Filter = 'all' | 'low' | 'archived';
 
+/** Quantities keep three decimals: a recipe of 1.375 sheets is a real number here. */
+const QTY = new Intl.NumberFormat('bn-BD', { maximumFractionDigits: 3 });
+const qty = (value: number, unit: string) => `${QTY.format(value)} ${tUnit(unit)}`;
+
 export default function OwnerSuppliesPage() {
-  const [filter, setFilter] = useState<Filter>('all');
-  const [search, setSearch] = useState('');
-  const q = useDebounced(search, 300);
+  const toast = useToast();
+  const [filters, setFilters, { reset }] = useUrlState({ filter: 'all' });
+  const search = useUrlSearch();
+  const filter = (['all', 'low', 'archived'].includes(filters.filter) ? filters.filter : 'all') as Filter;
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Supply | null>(null);
 
-  const params = new URLSearchParams();
-  if (filter === 'low') params.set('lowOnly', 'true');
-  if (filter === 'archived') params.set('includeArchived', 'true');
-  if (q) params.set('q', q);
-
-  const supplies = useQuery({
-    queryKey: ['owner', 'supplies', filter, q],
-    queryFn: () =>
-      api.get<{
-        supplies: Supply[];
-        totals: { items: number; value: number; lowCount: number; negativeCount: number };
-      }>(`/owner/supplies${params.size ? `?${params}` : ''}`),
+  // `archivedOnly`, not `includeArchived`: the archived filter used to list every
+  // live supply as well, so it looked like a filter that did nothing.
+  const supplies = useGetSuppliesQuery({
+    lowOnly: filter === 'low',
+    archivedOnly: filter === 'archived',
+    q: search.term,
   });
+  const [setArchived, archiving] = useSetSupplyArchivedMutation();
 
   const rows = supplies.data?.supplies ?? [];
   const totals = supplies.data?.totals;
+  const filtered = filter !== 'all' || search.term !== '';
+  const negatives = rows.filter((supply) => supply.isNegative);
+
+  const restore = async (supply: Supply) => {
+    try {
+      await setArchived({ id: supply.id, isArchived: false }).unwrap();
+      toast(tf('supplies.restored', { name: supply.nameBn }));
+    } catch (error) {
+      toast(errorMessage(error), 'danger');
+    }
+  };
+  const restoringId = archiving.isLoading ? archiving.originalArgs?.id : undefined;
+
+  const clearFilters = () => {
+    reset();
+    search.setInput('');
+  };
 
   return (
     <>
@@ -82,53 +108,75 @@ export default function OwnerSuppliesPage() {
       {/*
         * The two states worth interrupting for, above the filters so they cannot
         * be missed while scrolled past. A gorbil is a bookkeeping error the owner
-        * has to fix; running out is a shopping reminder.
+        * has to fix; running out is a shopping reminder, with the one tap that
+        * shows what to buy.
         */}
-      {totals && totals.negativeCount > 0 && (
+      {filter !== 'archived' && totals && totals.negativeCount > 0 && (
         <Alert tone="danger" icon={TriangleAlert} title={t('supply.negative')}>
-          {t('supply.negativeHint')}
+          <p>{t('supply.negativeHint')}</p>
+          {negatives.length > 0 && (
+            <p className="mt-2">
+              {t('supplies.negativeWhich')}{' '}
+              {negatives.map((supply, index) => (
+                <span key={supply.id}>
+                  {index > 0 && ', '}
+                  <Link
+                    href={`/owner/supplies/${supply.id}` as Route}
+                    className="font-semibold underline underline-offset-2"
+                  >
+                    {supply.nameBn}
+                  </Link>
+                </span>
+              ))}
+            </p>
+          )}
         </Alert>
       )}
-      {totals && totals.lowCount > 0 && totals.negativeCount === 0 && (
-        <Alert tone="warning" title={t('supply.low')}>
-          {t('supply.reorderHint')}
+      {filter === 'all' && totals && totals.lowCount > 0 && totals.negativeCount === 0 && (
+        <Alert tone="warning" title={tf('supplies.lowBanner', { count: formatNumber(totals.lowCount) })}>
+          <p>{t('supplies.reorderHint')}</p>
+          <Button size="sm" variant="outline" className="mt-2" onClick={() => setFilters({ filter: 'low' })}>
+            {t('supplies.showLow')}
+          </Button>
         </Alert>
       )}
 
       <Toolbar>
         <Segmented<Filter>
-          label={t('supply.title')}
+          label={t('supplies.filterLabel')}
           value={filter}
-          onChange={setFilter}
+          onChange={(next) => setFilters({ filter: next })}
           options={[
             { value: 'all', label: t('app.all') },
             { value: 'low', label: t('supply.low'), count: totals?.lowCount },
-            { value: 'archived', label: t('supply.archived') },
+            { value: 'archived', label: t('app.archived') },
           ]}
         />
         <ToolbarSpacer />
-        <SearchInput value={search} onChange={setSearch} placeholder={t('supply.name')} />
+        <SearchInput
+          value={search.input}
+          onChange={search.setInput}
+          placeholder={t('supply.name')}
+          className="basis-full sm:basis-auto"
+        />
       </Toolbar>
 
-      {totals && rows.length > 0 && (
-        <div className="mb-5 grid gap-3 sm:grid-cols-3">
+      {totals && rows.length > 0 && filter === 'all' && !search.term && (
+        <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3">
           <Stat label={t('supply.itemCount')} value={formatNumber(totals.items)} icon={Boxes} />
           <Stat label={t('supply.value')} value={formatMoney(totals.value)} />
           <Stat
             label={t('supply.low')}
             value={formatNumber(totals.lowCount)}
             tone={totals.lowCount > 0 ? 'warning' : 'neutral'}
+            className="col-span-2 sm:col-span-1"
           />
         </div>
       )}
 
-      {supplies.isLoading && (
-        <Card className="flex justify-center py-10">
-          <Spinner />
-        </Card>
-      )}
+      {supplies.isLoading && <ListSkeleton rows={4} />}
 
-      {supplies.isError && (
+      {supplies.isError && !supplies.data && (
         <ErrorState
           onRetry={() => supplies.refetch()}
           isRetrying={supplies.isFetching}
@@ -141,7 +189,7 @@ export default function OwnerSuppliesPage() {
         * seen this feature needs to know what belongs here and what happens next,
         * with a real example from their own trade.
         */}
-      {supplies.isSuccess && rows.length === 0 && !q && filter === 'all' && (
+      {supplies.data && rows.length === 0 && !filtered && (
         <EmptyState
           icon={Boxes}
           title={t('supply.title')}
@@ -152,7 +200,7 @@ export default function OwnerSuppliesPage() {
                 <Plus className="h-4 w-4" />
                 {t('supply.new')}
               </Button>
-              <p className="max-w-sm text-xs text-[var(--muted-fg)]">
+              <p className="max-w-sm text-xs text-muted-foreground">
                 {t('costSetup.thenPurchase')} {t('costSetup.thenRecipe')}
               </p>
             </div>
@@ -160,42 +208,55 @@ export default function OwnerSuppliesPage() {
         />
       )}
 
-      {supplies.isSuccess && rows.length === 0 && (q || filter !== 'all') && (
-        <EmptyState icon={Boxes} title={t('app.none')} />
+      {supplies.data && rows.length === 0 && filter === 'archived' && !search.term && (
+        <EmptyState icon={Archive} title={t('supplies.archivedEmpty')} description={t('supplies.archiveHint')} />
+      )}
+
+      {supplies.data && rows.length === 0 && filtered && !(filter === 'archived' && !search.term) && (
+        <FilteredEmpty onClear={clearFilters} />
       )}
 
       {rows.length > 0 && (
-        <>
+        <div className={cn('transition-opacity', supplies.isFetching && 'opacity-60')}>
           {/* Phone: cards. Five columns in a sideways scroller hides the state
               badges, which are the reason to look at this list at all. */}
           <ul className="space-y-3 sm:hidden">
             {rows.map((supply) => (
-              <li key={supply.id}>
-                <Card className="p-4">
-                  <Link href={`/owner/supplies/${supply.id}`} className="block">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <span className="font-semibold">{supply.nameBn}</span>
-                      <span className="tabular whitespace-nowrap">
-                        {formatNumber(supply.onHand)} {tUnit(supply.unit)}
-                      </span>
-                    </div>
-                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[var(--muted-fg)]">
-                      <span>
-                        {t('supply.avgCost')} {formatMoney(supply.avgCost)}
-                      </span>
-                      <span>·</span>
-                      <span>
-                        {t('supply.value')} {formatMoney(supply.value)}
-                      </span>
-                    </div>
-                    <StateBadges supply={supply} />
-                  </Link>
-                  <div className="mt-3 flex gap-2">
-                    <Button size="sm" variant="outline" onClick={() => setEditing(supply)}>
+              <li key={supply.id} className="card p-4">
+                <Link href={`/owner/supplies/${supply.id}` as Route} className="block">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="min-w-0 break-words font-semibold">{supply.nameBn}</span>
+                    <span className="tabular whitespace-nowrap font-semibold">
+                      {qty(supply.onHand, supply.unit)}
+                    </span>
+                  </div>
+                  <div className="tabular mt-1 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                    <span>
+                      {t('supply.avgCost')} {formatMoney(supply.avgCost)}
+                    </span>
+                    <span aria-hidden>·</span>
+                    <span>
+                      {t('supply.value')} {formatMoney(supply.value)}
+                    </span>
+                  </div>
+                  <StateBadges supply={supply} />
+                </Link>
+                <div className="mt-3 flex gap-2 [&>*]:flex-1">
+                  {supply.isArchived ? (
+                    <Button
+                      variant="outline"
+                      loading={restoringId === supply.id}
+                      onClick={() => void restore(supply)}
+                    >
+                      <ArchiveRestore className="h-4 w-4" />
+                      {t('app.restore')}
+                    </Button>
+                  ) : (
+                    <Button variant="outline" onClick={() => setEditing(supply)}>
                       {t('supply.edit')}
                     </Button>
-                  </div>
-                </Card>
+                  )}
+                </div>
               </li>
             ))}
           </ul>
@@ -204,9 +265,9 @@ export default function OwnerSuppliesPage() {
             <thead>
               <tr>
                 <Th>{t('supply.name')}</Th>
-                <Th align="right">{t('supply.onHand')}</Th>
-                <Th align="right">{t('supply.avgCost')}</Th>
-                <Th align="right">{t('supply.value')}</Th>
+                <Th className="text-right">{t('supply.onHand')}</Th>
+                <Th className="text-right">{t('supply.avgCost')}</Th>
+                <Th className="text-right">{t('supply.value')}</Th>
                 <Th>{t('app.status')}</Th>
                 <Th />
               </tr>
@@ -215,29 +276,32 @@ export default function OwnerSuppliesPage() {
               {rows.map((supply) => (
                 <Tr key={supply.id}>
                   <Td>
-                    <Link href={`/owner/supplies/${supply.id}`} className="font-medium hover:underline">
+                    <Link href={`/owner/supplies/${supply.id}` as Route} className="font-medium hover:underline">
                       {supply.nameBn}
                     </Link>
-                    <span className="block text-xs text-[var(--muted-fg)]">
-                      {tUnit(supply.unit)}
-                    </span>
+                    <span className="block text-xs text-muted-foreground">{tUnit(supply.unit)}</span>
                   </Td>
-                  <Td align="right" className="tabular">
-                    {formatNumber(supply.onHand)}
-                  </Td>
-                  <Td align="right" className="tabular">
-                    {formatMoney(supply.avgCost)}
-                  </Td>
-                  <Td align="right" className="tabular">
-                    {formatMoney(supply.value)}
-                  </Td>
+                  <Td className="tabular text-right">{qty(supply.onHand, supply.unit)}</Td>
+                  <Td className="tabular text-right">{formatMoney(supply.avgCost)}</Td>
+                  <Td className="tabular text-right">{formatMoney(supply.value)}</Td>
                   <Td>
                     <StateBadges supply={supply} />
                   </Td>
                   <Td className="text-right">
-                    <Button size="sm" variant="outline" onClick={() => setEditing(supply)}>
-                      {t('supply.edit')}
-                    </Button>
+                    {supply.isArchived ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        loading={restoringId === supply.id}
+                        onClick={() => void restore(supply)}
+                      >
+                        {t('app.restore')}
+                      </Button>
+                    ) : (
+                      <Button size="sm" variant="outline" onClick={() => setEditing(supply)}>
+                        {t('supply.edit')}
+                      </Button>
+                    )}
                   </Td>
                 </Tr>
               ))}
@@ -246,18 +310,19 @@ export default function OwnerSuppliesPage() {
 
           {/* Where the numbers above come from, for somebody wondering why a
               value is zero. */}
-          <p className="mt-4 text-xs text-[var(--muted-fg)]">
+          <p className="mt-4 text-xs text-muted-foreground">
             {t('costSetup.thenPurchase')}{' '}
-            <Link href="/owner/purchases" className="inline-flex items-center gap-1 underline">
-              <ShoppingCart className="h-3 w-3" />
+            <Link href="/owner/purchases" className="tap inline-flex items-center gap-1 font-semibold underline">
+              <ShoppingCart className="h-3.5 w-3.5" />
               {t('costSetup.recordPurchase')}
             </Link>
           </p>
-        </>
+        </div>
       )}
 
       {(creating || editing) && (
-        <SupplyModal
+        <SupplySheet
+          key={editing?.id ?? 'new'}
           supply={editing}
           onClose={() => {
             setCreating(false);
@@ -274,12 +339,12 @@ function StateBadges({ supply }: { supply: Supply }) {
   if (!supply.isNegative && !supply.isLow && !supply.isArchived) return null;
 
   return (
-    <div className="mt-1 flex flex-wrap gap-1.5">
+    <div className="mt-1.5 flex flex-wrap gap-1.5">
       {/* A gorbil outranks running low: one is a wrong number, the other is a
           correct number that happens to be small. */}
       {supply.isNegative && <Badge tone="danger">{t('supply.negative')}</Badge>}
       {!supply.isNegative && supply.isLow && <Badge tone="warning">{t('supply.low')}</Badge>}
-      {supply.isArchived && <Badge tone="neutral">{t('supply.archived')}</Badge>}
+      {supply.isArchived && <Badge tone="neutral">{t('app.archived')}</Badge>}
     </div>
   );
 }
@@ -290,114 +355,158 @@ function StateBadges({ supply }: { supply: Supply }) {
  * The unit is offered only when creating. Changing it afterwards would silently
  * restate every quantity ever recorded against this item, so the API refuses it
  * and this form does not pretend otherwise.
+ *
+ * No field takes focus on open: on a phone that pushes the keyboard up over the
+ * sheet before the owner has read what it is for.
  */
-function SupplyModal({ supply, onClose }: { supply: Supply | null; onClose: () => void }) {
-  const queryClient = useQueryClient();
+function SupplySheet({ supply, onClose }: { supply: Supply | null; onClose: () => void }) {
   const toast = useToast();
+  const bodyRef = useRef<HTMLDivElement>(null);
   const [nameBn, setNameBn] = useState(supply?.nameBn ?? '');
   const [unit, setUnit] = useState(supply?.unit ?? 'pcs');
-  // Empty, not '0'. A box pre-filled with a zero is a box the owner has to
-  // clear before typing, and `Number('')` is 0 anyway when it is submitted.
+  // Empty, not '0': a box pre-filled with a zero is a box to clear before typing.
+  // A plain number, not a money format: this is a count of things.
   const [reorderLevel, setReorderLevel] = useState(
-    supply && supply.reorderLevel > 0 ? formatMoneyPlain(supply.reorderLevel) : ''
+    supply && supply.reorderLevel > 0 ? String(supply.reorderLevel) : ''
   );
   const [note, setNote] = useState(supply?.note ?? '');
   const [isArchived, setIsArchived] = useState(Boolean(supply?.isArchived));
+  const [tried, setTried] = useState(false);
 
-  const save = useMutation({
-    mutationFn: () => {
-      const body = {
-        nameBn,
-        reorderLevel: Number(reorderLevel) || 0,
-        ...(note ? { note } : {}),
-        ...(supply ? { isArchived } : { unit }),
-      };
-      return supply
-        ? api.patch(`/owner/supplies/${supply.id}`, body)
-        : api.post('/owner/supplies', body);
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['owner', 'supplies'] });
-      toast(t('app.saved'));
+  const [createSupply, creating] = useCreateSupplyMutation();
+  const [updateSupply, updating] = useUpdateSupplyMutation();
+  const saving = creating.isLoading || updating.isLoading;
+  const error = supply ? updating.error : creating.error;
+  const errors = fieldErrors(error);
+
+  // Only asked for once archiving is on the table: which boxes still name this.
+  const detail = useGetSupplyQuery(
+    { id: supply?.id ?? '' },
+    { skip: !supply || !isArchived || supply.isArchived }
+  );
+  const usedBy = detail.data?.usedBy ?? [];
+
+  const nameProblem = nameBn.trim().length < 2 ? t('supplies.nameRequired') : undefined;
+  const dirty =
+    nameBn !== (supply?.nameBn ?? '') ||
+    note !== (supply?.note ?? '') ||
+    reorderLevel !== (supply && supply.reorderLevel > 0 ? String(supply.reorderLevel) : '') ||
+    isArchived !== Boolean(supply?.isArchived) ||
+    (!supply && unit !== 'pcs');
+
+  const save = async () => {
+    setTried(true);
+    if (nameProblem) {
+      requestAnimationFrame(() => focusFirstInvalid(bodyRef.current));
+      return;
+    }
+    const body = {
+      nameBn: nameBn.trim(),
+      reorderLevel: Number(reorderLevel) || 0,
+      note: note.trim(),
+    };
+    try {
+      const result = supply
+        ? await updateSupply({ id: supply.id, ...body, isArchived }).unwrap()
+        : await createSupply({ ...body, unit }).unwrap();
+      toast(tf(supply ? 'supplies.saved' : 'supplies.created', { name: result.supply.nameBn }));
       onClose();
-    },
-  });
+    } catch {
+      requestAnimationFrame(() => focusFirstInvalid(bodyRef.current));
+    }
+  };
 
-  const errors = fieldErrors(save.error);
+  const nameError = errors.nameBn ?? (tried ? nameProblem : undefined);
 
   return (
     <Modal
       open
       onClose={onClose}
+      dirty={dirty}
       title={supply ? t('supply.edit') : t('supply.new')}
+      footerLead={
+        error && !Object.keys(errors).length ? (
+          <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm font-medium text-danger-ink">
+            {errorMessage(error)}
+          </p>
+        ) : undefined
+      }
       footer={
         <>
-          <Button variant="outline" onClick={onClose}>
-            {t('app.cancel')}
-          </Button>
-          <Button
-            loading={save.isPending}
-            disabled={nameBn.trim().length < 2}
-            onClick={() => save.mutate()}
-          >
+          <ModalCancel disabled={saving} />
+          <Button loading={saving} onClick={save}>
             {t('app.save')}
           </Button>
         </>
       }
     >
-      {save.error && !Object.keys(errors).length && (
-        <Alert tone="danger">{errorMessage(save.error)}</Alert>
-      )}
-
-      <Field label={t('supply.name')} error={errors.nameBn} required>
-        <Input
-          value={nameBn}
-          onChange={(e) => setNameBn(e.target.value)}
-          placeholder="ক্যারেট"
-          autoFocus
-        />
-      </Field>
-
-      {!supply && (
-        <Field label={t('supply.unit')} error={errors.unit} required>
-          <Select value={unit} onChange={(e) => setUnit(e.target.value)}>
-            {UNITS.map((u) => (
-              <option key={u} value={u}>
-                {tUnit(u)}
-              </option>
-            ))}
-          </Select>
+      <div ref={bodyRef}>
+        <Field label={t('supply.name')} htmlFor="supply-name" error={nameError} required>
+          <Input
+            id="supply-name"
+            value={nameBn}
+            invalid={Boolean(nameError)}
+            onChange={(e) => setNameBn(e.target.value)}
+            placeholder={t('supplies.namePlaceholder')}
+          />
         </Field>
-      )}
 
-      <Field
-        label={t('supply.reorderLevel')}
-        hint={t('supply.reorderHint')}
-        error={errors.reorderLevel}
-      >
-        <Input
-          type="number"
-          inputMode="decimal"
-          min="0"
-          step="0.001"
-          value={reorderLevel}
-          onChange={(e) => setReorderLevel(e.target.value)}
-          className="tabular"
-        />
-      </Field>
+        {!supply && (
+          <Field label={t('supply.unit')} htmlFor="supply-unit" error={errors.unit} required>
+            <Select id="supply-unit" value={unit} onChange={(e) => setUnit(e.target.value)}>
+              {UNITS.map((u) => (
+                <option key={u} value={u}>
+                  {tUnit(u)}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
 
-      <Field label={t('expense.note')} error={errors.note}>
-        <Textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} />
-      </Field>
+        <Field
+          label={t('supply.reorderLevel')}
+          htmlFor="supply-reorder"
+          hint={t('supplies.reorderHint')}
+          error={errors.reorderLevel}
+        >
+          <Input
+            id="supply-reorder"
+            type="number"
+            inputMode="decimal"
+            min="0"
+            step="0.001"
+            value={reorderLevel}
+            onChange={(e) => setReorderLevel(e.target.value)}
+            className="tabular"
+            trailing={<span className="text-sm text-muted-foreground">{tUnit(supply?.unit ?? unit)}</span>}
+          />
+        </Field>
 
-      {supply && (
-        <Switch
-          checked={isArchived}
-          onChange={setIsArchived}
-          label={t('supply.archived')}
-          hint={t('supply.help')}
-        />
-      )}
+        <Field label={t('expense.note')} htmlFor="supply-note" error={errors.note}>
+          <Textarea id="supply-note" value={note} onChange={(e) => setNote(e.target.value)} rows={2} />
+        </Field>
+
+        {supply && (
+          <div className="rounded-xl border border-border px-3">
+            <Switch
+              checked={isArchived}
+              onChange={setIsArchived}
+              label={t('supplies.archiveSwitch')}
+              hint={t('supplies.archiveHint')}
+            />
+          </div>
+        )}
+
+        {/* Archiving something a recipe still names leaves that box consuming nothing. */}
+        {supply && isArchived && !supply.isArchived && usedBy.length > 0 && (
+          <Alert tone="warning" className="mt-3">
+            {tf('supplies.usedByWarn', {
+              count: formatNumber(usedBy.length),
+              boxes: usedBy.map((row) => `${row.productNameBn} · ${row.variantLabel}`).join(', '),
+            })}
+          </Alert>
+        )}
+      </div>
     </Modal>
   );
 }

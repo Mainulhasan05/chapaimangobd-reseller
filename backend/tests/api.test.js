@@ -191,8 +191,8 @@ test('the public shop lists every box a reseller has priced, cheapest first', as
   assert.deepEqual(
     box.variants.map((v) => [v.label, v.content, v.price]),
     [
-      ['6 kg', 6, 430],
-      ['11 kg', 11, 700],
+      ['৬ কেজি', 6, 430],
+      ['১১ কেজি', 11, 700],
     ]
   );
 });
@@ -220,7 +220,7 @@ test('a box the reseller never priced is not on their form', async () => {
   const res = await request(app).get(`/api/public/shop/${profile.slug}`);
   assert.deepEqual(
     res.body.data.products[0].variants.map((v) => v.label),
-    ['6 kg']
+    ['৬ কেজি']
   );
 
   // And ordering the unpriced one is refused, not merely absent from the page.
@@ -352,7 +352,7 @@ test('one order carries two box sizes of the same product', async () => {
   // The content is carried too, so a pick list can add unlike boxes together.
   assert.equal(bySize[11000].qtyMilli, 22000);
   assert.equal(bySize[6000].qtyMilli, 18000);
-  assert.equal(bySize[11000].variantLabelBn, '11 kg');
+  assert.equal(bySize[11000].variantLabelBn, '১১ কেজি');
 
   // Priced per box: 2 x 700 + 3 x 430 = 2690, plus 80 delivery.
   assert.equal(order.totals.sellSubtotalPoisha, toPoisha(2690));
@@ -491,8 +491,8 @@ test('each box carries its own floor and ceiling', async () => {
   assert.deepEqual(
     fine.body.data.product.variants.map((v) => [v.label, v.sellPrice, v.activated]),
     [
-      ['6 kg', 430, true],
-      ['11 kg', 800, true],
+      ['৬ কেজি', 430, true],
+      ['১১ কেজি', 800, true],
     ]
   );
 });

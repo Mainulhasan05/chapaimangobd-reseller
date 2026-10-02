@@ -1,14 +1,20 @@
 'use client';
 
 import { useState } from 'react';
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDownToLine, ArrowUpFromLine, CreditCard, Inbox, Landmark, Wallet as WalletIcon } from 'lucide-react';
-import { api, errorMessage, fieldErrors } from '@/lib/api';
+import { errorMessage, fieldErrors } from '@/lib/api';
 import { useReadOnlyAccount } from '@/lib/session';
-import { t, tLedgerKind } from '@/lib/i18n/bn';
+import { t, tLedgerKind, tMethod, tRequestStatus } from '@/lib/i18n/bn';
 import { formatMoney, formatSignedMoney, formatDateTime } from '@/lib/format';
 import { checkMoney, moneyError } from '@/lib/money';
-import type { Deposit, LedgerEntry, Paged, Wallet, Withdrawal } from '@/lib/types';
+import {
+  useCreateDepositMutation,
+  useCreateWithdrawalMutation,
+  useGetMyDepositsInfiniteQuery,
+  useGetMyWithdrawalsInfiniteQuery,
+  useGetWalletLedgerInfiniteQuery,
+  useGetWalletQuery,
+} from '@/lib/store/endpoints/reseller';
 import {
   Alert,
   Badge,
@@ -30,14 +36,11 @@ import { useToast } from '@/components/ui/toast';
 import { Field, Input, MoneyInput, Select, Textarea } from '@/components/ui/form';
 import { PhoneField } from '@/components/ui/phone-field';
 import { FileField } from '@/components/ui/file-field';
-import { Modal } from '@/components/ui/modal';
+import { Modal, ModalCancel } from '@/components/ui/modal';
 import { SmsCreditsCard } from '@/components/sms-credits-card';
 import { LoadMore } from '@/components/ui/load-more';
 
 const METHODS = ['bkash', 'nagad', 'rocket', 'bank', 'cash'] as const;
-
-const LEDGER_PAGE_SIZE = 30;
-const REQUEST_PAGE_SIZE = 10;
 
 export default function WalletPage() {
   const [depositOpen, setDepositOpen] = useState(false);
@@ -45,55 +48,19 @@ export default function WalletPage() {
   // A deactivated account may still take its money out, and do nothing else.
   const readOnly = useReadOnlyAccount();
 
-  const wallet = useQuery({
-    queryKey: ['wallet'],
-    queryFn: () => api.get<{ wallet: Wallet }>('/reseller/wallet'),
-  });
+  const wallet = useGetWalletQuery();
 
-  // The statement, newest first, a page at a time.
-  const ledger = useInfiniteQuery({
-    queryKey: ['ledger'],
-    queryFn: ({ pageParam }) =>
-      api.get<Paged<'entries', LedgerEntry>>(
-        `/reseller/wallet/ledger?limit=${LEDGER_PAGE_SIZE}&page=${pageParam}`
-      ),
-    initialPageParam: 1,
-    getNextPageParam: (last, pages) => {
-      const loaded = pages.reduce((count, page) => count + page.entries.length, 0);
-      return loaded < last.total ? pages.length + 1 : undefined;
-    },
-  });
+  // The statement, newest first, thirty at a time.
+  const ledger = useGetWalletLedgerInfiniteQuery();
   const entries = ledger.data?.pages.flatMap((page) => page.entries) ?? [];
   const entryTotal = ledger.data?.pages[0]?.total ?? 0;
   const ledgerNextError = ledger.isFetchNextPageError ? ledger.error : null;
 
-  // Both request histories only grow, so they page the same way the statement does.
-  const deposits = useInfiniteQuery({
-    queryKey: ['deposits'],
-    queryFn: ({ pageParam }) =>
-      api.get<Paged<'deposits', Deposit>>(
-        `/reseller/deposits?limit=${REQUEST_PAGE_SIZE}&page=${pageParam}`
-      ),
-    initialPageParam: 1,
-    getNextPageParam: (last, pages) => {
-      const loaded = pages.reduce((count, page) => count + page.deposits.length, 0);
-      return loaded < last.total ? pages.length + 1 : undefined;
-    },
-  });
+  // Both request histories only grow, so they page the same way the statement does, ten at a time.
+  const deposits = useGetMyDepositsInfiniteQuery();
   const depositRows = deposits.data?.pages.flatMap((page) => page.deposits) ?? [];
 
-  const withdrawals = useInfiniteQuery({
-    queryKey: ['withdrawals'],
-    queryFn: ({ pageParam }) =>
-      api.get<Paged<'withdrawals', Withdrawal>>(
-        `/reseller/withdrawals?limit=${REQUEST_PAGE_SIZE}&page=${pageParam}`
-      ),
-    initialPageParam: 1,
-    getNextPageParam: (last, pages) => {
-      const loaded = pages.reduce((count, page) => count + page.withdrawals.length, 0);
-      return loaded < last.total ? pages.length + 1 : undefined;
-    },
-  });
+  const withdrawals = useGetMyWithdrawalsInfiniteQuery();
   const withdrawalRows = withdrawals.data?.pages.flatMap((page) => page.withdrawals) ?? [];
 
   const balance = wallet.data?.wallet.balance ?? 0;
@@ -303,12 +270,11 @@ export default function WalletPage() {
         />
       </div>
 
-      <DepositModal open={depositOpen} onClose={() => setDepositOpen(false)} />
-      <WithdrawModal
-        open={withdrawOpen}
-        onClose={() => setWithdrawOpen(false)}
-        maxAmount={Math.max(balance, 0)}
-      />
+      {/* Mounted only while open, so each request starts from an empty form and no old error. */}
+      {depositOpen && <DepositModal onClose={() => setDepositOpen(false)} />}
+      {withdrawOpen && (
+        <WithdrawModal onClose={() => setWithdrawOpen(false)} maxAmount={Math.max(balance, 0)} />
+      )}
     </>
   );
 }
@@ -370,12 +336,12 @@ function RequestList({
             <li key={row.id} className="flex items-start justify-between gap-3 py-3">
               <div className="min-w-0">
                 <p className="tabular font-medium">{formatMoney(row.amount)}</p>
-                <p className="text-xs uppercase text-muted-foreground">{row.method}</p>
+                <p className="text-xs text-muted-foreground">{tMethod(row.method)}</p>
                 <p className="text-xs text-muted-foreground">{formatDateTime(row.createdAt)}</p>
                 {row.note && <p className="mt-1 text-xs text-danger">{row.note}</p>}
               </div>
               <Badge tone={statusTone(row.status)} dot>
-                {row.status}
+                {tRequestStatus(row.status)}
               </Badge>
             </li>
           ))}
@@ -397,11 +363,11 @@ function RequestList({
             {rows.map((row) => (
               <Tr key={row.id}>
                 <Td className="text-xs text-muted-foreground">{formatDateTime(row.createdAt)}</Td>
-                <Td className="uppercase">{row.method}</Td>
+                <Td>{tMethod(row.method)}</Td>
                 <Td className="tabular text-right">{formatMoney(row.amount)}</Td>
                 <Td>
                   <Badge tone={statusTone(row.status)} dot>
-                  {row.status}
+                  {tRequestStatus(row.status)}
                 </Badge>
                   {row.note && <div className="mt-1 text-xs text-danger">{row.note}</div>}
                 </Td>
@@ -415,8 +381,7 @@ function RequestList({
   );
 }
 
-function DepositModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const queryClient = useQueryClient();
+function DepositModal({ onClose }: { onClose: () => void }) {
   const toast = useToast();
   const [form, setForm] = useState({
     amount: '',
@@ -427,26 +392,25 @@ function DepositModal({ open, onClose }: { open: boolean; onClose: () => void })
   });
   const [file, setFile] = useState<File | null>(null);
 
-  const submit = useMutation({
-    mutationFn: () => {
-      // Multipart, because the payment screenshot goes up with the request.
-      const data = new FormData();
-      data.set('amount', form.amount);
-      data.set('method', form.method);
-      if (form.senderNumber) data.set('senderNumber', form.senderNumber);
-      if (form.transactionId) data.set('transactionId', form.transactionId);
-      if (form.note) data.set('note', form.note);
-      if (file) data.set('screenshot', file);
-      return api.upload('/reseller/deposits', data);
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['deposits'] });
-      setForm({ amount: '', method: 'bkash', senderNumber: '', transactionId: '', note: '' });
-      setFile(null);
+  const [createDeposit, submit] = useCreateDepositMutation();
+
+  const send = async () => {
+    // Multipart, because the payment screenshot goes up with the request.
+    const data = new FormData();
+    data.set('amount', form.amount);
+    data.set('method', form.method);
+    if (form.senderNumber) data.set('senderNumber', form.senderNumber);
+    if (form.transactionId) data.set('transactionId', form.transactionId);
+    if (form.note) data.set('note', form.note);
+    if (file) data.set('screenshot', file);
+    try {
+      await createDeposit({ formData: data }).unwrap();
       onClose();
       toast(t('wallet.depositSubmitted'));
-    },
-  });
+    } catch {
+      // Shown inside the sheet, which stays open with everything typed.
+    }
+  };
 
   const errors = fieldErrors(submit.error);
   const set =
@@ -462,19 +426,17 @@ function DepositModal({ open, onClose }: { open: boolean; onClose: () => void })
 
   return (
     <Modal
-      open={open}
+      open
       onClose={onClose}
       title={t('wallet.depositRequest')}
       dirty={dirty}
       footer={
         <>
-          <Button variant="outline" onClick={onClose}>
-            {t('app.cancel')}
-          </Button>
+          <ModalCancel disabled={submit.isLoading} />
           <Button
-            loading={submit.isPending}
+            loading={submit.isLoading}
             disabled={!checkMoney(form.amount).ok}
-            onClick={() => submit.mutate()}
+            onClick={() => void send()}
           >
             {t('app.save')}
           </Button>
@@ -498,7 +460,7 @@ function DepositModal({ open, onClose }: { open: boolean; onClose: () => void })
         <Select id="method" value={form.method} onChange={set('method')}>
           {METHODS.map((m) => (
             <option key={m} value={m}>
-              {m.toUpperCase()}
+              {tMethod(m)}
             </option>
           ))}
         </Select>
@@ -534,16 +496,7 @@ function DepositModal({ open, onClose }: { open: boolean; onClose: () => void })
   );
 }
 
-function WithdrawModal({
-  open,
-  onClose,
-  maxAmount,
-}: {
-  open: boolean;
-  onClose: () => void;
-  maxAmount: number;
-}) {
-  const queryClient = useQueryClient();
+function WithdrawModal({ onClose, maxAmount }: { onClose: () => void; maxAmount: number }) {
   const toast = useToast();
   const [form, setForm] = useState({ amount: '', method: 'bkash', destinationNumber: '', note: '' });
   /*
@@ -560,9 +513,11 @@ function WithdrawModal({
   });
   const toBank = form.method === 'bank';
 
-  const submit = useMutation({
-    mutationFn: (amount: number) =>
-      api.post('/reseller/withdrawals', {
+  const [createWithdrawal, submit] = useCreateWithdrawalMutation();
+
+  const send = async (amount: number) => {
+    try {
+      await createWithdrawal({
         amount,
         method: form.method,
         ...(toBank
@@ -577,15 +532,13 @@ function WithdrawModal({
             }
           : { destinationNumber: form.destinationNumber }),
         ...(form.note ? { note: form.note } : {}),
-      }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['withdrawals'] });
-      setForm({ amount: '', method: 'bkash', destinationNumber: '', note: '' });
-      setBank({ accountName: '', bankName: '', branchName: '', accountNumber: '', routingNumber: '' });
+      }).unwrap();
       onClose();
       toast(t('wallet.withdrawSubmitted'));
-    },
-  });
+    } catch {
+      // Shown inside the sheet, which stays open with everything typed.
+    }
+  };
 
   const errors = fieldErrors(submit.error);
   // Never more than the balance: a withdrawal cannot create debt.
@@ -605,7 +558,7 @@ function WithdrawModal({
 
   return (
     <Modal
-      open={open}
+      open
       onClose={onClose}
       title={t('wallet.withdrawRequest')}
       dirty={Boolean(
@@ -613,13 +566,11 @@ function WithdrawModal({
       )}
       footer={
         <>
-          <Button variant="outline" onClick={onClose}>
-            {t('app.cancel')}
-          </Button>
+          <ModalCancel disabled={submit.isLoading} />
           <Button
-            loading={submit.isPending}
+            loading={submit.isLoading}
             disabled={!withdrawCheck.ok || !destinationReady}
-            onClick={() => withdrawCheck.ok && submit.mutate(withdrawCheck.value)}
+            onClick={() => withdrawCheck.ok && void send(withdrawCheck.value)}
           >
             {t('app.save')}
           </Button>
@@ -644,7 +595,7 @@ function WithdrawModal({
         <Select id="wmethod" value={form.method} onChange={set('method')}>
           {METHODS.map((m) => (
             <option key={m} value={m}>
-              {m.toUpperCase()}
+              {tMethod(m)}
             </option>
           ))}
         </Select>

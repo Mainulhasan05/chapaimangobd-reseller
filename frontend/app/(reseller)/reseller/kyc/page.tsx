@@ -1,10 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CircleCheck, Hourglass, Lock, ShieldCheck } from 'lucide-react';
-import { api, ApiError, errorMessage } from '@/lib/api';
-import { sessionKey, useReadOnlyAccount } from '@/lib/session';
+import { errorMessage } from '@/lib/api';
+import { useReadOnlyAccount } from '@/lib/session';
+import { useGetResellerKycQuery, useSubmitKycMutation } from '@/lib/store/endpoints/reseller';
 import { t, type DictKey } from '@/lib/i18n/bn';
 import { formatDateTime, formatNumber } from '@/lib/format';
 import type { KycStatus } from '@/lib/types';
@@ -23,23 +23,6 @@ import { CardGridSkeleton } from '@/components/ui/skeleton';
 import { FileField } from '@/components/ui/file-field';
 import { useToast } from '@/components/ui/toast';
 
-type KycResponse = {
-  /** The owner asked this reseller to verify. Nothing here is offered without it. */
-  required: boolean;
-  /** The module belongs on their screens: required, or already submitted. */
-  visible: boolean;
-  canSubmit: boolean;
-  status: KycStatus;
-  submission: {
-    id: string;
-    status: string;
-    note?: string;
-    documentTypes: string[];
-    createdAt: string;
-    reviewedAt?: string;
-  } | null;
-};
-
 /** Field name must match the document type the API expects. */
 const DOCUMENTS: { field: string; labelKey: DictKey; required: boolean; hintKey?: DictKey }[] = [
   { field: 'nid_front', labelKey: 'kyc.nidFront', required: true },
@@ -57,39 +40,44 @@ const STATUS_LABEL: Record<KycStatus, DictKey> = {
 
 const REQUIRED_COUNT = DOCUMENTS.filter((doc) => doc.required).length;
 
+/** A submission's status in Bengali; anything unexpected is shown as sent. */
+const statusLabel = (status: string): string =>
+  status in STATUS_LABEL ? t(STATUS_LABEL[status as KycStatus]) : status;
+
+/** The Bengali name of a submitted document, never the API's `nid_front`. */
+const documentLabel = (type: string): string => {
+  const doc = DOCUMENTS.find((d) => d.field === type);
+  return doc ? t(doc.labelKey) : type;
+};
+
 export default function KycPage() {
-  const queryClient = useQueryClient();
   const toast = useToast();
   const [files, setFiles] = useState<Record<string, File | null>>({});
   const readOnly = useReadOnlyAccount();
 
-  const kyc = useQuery({
-    queryKey: ['kyc'],
-    queryFn: () => api.get<KycResponse>('/reseller/kyc'),
-  });
+  const kyc = useGetResellerKycQuery();
 
-  const submit = useMutation({
-    mutationFn: () => {
-      const data = new FormData();
-      Object.entries(files).forEach(([field, file]) => {
-        if (file) data.set(field, file);
-      });
-      return api.upload('/reseller/kyc', data);
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['kyc'] });
-      await queryClient.invalidateQueries({ queryKey: sessionKey });
+  /*
+   * The endpoint refreshes the KYC record and the session on success, and the
+   * record alone on KYC_ALREADY_PENDING: another tab or device got a submission
+   * in first, and reloading shows it, so the form gives way to the pending notice.
+   */
+  const [submitKyc, submit] = useSubmitKycMutation();
+
+  const send = async () => {
+    const data = new FormData();
+    Object.entries(files).forEach(([field, file]) => {
+      if (file) data.set(field, file);
+    });
+    try {
+      await submitKyc({ formData: data }).unwrap();
       setFiles({});
       toast(t('kyc.pending'));
-    },
-    onError: async (error) => {
-      // Another tab or device got a submission in first. Reloading shows it,
-      // and the form gives way to the pending notice below.
-      if (error instanceof ApiError && error.code === 'KYC_ALREADY_PENDING') {
-        await queryClient.invalidateQueries({ queryKey: ['kyc'] });
-      }
-    },
-  });
+    } catch (error) {
+      // The button sits at the bottom of a long form; the inline alert is at its top.
+      toast(errorMessage(error), 'danger');
+    }
+  };
 
   if (kyc.isLoading) {
     return (
@@ -199,14 +187,14 @@ export default function KycPage() {
             subtitle={formatDateTime(kyc.data.submission.createdAt)}
             action={
               <Badge tone={statusTone(kyc.data.submission.status)} dot>
-                {kyc.data.submission.status}
+                {statusLabel(kyc.data.submission.status)}
               </Badge>
             }
           />
           <ul className="flex flex-wrap gap-2">
             {kyc.data.submission.documentTypes.map((type) => (
               <li key={type}>
-                <Badge tone="neutral">{type}</Badge>
+                <Badge tone="neutral">{documentLabel(type)}</Badge>
               </li>
             ))}
           </ul>
@@ -263,7 +251,7 @@ export default function KycPage() {
             </div>
           </Card>
 
-          <StickyBar>
+          <StickyBar aboveNav>
             {hasRequired && (
               <p className="mb-2 flex items-center justify-center gap-1.5 text-xs font-semibold text-success">
                 <CircleCheck className="h-4 w-4" />
@@ -273,9 +261,9 @@ export default function KycPage() {
             <Button
               full
               size="lg"
-              loading={submit.isPending}
+              loading={submit.isLoading}
               disabled={!hasRequired}
-              onClick={() => submit.mutate()}
+              onClick={() => void send()}
             >
               {t('kyc.submit')}
             </Button>

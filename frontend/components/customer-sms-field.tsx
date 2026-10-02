@@ -1,13 +1,17 @@
 'use client';
 
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { skipToken } from '@reduxjs/toolkit/query/react';
 import { MessageSquareText } from 'lucide-react';
-import { api, errorMessage } from '@/lib/api';
+import { errorMessage } from '@/lib/api';
 import { t } from '@/lib/i18n/bn';
 import { formatNumber } from '@/lib/format';
 import { useDebounced } from '@/lib/use-debounced';
-import type { CustomerSmsAction, CustomerSmsPreview, Order } from '@/lib/types';
+import {
+  useGetCustomerSmsPreviewQuery,
+  type CustomerSmsPreviewArgs,
+} from '@/lib/store/endpoints/orders';
+import type { CustomerSmsAction, Order } from '@/lib/types';
 import { Switch } from '@/components/ui/switch';
 import { Spinner } from '@/components/ui/button';
 
@@ -22,6 +26,9 @@ import { Spinner } from '@/components/ui/button';
  *
  * `ready` is false while typing has not settled or a preview is on its way, so
  * the modal can hold its submit button until the text on screen is current.
+ *
+ * The sheets that use this mount only while open, so the tick starts off for
+ * every order without having to be reset by hand.
  */
 export function useCustomerSms(
   order: Order | null,
@@ -30,35 +37,31 @@ export function useCustomerSms(
 ) {
   const [enabled, setEnabled] = useState(false);
 
-  // Back to off whenever the sheet is opened for another order, or closed. The
-  // modals stay mounted between orders, so state alone would carry a tick over.
-  const orderId = order?.id ?? null;
-  const [seenOrder, setSeenOrder] = useState(orderId);
-  if (seenOrder !== orderId) {
-    setSeenOrder(orderId);
-    setEnabled(false);
-  }
-
   // A string, so the debounce compares values rather than a fresh object per render.
-  const current = new URLSearchParams({
-    action,
-    ...(action === 'ship' ? { courier: inputs.courier ?? '', trackingId: inputs.trackingId ?? '' } : {}),
-    ...(action === 'cancel' ? { reason: inputs.reason ?? '' } : {}),
-  }).toString();
+  const current = JSON.stringify(
+    action === 'ship'
+      ? { courier: inputs.courier ?? '', trackingId: inputs.trackingId ?? '' }
+      : action === 'cancel'
+        ? { reason: inputs.reason ?? '' }
+        : {}
+  );
   const settled = useDebounced(current, 400);
 
   // Until the box is ticked only availability matters, so the inputs stay out of
-  // the key and typing costs no requests.
-  const query = enabled ? settled : new URLSearchParams({ action }).toString();
+  // the request and typing costs nothing.
+  const arg: CustomerSmsPreviewArgs | typeof skipToken = order
+    ? {
+        id: order.id,
+        action,
+        ...(enabled
+          ? (JSON.parse(settled) as Pick<CustomerSmsPreviewArgs, 'courier' | 'trackingId' | 'reason'>)
+          : {}),
+      }
+    : skipToken;
 
-  const preview = useQuery({
-    queryKey: ['owner', 'customer-sms-preview', order?.id, query],
-    queryFn: ({ signal }) =>
-      api.get<CustomerSmsPreview>(`/owner/orders/${order!.id}/customer-sms-preview?${query}`, signal),
-    enabled: Boolean(order),
-    placeholderData: (previous) => previous,
-    staleTime: 30_000,
-  });
+  // `data` rather than `currentData`: the last preview stays on screen while the
+  // next one is fetched, so the text does not blink away on every keystroke.
+  const preview = useGetCustomerSmsPreviewQuery(arg);
 
   const available = preview.data?.available === true;
   const sending = enabled && available;

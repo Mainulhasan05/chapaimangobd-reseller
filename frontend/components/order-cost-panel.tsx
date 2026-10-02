@@ -1,28 +1,31 @@
 'use client';
 
-import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useRef, useState } from 'react';
 import { PackageOpen, Plus, TriangleAlert } from 'lucide-react';
-import { api, errorMessage, fieldErrors } from '@/lib/api';
+import { errorMessage, fieldErrors } from '@/lib/api';
 import { t, tPaidFrom } from '@/lib/i18n/bn';
 import { formatMoney, formatNumber } from '@/lib/format';
 import { checkMoney, moneyError } from '@/lib/money';
-import type {
-  Expense,
-  ExpenseCategory,
-  Order,
-  OrderCost,
-  PackagingEstimate,
-  Payee,
-} from '@/lib/types';
+import { useGetOrderQuery, useGetPackagingEstimateQuery } from '@/lib/store/endpoints/orders';
+import {
+  useCreateExpenseMutation,
+  useGetExpenseCategoriesQuery,
+  useGetPayeesQuery,
+} from '@/lib/store/endpoints/cost';
 import { Alert, Badge, Card, CardHeader } from '@/components/ui/layout';
-import { Th, Td, Tr, TableWrap } from '@/components/ui/table';
 import { ListSkeleton } from '@/components/ui/skeleton';
-import { Button } from '@/components/ui/button';
-import { Modal } from '@/components/ui/modal';
-import { Field, MoneyInput, Select, Textarea } from '@/components/ui/form';
+import { Button, ButtonLink } from '@/components/ui/button';
+import { Modal, ModalCancel } from '@/components/ui/modal';
+import {
+  Field,
+  FormErrorSummary,
+  MoneyInput,
+  Select,
+  Textarea,
+  focusFirstInvalid,
+} from '@/components/ui/form';
 import { Switch } from '@/components/ui/switch';
-import { orderQueryKey } from '@/components/order-page';
+import { useToast } from '@/components/ui/toast';
 
 /**
  * What this parcel cost the owner, and what packing it takes.
@@ -32,18 +35,6 @@ import { orderQueryKey } from '@/components/order-page';
  * everything here is money going out that is billed to nobody. See
  * docs/adr/0027.
  */
-
-/**
- * The cost block travels on the order response itself, so this reads the cache
- * entry `OrderPage` already filled rather than asking again. Same key, same
- * fetcher, one request.
- */
-function useOrderCost(id: string) {
-  return useQuery({
-    queryKey: orderQueryKey('owner', id),
-    queryFn: () => api.get<{ order: Order; cost: OrderCost }>(`/owner/orders/${encodeURIComponent(id)}`),
-  });
-}
 
 /**
  * Two figures that look alike and are not: what was billed for delivery, and
@@ -59,25 +50,29 @@ function CostRow({ label, value, hint, tone }: {
 }) {
   const colour =
     tone === 'danger'
-      ? 'text-[var(--danger)]'
+      ? 'text-danger'
       : tone === 'success'
-        ? 'text-[var(--success)]'
+        ? 'text-success'
         : tone === 'muted'
-          ? 'text-[var(--muted-fg)]'
+          ? 'text-muted-foreground'
           : '';
   return (
     <div className="flex items-baseline justify-between gap-3 py-1.5">
-      <div>
+      <div className="min-w-0">
         <div className="text-sm">{label}</div>
-        {hint && <div className="text-xs text-[var(--muted-fg)]">{hint}</div>}
+        {hint && <div className="text-xs text-muted-foreground">{hint}</div>}
       </div>
-      <div className={`tabular text-sm font-medium ${colour}`}>{formatMoney(value)}</div>
+      <div className={`tabular shrink-0 text-sm font-medium ${colour}`}>{formatMoney(value)}</div>
     </div>
   );
 }
 
+/**
+ * The cost block travels on the order response itself, so this reads the cache
+ * entry the order page already filled rather than asking again.
+ */
 export function OrderCostPanel({ id }: { id: string }) {
-  const query = useOrderCost(id);
+  const query = useGetOrderQuery({ role: 'owner', id });
   const [adding, setAdding] = useState(false);
   const cost = query.data?.cost;
 
@@ -87,7 +82,7 @@ export function OrderCostPanel({ id }: { id: string }) {
   const isLoss = cost.margin < 0;
 
   return (
-    <Card>
+    <Card id="order-cost" className="scroll-mt-20">
       <CardHeader
         title={t('cost.title')}
         action={
@@ -97,9 +92,9 @@ export function OrderCostPanel({ id }: { id: string }) {
           </Button>
         }
       />
-      <OrderExpenseModal orderId={id} open={adding} onClose={() => setAdding(false)} />
+      {adding && <OrderExpenseModal orderId={id} onClose={() => setAdding(false)} />}
 
-      <div className="divide-y divide-[var(--border)]">
+      <div className="divide-y divide-border">
         <CostRow label={t('cost.goods')} value={cost.goods} />
         <CostRow label={t('cost.packaging')} value={cost.packaging} />
         <CostRow label={t('cost.expenses')} value={cost.expenses} />
@@ -124,13 +119,13 @@ export function OrderCostPanel({ id }: { id: string }) {
       </div>
 
       {cost.items.length > 0 && (
-        <ul className="mt-3 space-y-1 border-t border-[var(--border)] pt-3">
+        <ul className="mt-3 space-y-1 border-t border-border pt-3">
           {cost.items.map((item) => (
             <li key={item.id} className="flex items-baseline justify-between gap-3 text-sm">
-              <span>
+              <span className="min-w-0">
                 {item.categoryNameBn}
                 {item.payeeNameBn && (
-                  <span className="text-[var(--muted-fg)]"> · {item.payeeNameBn}</span>
+                  <span className="text-muted-foreground"> · {item.payeeNameBn}</span>
                 )}
                 {item.paymentStatus === 'unpaid' && (
                   <Badge tone="warning" className="ml-2">
@@ -138,7 +133,7 @@ export function OrderCostPanel({ id }: { id: string }) {
                   </Badge>
                 )}
               </span>
-              <span className="tabular">{formatMoney(item.amount)}</span>
+              <span className="tabular shrink-0">{formatMoney(item.amount)}</span>
             </li>
           ))}
         </ul>
@@ -155,13 +150,12 @@ export function OrderCostPanel({ id }: { id: string }) {
  * not at the packing table. Every figure says it is an estimate, because the
  * recipe says "about one and a half sheets" and nobody counted. See
  * docs/adr/0026.
+ *
+ * Rows rather than a table: four columns in a sideways scroller on a phone hid
+ * the cost column, which is the one the owner opened this to read.
  */
 export function PackagingPanel({ id }: { id: string }) {
-  const estimate = useQuery({
-    queryKey: ['owner', 'order', id, 'packaging'],
-    queryFn: () =>
-      api.get<PackagingEstimate>(`/owner/orders/${encodeURIComponent(id)}/packaging-estimate`),
-  });
+  const estimate = useGetPackagingEstimateQuery({ id });
 
   if (estimate.isLoading) return <Card><ListSkeleton rows={2} /></Card>;
   if (!estimate.data) return null;
@@ -181,7 +175,7 @@ export function PackagingPanel({ id }: { id: string }) {
       />
 
       {rows.length === 0 ? (
-        <p className="text-sm text-[var(--muted-fg)]">{t('packaging.none')}</p>
+        <p className="text-sm text-muted-foreground">{t('packaging.none')}</p>
       ) : (
         <>
           {/*
@@ -204,28 +198,21 @@ export function PackagingPanel({ id }: { id: string }) {
             </Alert>
           )}
 
-          <TableWrap alwaysVisible minWidth="20rem">
-            <thead>
-              <tr>
-                <Th>{t('supply.title')}</Th>
-                <Th align="right">{t('supply.quantity')}</Th>
-                <Th align="right">{t('supply.unitCost')}</Th>
-                <Th align="right">{t('packaging.cost')}</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <Tr key={row.supply}>
-                  <Td>{row.supplyNameBn}</Td>
-                  <Td align="right" className="tabular">{formatNumber(row.quantity)}</Td>
-                  <Td align="right" className="tabular">{formatMoney(row.unitCost)}</Td>
-                  <Td align="right" className="tabular">{formatMoney(row.cost)}</Td>
-                </Tr>
-              ))}
-            </tbody>
-          </TableWrap>
+          <ul className="divide-y divide-border">
+            {rows.map((row) => (
+              <li key={row.supply} className="flex items-baseline justify-between gap-3 py-2 text-sm">
+                <span className="min-w-0">
+                  <span className="block font-medium">{row.supplyNameBn}</span>
+                  <span className="tabular block text-xs text-muted-foreground">
+                    {formatNumber(row.quantity)} × {formatMoney(row.unitCost)}
+                  </span>
+                </span>
+                <span className="tabular shrink-0">{formatMoney(row.cost)}</span>
+              </li>
+            ))}
+          </ul>
 
-          <div className="mt-3 flex items-baseline justify-between gap-3 border-t border-[var(--border)] pt-3">
+          <div className="mt-3 flex items-baseline justify-between gap-3 border-t border-border pt-3">
             <span className="inline-flex items-center gap-2 text-sm">
               <PackageOpen className="h-4 w-4" />
               {t('packaging.cost')}
@@ -235,7 +222,7 @@ export function PackagingPanel({ id }: { id: string }) {
             </span>
           </div>
           {!isRecorded && (
-            <p className="mt-1 text-xs text-[var(--muted-fg)]">{t('recipe.estimateNote')}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{t('recipe.estimateNote')}</p>
           )}
         </>
       )}
@@ -245,6 +232,7 @@ export function PackagingPanel({ id }: { id: string }) {
 
 /**
  * An expense against this one parcel: the courier bill, the home-delivery extra.
+ * Mount only while open.
  *
  * Deliberately not a field on the ship dialog, where an earlier draft of the plan
  * put it. A courier bill usually arrives days after the parcel leaves, and the
@@ -255,141 +243,168 @@ export function PackagingPanel({ id }: { id: string }) {
  * Only **order**-scope categories are offered. A period cost like labour belongs
  * to a day, and the API refuses it here. See docs/adr/0027.
  */
-function OrderExpenseModal({
-  orderId,
-  open,
-  onClose,
-}: {
-  orderId: string;
-  open: boolean;
-  onClose: () => void;
-}) {
-  const queryClient = useQueryClient();
+function OrderExpenseModal({ orderId, onClose }: { orderId: string; onClose: () => void }) {
+  const toast = useToast();
+  const bodyRef = useRef<HTMLDivElement>(null);
   const [categoryId, setCategoryId] = useState('');
   const [amount, setAmount] = useState('');
   const [payeeId, setPayeeId] = useState('');
   const [unpaid, setUnpaid] = useState(false);
   const [paidFrom, setPaidFrom] = useState('cash');
   const [note, setNote] = useState('');
+  const [tried, setTried] = useState(false);
 
-  const categories = useQuery({
-    queryKey: ['owner', 'expense-categories'],
-    queryFn: () => api.get<{ categories: ExpenseCategory[] }>('/owner/expense-categories'),
-    enabled: open,
-  });
-  const payees = useQuery({
-    queryKey: ['owner', 'payees'],
-    queryFn: () => api.get<{ payees: Payee[] }>('/owner/payees'),
-    enabled: open,
-  });
+  const categories = useGetExpenseCategoriesQuery();
+  const payees = useGetPayeesQuery();
+  const [save, saveState] = useCreateExpenseMutation();
 
   // A period category cannot be filed against an order at all.
   const usable = (categories.data?.categories ?? []).filter(
-    (c) => c.scope === 'order' || c.scope === 'both'
+    (c) => !c.isArchived && (c.scope === 'order' || c.scope === 'both')
   );
 
-  const save = useMutation({
-    mutationFn: () =>
-      api.post<{ expense: Expense }>('/owner/expenses', {
+  const errors = fieldErrors(saveState.error);
+  const money = checkMoney(amount);
+  // Unpaid and owed to nobody is not actionable; the API refuses it too.
+  const needsPayee = unpaid && !payeeId;
+
+  const problems = [!categoryId, !money.ok, needsPayee].filter(Boolean).length;
+
+  const submit = async () => {
+    setTried(true);
+    if (problems > 0) {
+      requestAnimationFrame(() => focusFirstInvalid(bodyRef.current));
+      return;
+    }
+    try {
+      await save({
         categoryId,
         amount: Number(amount),
         orderId,
         ...(payeeId ? { payeeId } : {}),
         paymentStatus: unpaid ? 'unpaid' : 'paid',
         ...(unpaid ? {} : { paidFrom }),
-        ...(note ? { note } : {}),
-      }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['owner'] });
+        ...(note.trim() ? { note: note.trim() } : {}),
+      }).unwrap();
+      const category = usable.find((c) => c.id === categoryId)?.nameBn ?? '';
       onClose();
-      setAmount('');
-      setNote('');
-    },
-  });
+      toast(`${category} ${formatMoney(Number(amount))} · ${t('orders.expenseSaved')}`);
+    } catch {
+      // Shown in the sheet: inline per field, or as the summary above the buttons.
+    }
+  };
 
-  const errors = fieldErrors(save.error);
-  const money = checkMoney(amount);
-  // Unpaid and owed to nobody is not actionable; the API refuses it too.
-  const needsPayee = unpaid && !payeeId;
-
-  if (!open) return null;
+  const noCategories = categories.isSuccess && usable.length === 0;
 
   return (
     <Modal
       open
-      onClose={onClose}
+      onClose={saveState.isLoading ? () => {} : onClose}
       title={t('cost.addExpense')}
+      dirty={Boolean(categoryId || amount || payeeId || note.trim())}
+      footerLead={
+        saveState.error && !Object.keys(errors).length ? (
+          <FormErrorSummary message={errorMessage(saveState.error)} />
+        ) : tried && problems > 0 ? (
+          <FormErrorSummary message={t('app.fixFields')} />
+        ) : undefined
+      }
       footer={
         <>
-          <Button variant="outline" onClick={onClose}>
-            {t('app.cancel')}
-          </Button>
-          <Button
-            loading={save.isPending}
-            disabled={!categoryId || !money.ok || needsPayee}
-            onClick={() => save.mutate()}
-          >
+          <ModalCancel disabled={saveState.isLoading} />
+          <Button loading={saveState.isLoading} disabled={noCategories} onClick={submit}>
             {t('app.save')}
           </Button>
         </>
       }
     >
-      {save.error && !Object.keys(errors).length && (
-        <Alert tone="danger">{errorMessage(save.error)}</Alert>
-      )}
+      <div ref={bodyRef}>
+        {noCategories && (
+          <Alert tone="warning" title={t('orders.noOrderCategory')}>
+            <p className="mb-2">{t('orders.noOrderCategoryHelp')}</p>
+            <ButtonLink href="/owner/expenses" size="sm" variant="outline">
+              {t('orders.openExpenses')}
+            </ButtonLink>
+          </Alert>
+        )}
 
-      <Field label={t('expense.category')} error={errors.categoryId} required>
-        <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-          <option value="">-</option>
-          {usable.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.nameBn}
-            </option>
-          ))}
-        </Select>
-      </Field>
+        <div data-invalid={(tried && !categoryId) || undefined}>
+          <Field
+            label={t('expense.category')}
+            htmlFor="order-expense-category"
+            error={errors.categoryId ?? (tried && !categoryId ? t('orders.pickCategory') : undefined)}
+            required
+          >
+            <Select
+              id="order-expense-category"
+              value={categoryId}
+              onChange={(e) => setCategoryId(e.target.value)}
+            >
+              <option value="">{categories.isLoading ? t('customerSms.loading') : t('orders.pickCategory')}</option>
+              {usable.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.nameBn}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
 
-      <Field label={t('expense.amount')} error={errors.amount ?? moneyError(amount)} required>
-        <MoneyInput value={amount} onChange={(e) => setAmount(e.target.value)} />
-      </Field>
-
-      <Field
-        label={t('expense.payee')}
-        error={errors.payeeId}
-        hint={unpaid ? t('expense.unpaidHint') : undefined}
-      >
-        <Select value={payeeId} onChange={(e) => setPayeeId(e.target.value)}>
-          <option value="">-</option>
-          {(payees.data?.payees ?? []).map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.nameBn}
-            </option>
-          ))}
-        </Select>
-      </Field>
-
-      <Switch
-        checked={unpaid}
-        onChange={setUnpaid}
-        label={t('expense.unpaid')}
-        hint={t('expense.unpaidHint')}
-      />
-
-      {!unpaid && (
-        <Field label={t('expense.paidFrom')}>
-          <Select value={paidFrom} onChange={(e) => setPaidFrom(e.target.value)}>
-            {['cash', 'bkash', 'nagad', 'rocket', 'bank'].map((m) => (
-              <option key={m} value={m}>
-                {tPaidFrom(m)}
-              </option>
-            ))}
-          </Select>
+        <Field
+          label={t('expense.amount')}
+          htmlFor="order-expense-amount"
+          error={errors.amount ?? (tried || amount ? moneyError(amount) : undefined)}
+          required
+        >
+          <MoneyInput
+            id="order-expense-amount"
+            value={amount}
+            invalid={tried && !money.ok}
+            onChange={(e) => setAmount(e.target.value)}
+          />
         </Field>
-      )}
 
-      <Field label={t('expense.note')} error={errors.note}>
-        <Textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} />
-      </Field>
+        <div data-invalid={(tried && needsPayee) || undefined}>
+          <Field
+            label={t('expense.payee')}
+            htmlFor="order-expense-payee"
+            error={errors.payeeId ?? (tried && needsPayee ? t('orders.payeeNeeded') : undefined)}
+            hint={unpaid ? t('expense.unpaidHint') : t('app.optional')}
+          >
+            <Select id="order-expense-payee" value={payeeId} onChange={(e) => setPayeeId(e.target.value)}>
+              <option value="">{t('orders.noPayee')}</option>
+              {(payees.data?.payees ?? []).map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.nameBn}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
+
+        <Switch
+          checked={unpaid}
+          onChange={setUnpaid}
+          label={t('expense.unpaid')}
+          hint={t('expense.unpaidHint')}
+        />
+
+        {!unpaid && (
+          <Field label={t('expense.paidFrom')} htmlFor="order-expense-paid-from">
+            <Select id="order-expense-paid-from" value={paidFrom} onChange={(e) => setPaidFrom(e.target.value)}>
+              {['cash', 'bkash', 'nagad', 'rocket', 'bank'].map((m) => (
+                <option key={m} value={m}>
+                  {tPaidFrom(m)}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
+
+        <Field label={t('expense.note')} htmlFor="order-expense-note" error={errors.note} hint={t('app.optional')}>
+          <Textarea id="order-expense-note" value={note} onChange={(e) => setNote(e.target.value)} rows={2} />
+        </Field>
+      </div>
     </Modal>
   );
 }

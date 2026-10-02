@@ -21,8 +21,21 @@ const WALLET_EVENTS = new Set([
 
 const OBJECT_ID = /^[a-f0-9]{24}$/i;
 
+/*
+ * The owner's queues, opened already filtered to what is waiting. Checked before
+ * the order link, so a complaint opens the complaints list rather than its order.
+ */
+const OWNER_QUEUES = Object.freeze({
+  [EVENT_TYPE.DEPOSIT_REQUESTED]: '/owner/finance?tab=deposits&status=pending',
+  [EVENT_TYPE.WITHDRAWAL_REQUESTED]: '/owner/finance?tab=withdrawals&status=pending',
+  [EVENT_TYPE.KYC_SUBMITTED]: '/owner/kyc?status=pending',
+  [EVENT_TYPE.COMPLAINT_CREATED]: '/owner/complaints',
+});
+
 function urlFor(role, eventType, data = {}) {
   const base = role === ROLES.OWNER ? '/owner' : '/reseller';
+  if (role === ROLES.OWNER && OWNER_QUEUES[eventType]) return OWNER_QUEUES[eventType];
+
   const orderId = data && data.orderId ? String(data.orderId) : null;
 
   if (orderId && OBJECT_ID.test(orderId)) return `${base}/orders/${orderId}`;
