@@ -172,6 +172,11 @@ const COPY: Record<string, ErrorCopy> = {
   ALREADY_REVERSED: { message: 'এই হিসাবটি আগেই বাতিল করা হয়েছে।' },
   ALREADY_PAID: { message: 'এই খরচটি আগেই পরিশোধ করা হয়েছে।' },
   EXPENSE_VOIDED: { message: 'বাতিল করা খরচ পরিশোধ করা যায় না।' },
+  NONCE_REUSED: {
+    message: 'আগের চেষ্টাটি অন্য অঙ্কে জমা হয়ে গেছে। হিসাব দেখে নিন, তারপর আবার চেষ্টা করুন।',
+  },
+  DUPLICATE_VARIANT: { message: 'একই মাপের দুটি বক্স রাখা যায় না। মাপ বদলান বা একটি সরান।' },
+  TOO_MANY_VARIANTS: { message: 'একটি পণ্যে ৮টির বেশি বক্স রাখা যায় না।' },
 
   /* malformed requests, which a person should never cause */
   BAD_JSON: {
