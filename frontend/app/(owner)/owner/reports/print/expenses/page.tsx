@@ -22,7 +22,10 @@ import { Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { t, tf, tMethod } from '@/lib/i18n/bn';
 import { formatDate, formatMoney, formatNumber } from '@/lib/format';
+import { skipToken } from '@reduxjs/toolkit/query';
 import { useGetExpenseReportQuery, type ExpenseReportView } from '@/lib/store/endpoints/reports';
+import { useGetExpenseCategoriesQuery, useGetPayeesQuery } from '@/lib/store/endpoints/cost';
+import { useGetOrderQuery } from '@/lib/store/endpoints/orders';
 import { formatRange, type DateRange } from '@/components/ui/date-range';
 import {
   Figure,
@@ -59,7 +62,7 @@ export default function ExpenseReportPage() {
 
 function ExpenseReportView() {
   const params = useSearchParams();
-  const sheet = useSheetRange();
+  const sheet = useSheetRange('thisMonth');
   const filters = {
     categoryId: params.get('categoryId') ?? '',
     payeeId: params.get('payeeId') ?? '',
@@ -69,6 +72,15 @@ function ExpenseReportView() {
   };
 
   const report = useGetExpenseReportQuery({ ...(sheet.range ?? {}), ...filters });
+
+  /*
+   * The filters are named from their own records, not from the rows they
+   * selected: a filter that matched nothing would otherwise print as an
+   * unfiltered, empty sheet. Each read is skipped unless its filter is on.
+   */
+  const categories = useGetExpenseCategoriesQuery({ includeArchived: true }, { skip: !filters.categoryId });
+  const payees = useGetPayeesQuery({ includeArchived: true }, { skip: !filters.payeeId });
+  const order = useGetOrderQuery(filters.orderId ? { role: 'owner', id: filters.orderId } : skipToken);
 
   useAutoPrint(report.isSuccess && !report.isFetching, sheet.auto);
 
@@ -101,11 +113,15 @@ function ExpenseReportView() {
   const periodScope = data.byCategory.filter((row) => row.scope === 'period');
   const rows = data.rows ?? [];
 
-  // The filters in words, from the rows they selected, so the paper says what it is a slice of.
+  // The filters in words, so the paper says what it is a slice of.
   const filterWords = [
-    filters.categoryId ? data.byCategory[0]?.nameBn : undefined,
-    filters.payeeId ? rows[0]?.payeeNameBn : undefined,
-    filters.orderId ? rows[0]?.orderCode : undefined,
+    filters.categoryId
+      ? (categories.data?.categories.find((item) => item.id === filters.categoryId)?.nameBn ?? t('app.loading'))
+      : undefined,
+    filters.payeeId
+      ? (payees.data?.payees.find((item) => item.id === filters.payeeId)?.nameBn ?? t('app.loading'))
+      : undefined,
+    filters.orderId ? (order.data?.order.orderCode ?? t('app.loading')) : undefined,
     filters.scope === 'order' || filters.scope === 'period' ? scopeWord(filters.scope) : undefined,
     filters.paymentStatus === 'paid'
       ? t('expense.paid')

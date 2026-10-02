@@ -208,8 +208,10 @@ export type ReportLinkOptions = {
 /**
  * The href for one report, carrying the range and anything else it filters on.
  *
- * No range and no preset sends no dates at all, which each sheet reads as its
- * own default: all time, or today for the collection list.
+ * A screen that passes no range means all time, and says so (`range=all`),
+ * because a sheet opened bare falls back to its own default — this month for
+ * the cost sheets. The collection list is the exception: no dates there means
+ * today, which is what the dashboard's button asks for.
  */
 export function reportHref(kind: ReportKind, range: DateRange, options: ReportLinkOptions = {}): Route {
   const { extra, auto = true, preset } = options;
@@ -223,6 +225,8 @@ export function reportHref(kind: ReportKind, range: DateRange, options: ReportLi
       params.set('range', 'custom');
       params.set('from', range.from);
       params.set('to', range.to);
+    } else if (kind !== 'pick-list') {
+      params.set('range', 'all');
     }
   }
   Object.entries(extra ?? {}).forEach(([key, value]) => {

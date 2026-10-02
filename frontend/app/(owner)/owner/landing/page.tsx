@@ -1,6 +1,7 @@
 'use client';
 
-import { useDeferredValue, useMemo, useRef, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronDown, ChevronUp, Eye, PencilLine, Plus, Trash2 } from 'lucide-react';
 import { errorMessage, fieldErrors } from '@/lib/api';
 import { t, tf, type DictKey } from '@/lib/i18n/bn';
@@ -547,6 +548,11 @@ function Preview({
     };
   }, [deferred, live.heroImages, live.reviews, products.data, template]);
 
+  // Below `lg` the pane is already a phone's width; the choice only exists beside the form.
+  const wide = useIsWide();
+  const [frame, setFrame] = useState<'phone' | 'wide'>('phone');
+  const page = <LandingPage template={template} slug="preview" shop={shop} zones={[]} preview />;
+
   return (
     <section aria-label={t('landingEditor.tabPreview')}>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -561,21 +567,116 @@ function Preview({
           options={LANDING_TEMPLATES.map((design) => ({ value: design.id, label: t(design.labelKey) }))}
         />
       </div>
-      <p className="mb-3 text-xs text-muted-foreground">{t('landingEditor.previewHint')}</p>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <p className="min-w-0 flex-1 text-xs text-muted-foreground">{t('landingEditor.previewHint')}</p>
+        {wide && (
+          <Segmented
+            label={t('landingEditor.frame')}
+            value={frame}
+            onChange={setFrame}
+            options={[
+              { value: 'phone', label: t('landingEditor.framePhone') },
+              { value: 'wide', label: t('landingEditor.frameWide') },
+            ]}
+          />
+        )}
+      </div>
       {/*
        * Its own scroller, so the design's sticky header sticks to the pane and
        * not over the app's own header; `isolate` keeps its z-index inside. Links
-       * are inert here: a preview is for looking, not for leaving.
+       * are inert here: a preview is for looking, not for leaving (React events
+       * from the phone frame's portal bubble here too).
        */}
       <div
-        className="isolate h-[75dvh] overflow-y-auto overscroll-contain rounded-2xl border border-border lg:h-[calc(100dvh-11rem)]"
+        className={cn(
+          'isolate mx-auto h-[75dvh] overflow-y-auto overscroll-contain rounded-2xl border border-border lg:h-[calc(100dvh-13rem)]',
+          wide && frame === 'phone' && 'max-w-[390px] overflow-hidden'
+        )}
         onClickCapture={(event) => {
           if ((event.target as Element).closest('a')) event.preventDefault();
         }}
       >
-        <LandingPage template={template} slug="preview" shop={shop} zones={[]} preview />
+        {wide && frame === 'phone' ? (
+          <PhoneFrame title={t('landingEditor.tabPreview')}>{page}</PhoneFrame>
+        ) : (
+          page
+        )}
       </div>
     </section>
+  );
+}
+
+/** Whether the viewport is at least `lg`, read from the browser, false on the server. */
+function useIsWide(): boolean {
+  return useSyncExternalStore(
+    (onChange) => {
+      const query = window.matchMedia('(min-width: 1024px)');
+      query.addEventListener('change', onChange);
+      return () => query.removeEventListener('change', onChange);
+    },
+    () => window.matchMedia('(min-width: 1024px)').matches,
+    () => false
+  );
+}
+
+/**
+ * The page at a phone's width, as a phone would lay it out.
+ *
+ * A narrow box is not enough: the designs switch layout on the viewport's
+ * width (`sm:`, `md:`), so a 390px box on a desktop still drew the desktop
+ * layout, squeezed. An iframe has its own viewport, so its media queries see
+ * 390px. The page is rendered into it through a portal, which keeps it in this
+ * React tree (state, the store, events), with the app's stylesheets copied in.
+ */
+function PhoneFrame({ title, children }: { title: string; children: React.ReactNode }) {
+  const frameRef = useRef<HTMLIFrameElement>(null);
+  const [body, setBody] = useState<HTMLElement | null>(null);
+
+  useEffect(() => {
+    const frame = frameRef.current;
+    if (!frame) return undefined;
+    let observer: MutationObserver | null = null;
+
+    const sync = (doc: Document) => {
+      doc.head.querySelectorAll('[data-preview-copy]').forEach((node) => node.remove());
+      document.head.querySelectorAll('link[rel="stylesheet"], style').forEach((node) => {
+        const copy = node.cloneNode(true) as HTMLElement;
+        copy.setAttribute('data-preview-copy', '');
+        doc.head.appendChild(copy);
+      });
+      ['lang', 'class', 'data-theme', 'style'].forEach((name) => {
+        const value = document.documentElement.getAttribute(name);
+        if (value === null) doc.documentElement.removeAttribute(name);
+        else doc.documentElement.setAttribute(name, value);
+      });
+      doc.body.className = document.body.className;
+    };
+
+    // Firefox swaps the blank document out on load, so set up on load as well.
+    const setup = () => {
+      const doc = frame.contentDocument;
+      if (!doc?.body) return;
+      sync(doc);
+      observer?.disconnect();
+      // Development adds styles as modules load; production has them all already.
+      observer = new MutationObserver(() => sync(doc));
+      observer.observe(document.head, { childList: true });
+      setBody(doc.body);
+    };
+
+    setup();
+    frame.addEventListener('load', setup);
+    return () => {
+      frame.removeEventListener('load', setup);
+      observer?.disconnect();
+    };
+  }, []);
+
+  return (
+    <>
+      <iframe ref={frameRef} title={title} className="block h-full w-full border-0 bg-background" />
+      {body && createPortal(children, body)}
+    </>
   );
 }
 

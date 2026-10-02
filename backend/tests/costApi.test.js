@@ -19,6 +19,8 @@ const app = require('../src/app');
 const tokens = require('../src/services/tokens');
 const orderService = require('../src/services/orderService');
 const expenseService = require('../src/services/expenseService');
+const payeeLedger = require('../src/services/payeeLedger');
+const { withTransaction } = require('../src/services/tx');
 
 const Supply = require('../src/models/Supply');
 const Payee = require('../src/models/Payee');
@@ -1126,4 +1128,176 @@ test('the expense sheet takes the list filters and itemises the expenses', async
   const csv = await api.get('/api/owner/exports/expenses.csv?paymentStatus=unpaid').expect(200);
   assert.match(csv.text, /পরিবহন খরচ/);
   assert.doesNotMatch(csv.text, /লেবার খরচ/);
+});
+
+/* ---------------------------------------------------- PLAN-4 lead follow-ups */
+
+test('a payment nonce resubmitted with a different amount is refused, not answered', async () => {
+  const { api, payeeId } = await setup();
+  const key = nonce();
+
+  const first = await api
+    .post(`/api/owner/payees/${payeeId}/payments`)
+    .send({ amount: 5000, nonce: key })
+    .expect(201);
+
+  // The response to "pay 5000" was lost; the owner corrects it to 500 and sends
+  // the same sheet again. Answering with the 5000 entry would toast ৳500.
+  const corrected = await api
+    .post(`/api/owner/payees/${payeeId}/payments`)
+    .send({ amount: 500, nonce: key });
+  assert.equal(corrected.status, 409);
+  assert.equal(corrected.body.error.code, 'NONCE_REUSED');
+  assert.equal((await Payee.findById(payeeId)).duePoisha, -500000, 'nothing more moved');
+
+  // An honest retry of the same form still answers with the entry it made.
+  const retry = await api
+    .post(`/api/owner/payees/${payeeId}/payments`)
+    .send({ amount: 5000, nonce: key })
+    .expect(201);
+  assert.equal(retry.body.data.entry.id, first.body.data.entry.id);
+
+  // The key is scoped to the payee: the same nonce elsewhere is its own payment.
+  const other = await newPayee(api, 'অন্য');
+  await api
+    .post(`/api/owner/payees/${other}/payments`)
+    .send({ amount: 5000, nonce: key })
+    .expect(201);
+  assert.equal((await Payee.findById(other)).duePoisha, -500000);
+  assert.equal((await Payee.findById(payeeId)).duePoisha, -500000);
+});
+
+test('a payment posted under the old global key still answers its retry', async () => {
+  const { api, payeeId } = await setup();
+  const key = nonce();
+
+  // Written before keys were scoped to the payee.
+  const legacy = await withTransaction((session) =>
+    payeeLedger.postEntry(session, {
+      payee: payeeId,
+      kind: PAYEE_LEDGER_KIND.PAYMENT,
+      amountPoisha: -30000,
+      idempotencyKey: `payment:${key}:v1`,
+      refType: 'payment',
+    })
+  );
+
+  const retry = await api
+    .post(`/api/owner/payees/${payeeId}/payments`)
+    .send({ amount: 300, nonce: key })
+    .expect(201);
+  assert.equal(retry.body.data.entry.id, String(legacy._id));
+  assert.equal((await Payee.findById(payeeId)).duePoisha, -30000, 'paid once');
+
+  const changed = await api
+    .post(`/api/owner/payees/${payeeId}/payments`)
+    .send({ amount: 400, nonce: key });
+  assert.equal(changed.status, 409);
+  assert.equal(changed.body.error.code, 'NONCE_REUSED');
+});
+
+test('a hand-typed payee entry refuses a reused nonce and a third decimal', async () => {
+  const { api, payeeId } = await setup();
+  const key = nonce();
+
+  await api
+    .post(`/api/owner/payees/${payeeId}/ledger`)
+    .send({ kind: PAYEE_LEDGER_KIND.OPENING, amount: 1200, nonce: key })
+    .expect(201);
+  const reused = await api
+    .post(`/api/owner/payees/${payeeId}/ledger`)
+    .send({ kind: PAYEE_LEDGER_KIND.OPENING, amount: 120, nonce: key });
+  assert.equal(reused.status, 409);
+  assert.equal(reused.body.error.code, 'NONCE_REUSED');
+  assert.equal((await Payee.findById(payeeId)).duePoisha, 120000);
+
+  // 0.001 taka has no poisha to land on. It used to round to zero and 500.
+  const tiny = await api
+    .post(`/api/owner/payees/${payeeId}/ledger`)
+    .send({ kind: PAYEE_LEDGER_KIND.ADJUSTMENT, amount: 0.001, nonce: nonce() });
+  assert.equal(tiny.status, 400);
+  assert.equal(tiny.body.error.code, 'VALIDATION_FAILED');
+  assert.ok(tiny.body.error.fields.amount);
+
+  await api
+    .post(`/api/owner/payees/${payeeId}/ledger`)
+    .send({ kind: PAYEE_LEDGER_KIND.ADJUSTMENT, amount: 10.25, nonce: nonce() })
+    .expect(201);
+  assert.equal((await Payee.findById(payeeId)).duePoisha, 121025);
+});
+
+test('a purchase cannot be dated after today: the goods are in hand when it is recorded', async () => {
+  const { api, crateId, payeeId } = await setup();
+
+  const tomorrow = await api.post('/api/owner/purchases').send({
+    payeeId,
+    lines: [{ supplyId: crateId, quantity: 10, unitCost: 80 }],
+    date: dayOffset(1),
+  });
+  assert.equal(tomorrow.status, 400);
+  assert.equal(tomorrow.body.error.code, 'VALIDATION_FAILED');
+  assert.ok(tomorrow.body.error.fields.date);
+  assert.equal((await Supply.findById(crateId)).onHandMilli, 0, 'nothing shelved');
+
+  await buy(api, { payeeId, crateId, date: businessDate() });
+});
+
+test('reversing the payment of an order expense names the order to refresh', async () => {
+  const { api, payeeId } = await setup();
+  await api.post('/api/owner/expense-categories/seed');
+  const courier = await ExpenseCategory.findOne({ nameBn: 'কুরিয়ার খরচ' });
+  const labour = await ExpenseCategory.findOne({ nameBn: 'লেবার খরচ' });
+
+  const { profile } = await f.makeReseller({ creditLimit: 100000 });
+  await f.makeZone({ districts: ['Dhaka'], charge: 80 });
+  const product = await f.makeProduct({ cost: 55 });
+  await f.listProduct(profile, product, 60);
+  const { order } = await orderService.createPendingOrder({
+    resellerProfile: profile,
+    paymentMode: PAYMENT_MODE.PREPAID,
+    customer: {
+      name: 'Customer',
+      phoneE164: '+8801912345678',
+      address: '12 Test Road',
+      district: 'Dhaka',
+    },
+    items: [{ product: product._id, variant: product.variants[0]._id, qty: 1 }],
+  });
+
+  const settleAndReverse = async (body) => {
+    const created = await api
+      .post('/api/owner/expenses')
+      .send({ ...body, payeeId, paymentStatus: 'unpaid' })
+      .expect(201);
+    const marked = await api
+      .post(`/api/owner/expenses/${created.body.data.expense.id}/mark-paid`)
+      .send({ paidFrom: 'cash' })
+      .expect(200);
+    return api
+      .post(`/api/owner/payees/${payeeId}/ledger/${marked.body.data.expense.paymentEntry}/reverse`)
+      .send({ reason: 'not paid yet' })
+      .expect(201);
+  };
+
+  const onOrder = await settleAndReverse({
+    categoryId: courier._id,
+    amount: 120,
+    orderId: String(order._id),
+  });
+  assert.equal(onOrder.body.data.reopenedExpenseOrderId, String(order._id));
+
+  const onPeriod = await settleAndReverse({ categoryId: labour._id, amount: 300 });
+  assert.ok(onPeriod.body.data.reopenedExpenseId);
+  assert.equal(onPeriod.body.data.reopenedExpenseOrderId, null);
+
+  // A payment that settled nothing reopens nothing.
+  const plain = await api
+    .post(`/api/owner/payees/${payeeId}/payments`)
+    .send({ amount: 50, nonce: nonce() });
+  const back = await api
+    .post(`/api/owner/payees/${payeeId}/ledger/${plain.body.data.entry.id}/reverse`)
+    .send({ reason: 'wrong payee' })
+    .expect(201);
+  assert.equal(back.body.data.reopenedExpenseId, null);
+  assert.equal(back.body.data.reopenedExpenseOrderId, null);
 });

@@ -1,12 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { KeyRound, LogOut, MonitorSmartphone, ShieldAlert, Smartphone } from 'lucide-react';
 import { ApiError, errorMessage, fieldErrors } from '@/lib/api';
-import { useSession } from '@/lib/session';
-import { useAppDispatch } from '@/lib/store/hooks';
-import { api } from '@/lib/store/api';
+import { leaveToLogin, useSession } from '@/lib/session';
 import {
   useChangePasswordMutation,
   useChangePhoneMutation,
@@ -145,9 +142,6 @@ function PasswordCard({ mustChange }: { mustChange: boolean }) {
  * code.
  */
 function PhoneCard({ current }: { current: string }) {
-  const router = useRouter();
-  const dispatch = useAppDispatch();
-  const toast = useToast();
   const [step, setStep] = useState<'phone' | 'code'>('phone');
   const [newPhone, setNewPhone] = useState('');
   const [code, setCode] = useState('');
@@ -212,10 +206,9 @@ function PhoneCard({ current }: { current: string }) {
             event.preventDefault();
             try {
               await change({ newPhone, otp: code, password }).unwrap();
-              // Signed out on the server already. Nothing from this session may linger.
-              dispatch(api.util.resetApiState());
-              toast(t('account.phoneChanged'));
-              router.replace('/login');
+              // Signed out on the server already. A full page load leaves nothing
+              // from this session in memory and fires no requests on the way out.
+              leaveToLogin();
             } catch {
               // Shown beside the fields below.
             }

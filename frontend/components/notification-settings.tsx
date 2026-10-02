@@ -1,17 +1,18 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import type { Route } from 'next';
 import { ChevronRight, Lock, MailWarning, Send } from 'lucide-react';
 import { errorMessage } from '@/lib/api';
 import { useSession } from '@/lib/session';
+import { useAppDispatch } from '@/lib/store/hooks';
 import {
   useCreateTelegramLinkTokenMutation,
   useGetNotificationPreferencesQuery,
   useGetTelegramStatusQuery,
+  notificationsApi,
   useUnlinkTelegramMutation,
-  useUpdateNotificationPreferenceMutation,
   useUpdateNotificationPreferencesMutation,
   type PreferenceChange,
 } from '@/lib/store/endpoints/notifications';
@@ -291,30 +292,58 @@ function unavailableReason(
 function PreferencesCard({ role }: { role: Role }) {
   const toast = useToast();
   const prefs = useGetNotificationPreferencesQuery({ role });
-  const [saveOne] = useUpdateNotificationPreferenceMutation();
-  const [saveMany] = useUpdateNotificationPreferencesMutation();
+  const dispatch = useAppDispatch();
+  const [save] = useUpdateNotificationPreferencesMutation();
+  // Saves run one after another; `waiting` counts the ones not yet answered.
+  const queue = useRef<Promise<void>>(Promise.resolve());
+  const waiting = useRef(0);
   const [failed, setFailed] = useState<Record<string, string>>({});
 
   const data = prefs.data;
 
-  const change = async (changes: PreferenceChange[]) => {
+  /*
+   * A switch moves on screen at once and its save joins a queue. Each answer is
+   * the whole preference set, so it becomes the cached copy only when nothing
+   * else is still waiting: an earlier answer arriving after a later tap must
+   * not flip that tap back. A failure with nothing behind it re-reads the
+   * server's set; with saves behind it, the last answer already is that set.
+   */
+  const change = (changes: PreferenceChange[]) => {
     const events = changes.map((c) => c.eventType);
     setFailed((current) => {
       const next = { ...current };
       events.forEach((event) => delete next[event]);
       return next;
     });
-    try {
-      if (changes.length === 1) await saveOne({ role, change: changes[0] }).unwrap();
-      else await saveMany({ role, changes }).unwrap();
-    } catch (error) {
-      const message = errorMessage(error);
-      setFailed((current) => ({
-        ...current,
-        ...Object.fromEntries(events.map((event) => [event, message])),
-      }));
-      toast(tf('prefs.saveFailed', { event: eventName(changes[0].eventType) }), 'danger');
-    }
+    dispatch(
+      notificationsApi.util.updateQueryData('getNotificationPreferences', { role }, (draft) => {
+        draft.groups.forEach((group) => {
+          group.events.forEach((row) => {
+            const found = changes.find((c) => c.eventType === row.eventType);
+            if (found) Object.assign(row, found);
+          });
+        });
+      })
+    );
+    waiting.current += 1;
+    queue.current = queue.current.then(async () => {
+      try {
+        const answer = await save({ role, changes }).unwrap();
+        waiting.current -= 1;
+        if (waiting.current === 0) {
+          dispatch(notificationsApi.util.upsertQueryData('getNotificationPreferences', { role }, answer));
+        }
+      } catch (error) {
+        waiting.current -= 1;
+        if (waiting.current === 0) dispatch(notificationsApi.util.invalidateTags(['NotificationPrefs']));
+        const message = errorMessage(error);
+        setFailed((current) => ({
+          ...current,
+          ...Object.fromEntries(events.map((event) => [event, message])),
+        }));
+        toast(tf('prefs.saveFailed', { event: eventName(changes[0].eventType) }), 'danger');
+      }
+    });
   };
 
   const reasons = data

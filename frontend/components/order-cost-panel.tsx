@@ -12,7 +12,7 @@ import {
   useGetExpenseCategoriesQuery,
   useGetPayeesQuery,
 } from '@/lib/store/endpoints/cost';
-import { Alert, Badge, Card, CardHeader } from '@/components/ui/layout';
+import { Alert, Badge, Card, CardHeader, ErrorState } from '@/components/ui/layout';
 import { ListSkeleton } from '@/components/ui/skeleton';
 import { Button, ButtonLink } from '@/components/ui/button';
 import { Modal, ModalCancel } from '@/components/ui/modal';
@@ -77,6 +77,16 @@ export function OrderCostPanel({ id }: { id: string }) {
   const cost = query.data?.cost;
 
   if (query.isLoading) return <Card><ListSkeleton rows={3} /></Card>;
+  // The order page above already says when the order itself failed; this says
+  // the costs did, rather than the panel quietly not being there.
+  if (query.isError && !cost) {
+    return (
+      <Card>
+        <CardHeader title={t('cost.title')} />
+        <ErrorState onRetry={() => query.refetch()} isRetrying={query.isFetching} error={query.error} />
+      </Card>
+    );
+  }
   if (!cost) return null;
 
   const isLoss = cost.margin < 0;
@@ -158,6 +168,18 @@ export function PackagingPanel({ id }: { id: string }) {
   const estimate = useGetPackagingEstimateQuery({ id });
 
   if (estimate.isLoading) return <Card><ListSkeleton rows={2} /></Card>;
+  if (estimate.isError && !estimate.data) {
+    return (
+      <Card>
+        <CardHeader title={t('packaging.title')} />
+        <ErrorState
+          onRetry={() => estimate.refetch()}
+          isRetrying={estimate.isFetching}
+          error={estimate.error}
+        />
+      </Card>
+    );
+  }
   if (!estimate.data) return null;
 
   const { rows, cost, shortages, isRecorded, recordedCost } = estimate.data;

@@ -27,6 +27,8 @@ const Order = require('../src/models/Order');
 const Deposit = require('../src/models/Deposit');
 const Withdrawal = require('../src/models/Withdrawal');
 const ResellerProfile = require('../src/models/ResellerProfile');
+const LedgerEntry = require('../src/models/LedgerEntry');
+const AuditLog = require('../src/models/AuditLog');
 
 const { toPoisha } = require('../src/utils/money');
 const { LEDGER_KIND, PAYMENT_MODE, ROLES, ORDER_STATUS } = require('../src/domain/constants');
@@ -350,4 +352,34 @@ test('the deactivation preview counts exactly what deactivating then cancels', a
 
   const missing = await api.get('/api/owner/resellers/64b000000000000000000000/deactivation-preview');
   assert.equal(missing.status, 404);
+});
+
+test('a manual wallet entry retried with its nonce credits once, and a changed one is refused', async () => {
+  const owner = await f.makeOwner();
+  const api = as(owner.user);
+  const { profile } = await f.makeReseller();
+  const url = `/api/owner/resellers/${profile._id}/ledger`;
+  const key = crypto.randomUUID();
+  const body = { amount: 100, direction: 'credit', note: 'cash at the counter', nonce: key };
+
+  const first = await api.post(url).send(body).expect(201);
+  // The response was lost and the form sent again.
+  const retry = await api.post(url).send(body).expect(201);
+  assert.equal(retry.body.data.entry.id, first.body.data.entry.id);
+  assert.equal((await ResellerProfile.findById(profile._id)).balancePoisha, 10000);
+  assert.equal(await LedgerEntry.countDocuments({ reseller: profile._id }), 1);
+  assert.equal(await AuditLog.countDocuments({ action: 'ledger.manual' }), 1, 'audited once');
+
+  const changed = await api.post(url).send({ ...body, amount: 200 });
+  assert.equal(changed.status, 409);
+  assert.equal(changed.body.error.code, 'NONCE_REUSED');
+  const flipped = await api.post(url).send({ ...body, direction: 'debit' });
+  assert.equal(flipped.status, 409);
+  assert.equal((await ResellerProfile.findById(profile._id)).balancePoisha, 10000);
+
+  // Without a nonce, as older screens send it, every submit is its own entry.
+  const plain = { amount: 100, direction: 'credit', note: 'cash at the counter' };
+  await api.post(url).send(plain).expect(201);
+  await api.post(url).send(plain).expect(201);
+  assert.equal((await ResellerProfile.findById(profile._id)).balancePoisha, 30000);
 });

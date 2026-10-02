@@ -230,4 +230,19 @@ export const catalog = {
   'photos.removeAsk': 'সরাবেন?',
   'photos.makeCover': 'কভার করুন',
   'photos.coverSet': 'কভার ছবি বদলানো হয়েছে',
+
+  /* review follow-ups ------------------------------------------------------- */
+  'products.recipeMissing': 'এই পণ্যটি বিক্রির তালিকায় নেই — সরিয়ে রাখা হয়েছে বা মুছে গেছে',
+  'products.stockNowIs': 'এখন স্টকে আছে {n} বক্স — সংখ্যা দেখে আবার চেষ্টা করুন',
+  'supplies.healthTitle': 'হিসাবে অসঙ্গতি — গুনে ঠিক করুন',
+  'supplies.healthHelp':
+    'খাতার হিসাব আর জমা থাকা সংখ্যা মিলছে না। গুদামে গুনে আসল সংখ্যাটা লিখলে ঠিক হয়ে যাবে। বারবার হলে আমাদের জানান।',
+  'recipes.archivedSupply': 'সরিয়ে রাখা: {name}',
+  'recipes.archivedHint': 'এই মাল সরিয়ে রাখা — অন্য মাল বেছে নিন, নইলে সারিটা সরিয়ে দিন',
+  'zones.chargeHintNew': 'রিসেলারের কাছ থেকে যা নেবেন; নতুন অর্ডারে লাগবে',
+  'zones.chargeHintEdit':
+    'রিসেলারের কাছ থেকে যা নেবেন। বদলালে শুধু নতুন অর্ডারে নতুন চার্জ লাগবে; আগের অর্ডার বদলাবে না।',
+  'landingEditor.frame': 'কোন পর্দায় দেখাবে',
+  'landingEditor.framePhone': 'ফোন',
+  'landingEditor.frameWide': 'বড় পর্দা',
 } as const;

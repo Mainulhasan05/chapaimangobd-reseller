@@ -167,6 +167,9 @@ const variantStock = z
   .object({
     set: boxCount.nonnegative().max(1000000).optional(),
     add: boxCount.min(-1000000).max(1000000).optional(),
+    // The screen's key for this one change, so a retry after a lost response
+    // applies it once. Optional; without it every request is applied.
+    nonce: z.string().trim().min(8, 'A request key is required').max(64).optional(),
   })
   .strict()
   .refine((v) => (v.set === undefined) !== (v.add === undefined), {
@@ -174,6 +177,9 @@ const variantStock = z
     path: ['set'],
   })
   .refine((v) => v.add !== 0, { message: 'Add a number other than zero', path: ['add'] });
+
+/** Which photo leads, named by its handle (the ImgBB id or, for an old image, the R2 key). */
+const productCover = z.object({ imageId: z.string().trim().min(1).max(512) });
 
 /* delivery zones */
 const createZone = z.object({
@@ -571,6 +577,7 @@ module.exports = {
   createProduct,
   updateProduct,
   variantStock,
+  productCover,
   createZone,
   updateZone,
   updateReseller,

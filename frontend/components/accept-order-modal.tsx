@@ -155,7 +155,7 @@ export function AcceptOrderModal({
       footerLead={
         error ? (
           <FormErrorSummary message={error} />
-        ) : tried && missing.length > 0 ? (
+        ) : tried && missing.length > 0 && available.length > 0 ? (
           <FormErrorSummary message={tf('orders.sourcesMissing', { count: formatNumber(missing.length) })} />
         ) : sms.preparing ? (
           <p className="text-xs text-muted-foreground">{t('orders.smsPreparing')}</p>
@@ -196,8 +196,13 @@ export function AcceptOrderModal({
         <>
           <p className="mb-4 text-sm text-muted-foreground">{t('order.sourceHelp')}</p>
 
-          {sources.isError && (
-            <FormErrorSummary message={errorMessage(sources.error)} />
+          {sources.isError && available.length === 0 && (
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-danger-soft px-3 py-2 text-sm font-medium text-danger-ink" role="alert">
+              <span>{errorMessage(sources.error)}</span>
+              <Button size="sm" variant="outline" loading={sources.isFetching} onClick={() => sources.refetch()}>
+                {t('app.retry')}
+              </Button>
+            </div>
           )}
 
           {/* The shortcut, only worth showing when there is more than one line. */}

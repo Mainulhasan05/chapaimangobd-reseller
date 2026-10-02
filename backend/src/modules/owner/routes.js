@@ -87,6 +87,12 @@ router.delete('/products/:id', asyncHandler(catalog.archiveProduct));
 router.post('/products/:id/restore', asyncHandler(catalog.restoreProduct));
 // Which photo leads: the cover every shop shows on the product card.
 router.post('/products/:id/images/:imageId/cover', asyncHandler(catalog.setProductCover));
+// The same, with the handle in the body: an ImgBB id or R2 key in a path is awkward.
+router.post(
+  '/products/:id/cover',
+  validate({ body: schema.productCover }),
+  asyncHandler(catalog.setProductCover)
+);
 /*
  * One box's stock count, set or added to atomically. The product form never
  * carries stock for an existing box, so an edit cannot put back boxes an order

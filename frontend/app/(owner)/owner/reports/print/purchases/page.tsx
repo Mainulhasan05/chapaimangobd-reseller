@@ -24,6 +24,8 @@ import { t, tf, tUnit } from '@/lib/i18n/bn';
 import { formatDate, formatMoney, formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useGetPurchaseReportQuery } from '@/lib/store/endpoints/reports';
+import { useGetPayeesQuery } from '@/lib/store/endpoints/cost';
+import { useGetSuppliesQuery } from '@/lib/store/endpoints/catalog';
 import { formatRange, type DateRange } from '@/components/ui/date-range';
 import {
   Figure,
@@ -54,12 +56,20 @@ export default function PurchaseReportPage() {
 
 function PurchaseReportView() {
   const params = useSearchParams();
-  const sheet = useSheetRange();
+  const sheet = useSheetRange('thisMonth');
   const payeeId = params.get('payeeId') ?? '';
   const supplyId = params.get('supplyId') ?? '';
   const status = params.get('status') ?? '';
 
   const report = useGetPurchaseReportQuery({ ...(sheet.range ?? {}), payeeId, supplyId, status });
+
+  /*
+   * The filters are named from their own records, not from the rows they
+   * selected: a filter that matched nothing would otherwise print as an
+   * unfiltered, empty sheet. Each read is skipped unless its filter is on.
+   */
+  const payees = useGetPayeesQuery({ includeArchived: true }, { skip: !payeeId });
+  const supplies = useGetSuppliesQuery({ includeArchived: true }, { skip: !supplyId });
 
   useAutoPrint(report.isSuccess && !report.isFetching, sheet.auto);
 
@@ -90,10 +100,12 @@ function PurchaseReportView() {
     (data.range.from && data.range.to ? { from: data.range.from, to: data.range.to } : null);
   const rows = data.rows ?? [];
 
-  // The filters in words, from the rows they selected, so the paper says what it is a slice of.
+  // The filters in words, so the paper says what it is a slice of.
   const filterWords = [
-    payeeId ? (data.byPayee[0]?.nameBn ?? rows[0]?.payeeNameBn) : undefined,
-    supplyId ? data.bySupply[0]?.nameBn : undefined,
+    payeeId ? (payees.data?.payees.find((item) => item.id === payeeId)?.nameBn ?? t('app.loading')) : undefined,
+    supplyId
+      ? (supplies.data?.supplies.find((item) => item.id === supplyId)?.nameBn ?? t('app.loading'))
+      : undefined,
     status === 'cancelled' ? t('purchase.cancelled') : status === 'received' ? t('purchase.recorded') : undefined,
   ].filter(Boolean);
 

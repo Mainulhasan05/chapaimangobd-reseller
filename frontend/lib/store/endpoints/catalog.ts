@@ -29,9 +29,10 @@ export type ProductsArgs = { archived?: 'only' };
 
 /**
  * One box's stock: the count somebody just took (`set`) or a change to it
- * (`add`, negative to take some away). Exactly one of the two.
+ * (`add`, negative to take some away). Exactly one of the two. `nonce`, one per
+ * opened sheet, makes a retry after a lost answer apply the change only once.
  */
-export type VariantStockInput = { productId: string; variantId: string } & (
+export type VariantStockInput = { productId: string; variantId: string; nonce?: string } & (
   | { set: number; add?: never }
   | { add: number; set?: never }
 );
@@ -136,10 +137,10 @@ export const catalogApi = api.injectEndpoints({
      * of the catalog. Resellers' catalogs and the dashboard follow by tag.
      */
     setVariantStock: build.mutation<{ product: OwnerProduct }, VariantStockInput>({
-      query: ({ productId, variantId, set, add }) => ({
+      query: ({ productId, variantId, set, add, nonce }) => ({
         url: `/owner/products/${productId}/variants/${variantId}/stock`,
         method: 'PATCH',
-        body: set !== undefined ? { set } : { add },
+        body: { ...(set !== undefined ? { set } : { add }), ...(nonce ? { nonce } : {}) },
       }),
       onQueryStarted: async (_arg, { dispatch, getState, queryFulfilled }) => {
         try {
@@ -175,9 +176,12 @@ export const catalogApi = api.injectEndpoints({
 
     // The cover is what every shop's product card shows, so the reseller catalog moves too.
     setProductCover: build.mutation<{ product: OwnerProduct }, { id: string; imageId: string }>({
+      // The handle goes in the body: an older R2 key holds "/", which an
+      // encoded path segment does not survive through the /api rewrite.
       query: ({ id, imageId }) => ({
-        url: `/owner/products/${id}/images/${encodeURIComponent(imageId)}/cover`,
+        url: `/owner/products/${id}/cover`,
         method: 'POST',
+        body: { imageId },
       }),
       invalidatesTags: (_result, error, { id }) =>
         error ? [] : [{ type: 'Product', id: LIST }, { type: 'Product', id }, 'Catalog'],

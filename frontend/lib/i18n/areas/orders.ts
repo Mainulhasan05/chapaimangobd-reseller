@@ -142,6 +142,8 @@ export const orders = {
   'orders.labelsHint': 'A4 কাগজে চারটি করে ছাপা হবে; কেটে পার্সেলে লাগান।',
   'orders.labelsNone': 'পাঠানোর অপেক্ষায় কোনো অর্ডার নেই',
   'orders.labelFailed': 'এই অর্ডারটি আনা যায়নি',
+  'orders.labelsLoading': 'লেবেল তৈরি হচ্ছে… {done}/{total}',
+  'orders.labelsFailed': '{count}টি অর্ডার আনা যায়নি, সেগুলোর লেবেল ছাপা হবে না। পাতাটি আবার খুলে দেখুন।',
   'orders.labelTo': 'প্রাপক',
   'orders.labelNoCash': 'টাকা নেবেন না',
 } as const;

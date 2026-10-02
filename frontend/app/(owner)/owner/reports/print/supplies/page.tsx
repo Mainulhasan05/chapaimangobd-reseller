@@ -51,7 +51,7 @@ export default function SupplyReportPage() {
 }
 
 function SupplyReportView() {
-  const sheet = useSheetRange('all');
+  const sheet = useSheetRange('thisMonth');
   const range = sheet.range;
   const report = useGetSupplyReportQuery(range ?? {});
 

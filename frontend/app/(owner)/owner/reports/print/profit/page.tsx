@@ -61,7 +61,7 @@ export default function ProfitReportPage() {
 }
 
 function ProfitReportView() {
-  const sheet = useSheetRange('all');
+  const sheet = useSheetRange('thisMonth');
   const range = sheet.range;
   const report = useGetProfitReportQuery(range ?? {});
 

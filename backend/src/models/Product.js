@@ -120,6 +120,16 @@ const productSchema = new mongoose.Schema(
      */
     isArchived: { type: Boolean, default: false, index: true },
     sortOrder: { type: Number, default: 0 },
+
+    /*
+     * The request keys of the last few stock changes made through the stock
+     * endpoint. On a phone connection a response is lost often enough that the
+     * owner taps again, and "twenty more came" sent twice is forty. The key is
+     * checked and recorded in the same atomic update as the count, so a retry
+     * changes nothing. Kept short: a retry comes seconds later, not days.
+     * Never presented.
+     */
+    stockNonces: { type: [String], default: undefined, select: false },
   },
   { timestamps: true }
 );

@@ -26,7 +26,6 @@ import {
 } from 'lucide-react';
 import { errorMessage } from '@/lib/api';
 import { useSession } from '@/lib/session';
-import { LIVE } from '@/lib/store/api';
 import {
   useGetNotificationsInfiniteQuery,
   useLazyGetPushKeyQuery,
@@ -204,8 +203,11 @@ export function NotificationsView({
   const { data: session } = useSession();
   const [filters, setFilters] = useUrlState({ unread: false as boolean });
 
-  // Newest first, thirty at a time, refreshed every minute like the bell.
-  const inbox = useGetNotificationsInfiniteQuery({ role }, LIVE);
+  /*
+   * Newest first, thirty at a time. Not polled: a poll refetches every loaded
+   * page. The shell's bell polls the count, and a rise refreshes this list.
+   */
+  const inbox = useGetNotificationsInfiniteQuery({ role });
   const [markAll, markAllState] = useMarkNotificationsReadMutation();
   const [markOne] = useMarkNotificationReadMutation();
 

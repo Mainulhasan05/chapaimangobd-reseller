@@ -193,8 +193,10 @@ export const notificationsApi = api.injectEndpoints({
     }),
 
     /*
-     * Several switches in one request: a group's "all on" or "all off" for one
-     * channel. Optimistic like the single switch.
+     * Any number of switches in one request. Deliberately plain: the
+     * preferences screen shows the change itself and sends these one at a
+     * time, in order, because each answer is the whole set and two in flight
+     * could land out of order and flip a later switch back.
      */
     updateNotificationPreferences: build.mutation<
       NotificationPreferences,
@@ -205,24 +207,6 @@ export const notificationsApi = api.injectEndpoints({
         method: 'PUT',
         body: { events: changes },
       }),
-      onQueryStarted: async ({ role, changes }, { dispatch, queryFulfilled }) => {
-        const patch = dispatch(
-          notificationsApi.util.updateQueryData('getNotificationPreferences', { role }, (draft) => {
-            draft.groups.forEach((group) => {
-              group.events.forEach((row) => {
-                const change = changes.find((c) => c.eventType === row.eventType);
-                if (change) Object.assign(row, change);
-              });
-            });
-          })
-        );
-        try {
-          const { data } = await queryFulfilled;
-          dispatch(notificationsApi.util.upsertQueryData('getNotificationPreferences', { role }, data));
-        } catch {
-          patch.undo();
-        }
-      },
     }),
 
     /*

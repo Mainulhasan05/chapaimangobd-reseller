@@ -11,7 +11,7 @@ const { ok } = require('../../middleware/error');
 const { notFound, badRequest, conflict } = require('../../utils/errors');
 const { toPoisha, toTaka } = require('../../utils/money');
 const { toMilli, fromMilli } = require('../../utils/quantity');
-const { assertDistinctContents, findVariant } = require('../../domain/variants');
+const { assertDistinctContents, findVariant, MAX_VARIANTS } = require('../../domain/variants');
 const { assertRecipe } = require('../../domain/packaging');
 const Supply = require('../../models/Supply');
 const { normalizeBdPhone } = require('../../utils/phone');
@@ -209,25 +209,52 @@ function keepStoredFields(variants, existing) {
 }
 
 /**
- * The filter an edit of the boxes is written under: this product, with every
- * box still holding the count it was read with.
+ * The filter an edit is written under: this product, at the version it was read
+ * at, with every box still holding the count it was read with.
  *
- * A confirm takes stock with an atomic $inc and no version bump, so a plain
- * write of the whole list could land between the read above and the count it
- * copied, and put back what that order had just taken. Guarded instead: if any
- * count moved, nothing is written and the edit is rebuilt from a fresh read.
+ * Two guards because there are two kinds of writer. Every owner write to a
+ * product — an edit, a stock change, a recipe, a cover — bumps `__v`, so a
+ * recipe saved or a photo added from another tab between this read and this
+ * write is noticed rather than overwritten. A confirm takes stock with an atomic
+ * $inc and no version bump, which is what the count check is for: without it the
+ * edit could put back what that order had just taken. Either way nothing is
+ * written and the edit is rebuilt from a fresh read.
  */
-const unchangedStock = (existing) =>
-  existing.variants.length === 0
-    ? { _id: existing._id }
-    : {
-        _id: existing._id,
-        variants: {
-          $all: existing.variants.map((v) => ({
-            $elemMatch: { _id: v._id, stockQty: v.stockQty },
-          })),
-        },
-      };
+const unchanged = (existing) => {
+  const filter = { _id: existing._id, __v: existing.__v ?? null };
+  if (existing.variants.length > 0) {
+    filter.variants = {
+      $all: existing.variants.map((v) => ({
+        $elemMatch: { _id: v._id, stockQty: v.stockQty },
+      })),
+    };
+  }
+  return filter;
+};
+
+/**
+ * A box that is kept because it was ordered may not collide with what was sent.
+ *
+ * Kept boxes are put back after the sent list was checked, so a new five-kilo box
+ * sent beside a dropped-but-ordered five-kilo box would have produced two of the
+ * same box, and enough kept boxes could pass the ceiling. Refused with a field
+ * error on the box that was sent, which is the one the owner can change.
+ */
+function assertKeptBoxesFit(variants, keptCount) {
+  const sentCount = variants.length - keptCount;
+  const kept = variants.slice(sentCount);
+  kept.forEach((box) => {
+    const clash = variants.slice(0, sentCount).findIndex((v) => v.contentMilli === box.contentMilli);
+    if (clash === -1) return;
+    const message =
+      'A box of this size has orders, so it is kept (switched off). Switch that one back on instead';
+    throw badRequest('DUPLICATE_VARIANT', message, { [`variants.${clash}.content`]: message });
+  });
+  if (variants.length > MAX_VARIANTS) {
+    const message = `A product can have at most ${MAX_VARIANTS} boxes, counting the ones kept because they have orders`;
+    throw badRequest('TOO_MANY_VARIANTS', message, { variants: message });
+  }
+}
 
 /** How many times an edit is rebuilt after an order moved a stock count under it. */
 const EDIT_ATTEMPTS = 5;
@@ -277,15 +304,21 @@ async function updateProduct(req, res) {
       const ordered = await Promise.all(
         dropped.map((v) => Order.exists({ 'items.variant': v._id }))
       );
+      let keptCount = 0;
       dropped.forEach((variant, i) => {
         if (!ordered[i]) return;
         patch.variants.push({ ...variant.toObject(), isAvailable: false });
+        keptCount += 1;
       });
+      assertKeptBoxesFit(patch.variants, keptCount);
     }
 
-    const filter = patch.variants ? unchangedStock(existing) : { _id: existing._id };
     // eslint-disable-next-line no-await-in-loop
-    product = await Product.findOneAndUpdate(filter, { $set: patch }, { new: true });
+    product = await Product.findOneAndUpdate(
+      unchanged(existing),
+      { $set: patch, $inc: { __v: 1 } },
+      { new: true }
+    );
 
     if (!product && attempt >= EDIT_ATTEMPTS) {
       throw conflict('ALREADY_HANDLED', 'This product was just changed by someone else');
@@ -382,6 +415,11 @@ async function restoreProduct(req, res) {
  * negative, but never below zero, because a count of minus three boxes is a typo
  * rather than a shelf. The edit form never carries stock for an existing box any
  * more; see `keepStoredFields`.
+ *
+ * `nonce`, when sent, makes the request safe to repeat: it is checked and
+ * recorded in the same update as the count (see `stockNonces` on Product), so a
+ * retry after a lost response answers with the product as it is and changes
+ * nothing. Without one the request is applied every time it arrives.
  */
 async function setVariantStock(req, res) {
   const product = await Product.findById(req.params.id);
@@ -392,15 +430,19 @@ async function setVariantStock(req, res) {
     throw badRequest('STOCK_NOT_TRACKED', 'Turn on stock tracking for this product first');
   }
 
-  const { set, add } = req.body;
+  const { set, add, nonce } = req.body;
   const filter = { _id: product._id, 'variants._id': variant._id };
   if (add !== undefined && add < 0) {
     filter.variants = { $elemMatch: { _id: variant._id, stockQty: { $gte: -add } } };
   }
+  if (nonce) filter.stockNonces = { $ne: nonce };
+
   const update =
     set !== undefined
       ? { $set: { 'variants.$[box].stockQty': set } }
       : { $inc: { 'variants.$[box].stockQty': add } };
+  update.$inc = { ...(update.$inc || {}), __v: 1 };
+  if (nonce) update.$push = { stockNonces: { $each: [nonce], $slice: -STOCK_NONCES_KEPT } };
 
   const before = await Product.findOneAndUpdate(filter, update, {
     new: false,
@@ -408,9 +450,13 @@ async function setVariantStock(req, res) {
   });
 
   if (!before) {
-    const now = await Product.findById(product._id);
+    const now = await Product.findById(product._id).select('+stockNonces');
     const box = findVariant(now, variant._id);
     if (!box) throw notFound('Box not found on this product');
+    // Already applied: this is the retry of a request whose answer was lost.
+    if (nonce && (now.stockNonces || []).includes(nonce)) {
+      return ok(res, { product: present.product(now), replayed: true });
+    }
     throw conflict('STOCK_BELOW_ZERO', `Only ${box.stockQty} box(es) are in stock`);
   }
 
@@ -431,8 +477,11 @@ async function setVariantStock(req, res) {
     ip: req.ip,
   });
 
-  return ok(res, { product: present.product(fresh) });
+  return ok(res, { product: present.product(fresh), replayed: false });
 }
+
+/** How many recent stock request keys a product remembers. */
+const STOCK_NONCES_KEPT = 50;
 
 /**
  * Makes one photo the product's cover: the first image, the one every shop
@@ -447,7 +496,8 @@ async function setProductCover(req, res) {
   const product = await Product.findById(req.params.id);
   if (!product) throw notFound('Product not found');
 
-  const handle = req.params.imageId;
+  // The path form is the original; the body form is what the product screen sends.
+  const handle = req.params.imageId || (req.body && req.body.imageId);
   const index = product.images.findIndex((img) => img.id === handle || img.key === handle);
   if (index === -1) throw notFound('Photo not found on this product');
   if (index === 0) return ok(res, { product: present.product(product) });
@@ -459,7 +509,7 @@ async function setProductCover(req, res) {
       images: { $size: product.images.length },
       $or: [{ [`images.${index}.id`]: handle }, { [`images.${index}.key`]: handle }],
     },
-    { $set: { images: reordered } },
+    { $set: { images: reordered }, $inc: { __v: 1 } },
     { new: true }
   );
   if (!updated) throw conflict('ALREADY_HANDLED', 'The photos were just changed by someone else');
@@ -634,8 +684,18 @@ async function setVariantRecipe(req, res) {
     qtyMilli: r.qtyMilli,
   }));
 
-  variant.packaging = rows;
-  await product.save();
+  /*
+   * Addressed by the box's id, not its position: an edit that reordered or
+   * dropped boxes between the read above and this write must not land the
+   * recipe on a different box. Bumps the version so an edit read before this is
+   * rebuilt rather than writing the old recipe back.
+   */
+  const saved = await Product.findOneAndUpdate(
+    { _id: product._id, 'variants._id': variant._id },
+    { $set: { 'variants.$[box].packaging': rows }, $inc: { __v: 1 } },
+    { new: true, arrayFilters: [{ 'box._id': variant._id }] }
+  );
+  if (!saved) throw notFound('Box not found on this product');
 
   await audit.record({
     actor: req.user._id,

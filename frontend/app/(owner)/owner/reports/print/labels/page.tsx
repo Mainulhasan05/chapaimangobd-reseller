@@ -20,8 +20,9 @@ import { Printer } from 'lucide-react';
 import { t, tf } from '@/lib/i18n/bn';
 import { districtLabel } from '@/lib/districts';
 import { formatMoney, formatNumber } from '@/lib/format';
-import { useGetOrderQuery } from '@/lib/store/endpoints/orders';
-import { useGetOrderSheetQuery } from '@/lib/store/endpoints/reports';
+import { ordersApi, useGetOrderQuery } from '@/lib/store/endpoints/orders';
+import { useAppSelector } from '@/lib/store/hooks';
+import { useGetOrderSheetQuery, type OrderSheetArgs } from '@/lib/store/endpoints/reports';
 import { useGetSettingsQuery } from '@/lib/store/endpoints/settings';
 import type { Order } from '@/lib/types';
 import { Alert, EmptyState, ErrorState } from '@/components/ui/layout';
@@ -51,14 +52,42 @@ export default function ParcelLabelsPage() {
   const from = params.get('from');
   const to = params.get('to');
 
-  // Without ids, everything packed and not yet shipped, oldest first.
+  // Without ids, everything packed and not yet shipped, oldest first, narrowed
+  // by the same search, orchard and reseller the list was showing. The sheet
+  // endpoint takes every list filter; its arg type names only the common ones.
   const sheet = useGetOrderSheetQuery(
-    ids.length ? skipToken : { status: params.get('status') || 'packed', ...(from && to ? { from, to } : {}) }
+    ids.length
+      ? skipToken
+      : ({
+          status: params.get('status') || 'packed',
+          ...(from && to ? { from, to } : {}),
+          q: params.get('q') || undefined,
+          source: params.get('source') || undefined,
+          reseller: params.get('reseller') || undefined,
+        } as OrderSheetArgs)
   );
   const settings = useGetSettingsQuery(undefined, { refetchOnMountOrArgChange: 600 });
   const brand = settings.data?.settings;
 
   const count = ids.length || sheet.data?.orders.length || 0;
+
+  /*
+   * Selected orders are read one by one, so the sheet is ready only when every
+   * one has answered: printing earlier put grey placeholders on paper, and a
+   * label that failed simply went missing from the stack.
+   */
+  const progress = useAppSelector((state) => {
+    let loaded = 0;
+    let failed = 0;
+    ids.forEach((id) => {
+      const entry = ordersApi.endpoints.getOrder.select({ role: 'owner', id })(state);
+      if (entry.isSuccess) loaded += 1;
+      else if (entry.isError) failed += 1;
+    });
+    return `${loaded}:${failed}`;
+  });
+  const [loadedCount, failedCount] = progress.split(':').map(Number);
+  const ready = ids.length ? loadedCount + failedCount === ids.length : sheet.isSuccess;
 
   return (
     <>
@@ -68,7 +97,7 @@ export default function ParcelLabelsPage() {
         <BackLink fallback="/owner/orders?status=packed" className="mb-0" />
         <div className="flex-1" />
         <p className="hidden text-xs text-muted-foreground md:block">{t('report.downloadHint')}</p>
-        <Button size="sm" onClick={() => window.print()} disabled={count === 0}>
+        <Button size="sm" onClick={() => window.print()} disabled={!ready || count === failedCount}>
           <Printer aria-hidden className="h-4 w-4" />
           {t('report.print')}
         </Button>
@@ -81,6 +110,16 @@ export default function ParcelLabelsPage() {
         </p>
       </div>
 
+      {ids.length > 0 && !ready && (
+        <p className="print-hide mx-auto mb-3 max-w-[210mm] text-sm text-muted-foreground">
+          {tf('orders.labelsLoading', { done: formatNumber(loadedCount + failedCount), total: formatNumber(ids.length) })}
+        </p>
+      )}
+      {failedCount > 0 && (
+        <Alert tone="danger" className="print-hide mx-auto max-w-[210mm]">
+          {tf('orders.labelsFailed', { count: formatNumber(failedCount) })}
+        </Alert>
+      )}
       {!ids.length && sheet.isLoading && <ListSkeleton rows={3} />}
       {!ids.length && sheet.isError && (
         <ErrorState onRetry={() => sheet.refetch()} isRetrying={sheet.isFetching} error={sheet.error} />

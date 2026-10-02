@@ -80,6 +80,8 @@ export const people = {
   'resellers.none': 'এখনো কোনো রিসেলার নেই',
   'resellers.noneHelp': 'রিসেলাররা নিবন্ধন করলে এখানে দেখা যাবে',
   'resellers.kycNotAsked': 'চাওয়া হয়নি',
+  'resellers.countFiltered': 'এই ফিল্টারে রিসেলার',
+  'resellers.figuresFailed': 'বকেয়ার হিসাব লোড হয়নি।',
 
   /* One reseller's page. */
   'resellerDetail.notFound': 'এই রিসেলারকে পাওয়া যায়নি',
@@ -114,6 +116,8 @@ export const people = {
     'রিসেলার লগইন করে শুধু দেখতে পারবেন, আর ব্যালেন্স থাকলে টাকা তোলার অনুরোধ করতে পারবেন।',
   'resellerDetail.deactivateBalance': 'ব্যালেন্স ও লেনদেনের হিসাব যেমন আছে তেমনই থাকবে।',
   'resellerDetail.tempNotCopied': 'পাসওয়ার্ডটি এখনো কপি করা হয়নি। লুকালে আর দেখা যাবে না। লুকাবেন?',
+  'resellerDetail.tempNotCopiedSwitch':
+    'অস্থায়ী পাসওয়ার্ডটি এখনো কপি করা হয়নি। অন্য অংশে গেলেও এটি এখানে থাকবে, তবে আগে কপি করে নেওয়াই ভালো। যাবেন?',
   'resellerDetail.tempDone': 'রিসেলারকে জানিয়েছি, লুকান',
   'resellerDetail.limitHelp': 'রিসেলারের ব্যালেন্স সর্বোচ্চ কত টাকা মাইনাসে যেতে পারবে',
   'resellerDetail.limitLabel': 'ক্রেডিট সীমা (টাকা)',
@@ -189,6 +193,8 @@ export const people = {
   'smsPanel.balanceCount': '{n}টি SMS',
   'smsPanel.lowBalanceTitle': 'গেটওয়ে ব্যালেন্স কম',
   'smsPanel.lowBalance': '{n}টির কম SMS বাকি। শেষ হলে কোনো SMS যাবে না; গেটওয়েতে রিচার্জ করুন।',
+  'smsPanel.lowBalanceNoCount': 'SMS শেষ হয়ে এলে কোনো SMS যাবে না; গেটওয়েতে রিচার্জ করুন।',
+  'smsPanel.resendTitle': 'আবার পাঠাবেন?',
   'smsPanel.turnOnTitle': 'SMS চালু করবেন?',
   'smsPanel.turnOn': 'SMS চালু করুন',
   'smsPanel.turnOnSends': 'যেসব রিসেলারের SMS চালু ও ক্রেডিট আছে, তাঁদের অর্ডার ও টাকার খবর SMS-এ যাবে।',
